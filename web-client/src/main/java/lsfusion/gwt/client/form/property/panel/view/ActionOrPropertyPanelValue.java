@@ -1,93 +1,116 @@
 package lsfusion.gwt.client.form.property.panel.view;
 
+import com.google.gwt.dom.client.Element;
 import com.google.gwt.user.client.Event;
 import com.google.gwt.user.client.Timer;
+import com.google.gwt.user.client.rpc.AsyncCallback;
+import lsfusion.gwt.client.base.FocusUtils;
+import lsfusion.gwt.client.base.GwtClientUtils;
 import lsfusion.gwt.client.base.view.EventHandler;
 import lsfusion.gwt.client.form.controller.GFormController;
+import lsfusion.gwt.client.form.design.GComponent;
 import lsfusion.gwt.client.form.object.GGroupObjectValue;
+import lsfusion.gwt.client.form.property.GEventSource;
 import lsfusion.gwt.client.form.property.GPropertyDraw;
-import lsfusion.gwt.client.form.property.cell.GEditBindingMap;
+import lsfusion.gwt.client.form.property.PValue;
 import lsfusion.gwt.client.form.property.cell.controller.ExecuteEditContext;
-import lsfusion.gwt.client.view.MainFrame;
+import lsfusion.gwt.client.form.property.cell.view.CellRenderer;
+import lsfusion.gwt.client.form.property.cell.view.RendererType;
 
-import java.io.Serializable;
-import java.util.function.Consumer;
-
-import static lsfusion.gwt.client.base.view.ColorUtils.getDisplayColor;
+import static lsfusion.gwt.client.view.MainFrame.v5;
 
 public class ActionOrPropertyPanelValue extends ActionOrPropertyValue implements ExecuteEditContext {
 
-    private final GGroupObjectValue columnKey;
+    public ActionOrPropertyPanelValue(GPropertyDraw property, GGroupObjectValue columnKey, GFormController form, boolean globalCaptionIsDrawn, ActionOrPropertyValueController controller) {
+        super(property, columnKey, form, globalCaptionIsDrawn, controller);
 
-    public ActionOrPropertyPanelValue(GPropertyDraw property, GGroupObjectValue columnKey, GFormController form) {
-        super(property, form);
-
-        this.columnKey = columnKey;
-
-        finalizeInit();
-    }
-
-    @Override
-    protected void onAttach() {
-        super.onAttach();
-
-        // here and not in constructor, because tabIndex is set by default to 0 (see super)
-        // in theory all renderer components should also be not focusable, otherwise during "tabbing" onFocus will return focus back, which will break tabbing
-        if(!isFocusable()) // need to avoid selecting by tab
-            setTabIndex(-1);
+        render();
     }
 
     public boolean isFocusable() {
-        if(property.focusable != null)
-            return property.focusable;
-        return !property.hasKeyBinding();
-    }
-
-    private boolean readOnly;
-    public void setReadOnly(boolean readOnly) {
-        this.readOnly = readOnly;
+        return property.isFocusable();
     }
 
     @Override
     protected void onEditEvent(EventHandler handler) {
-        onEditEvent(handler, false);
+        form.executePropertyEventAction(handler, this);
     }
 
     @Override
-    public GGroupObjectValue getColumnKey() {
-        return columnKey;
+    public Boolean isReadOnly() {
+        return this.isPropertyReadOnly();
     }
 
     @Override
-    public boolean isReadOnly() {
-        return readOnly;
+    public Boolean isPropertyReadOnly() {
+        Boolean readonly = property.isReadOnly();
+        if(readonly != null)
+            return readonly;
+        return super.isPropertyReadOnly();
     }
 
     @Override
-    public boolean isPropertyReadOnly() {
-        return isReadOnly();
-    }
-
-    @Override
-    public void trySetFocus() {
-        setFocus(true); // we can check if it's focusable, but it will be done automatically in onFocus
+    public CellRenderer.ToolbarAction[] getToolbarActions() {
+        return !property.toolbarActions || this.isPropertyReadOnly() != null ? super.getToolbarActions() : property.getQuickAccessActions(true, isFocused);
     }
 
     public void onBinding(Event event) {
-        addStyleName("panelRendererValueBinding");
+        GwtClientUtils.addClassName(this, "panel-renderer-value-binding", "panelRendererValueBinding", v5);
         Timer t = new Timer() {
             @Override
             public void run() {
-                removeStyleName("panelRendererValueBinding");
+                GwtClientUtils.removeClassName(ActionOrPropertyPanelValue.this, "panel-renderer-value-binding", "panelRendererValueBinding", v5);
                 cancel();
             }
         };
         t.schedule(400);
 
-        onEditEvent(new EventHandler(event), true);
+        form.onPropertyBinding(event, this);
     }
-    public void onEditEvent(EventHandler handler, boolean isBinding) {
-        form.executePropertyEventAction(handler, isBinding, this);
+
+    @Override
+    public void setLoading() {
+        this.loading = true;
+
+        controller.setLoading(columnKey, PValue.getPValue(true));
+    }
+
+    @Override
+    public void startEditing() {
+        super.startEditing();
+        
+        controller.startEditing(columnKey);
+    }
+
+    @Override
+    public void stopEditing() {
+        super.stopEditing();
+
+        controller.stopEditing(columnKey);
+    }
+
+    public PValue setLoadingValue(PValue value) {
+        PValue oldValue = getValue();
+
+        setLoading();
+        setValue(value);
+
+        update();
+
+        return oldValue;
+    }
+
+    private boolean forceLoading;
+
+    public void setForceLoading(boolean forceLoading) {
+        this.forceLoading = forceLoading;
+
+        update();
+    }
+
+    @Override
+    public boolean isLoading() {
+        return super.isLoading() || forceLoading;
     }
 
     private boolean forceSetFocus;
@@ -107,39 +130,43 @@ public class ActionOrPropertyPanelValue extends ActionOrPropertyValue implements
         this.forceSetFocus = false;
     }
 
-    protected void onBlur(EventHandler handler) {
-        form.previewBlurEvent(handler.event);
-
-        super.onBlur(handler);
-    }
-
     @Override
-    protected void onFocus(EventHandler handler) {
+    protected void onFocus(Element target, EventHandler handler) {
         // prevent focusing
-        if (!isFocusable() && !forceSetFocus && MainFrame.focusLastBlurredElement(handler, getElement())) {
+        if (!isFocusable() && !forceSetFocus && FocusUtils.focusLastBlurredElement(handler, getElement())) {
             return;
         }
 
-        super.onFocus(handler);
+        super.onFocus(target, handler);
     }
 
     @Override
-    protected void onPaste(Object objValue, String stringValue) {
-        form.pasteSingleValue(property, columnKey, stringValue);
-    }
-
-    public void setBackground(String color) {
-        GFormController.setBackgroundColor(getRenderElement(), getDisplayColor(color));
-    }
-
-    public void setForeground(String color) {
-        GFormController.setForegroundColor(getRenderElement(), getDisplayColor(color));
+    public void pasteValue(String stringValue) {
+        form.pasteValue(this, stringValue);
     }
 
     @Override
-    public Consumer<Object> getCustomRendererValueChangeConsumer() {
-        return value -> {
-              form.changeProperty(property, getColumnKey(), GEditBindingMap.CHANGE, (Serializable) value, getValue(), null);
-        };
+    public void getAsyncValues(String value, String actionSID, AsyncCallback<GFormController.GAsyncResult> callback, int increaseValuesNeededCount) {
+        form.getAsyncValues(value, this, actionSID, callback, increaseValuesNeededCount);
+    }
+
+    @Override
+    public void changeProperty(PValue result, GFormController.ChangedRenderValueSupplier renderValueSupplier) {
+        form.changeProperty(this, result, GEventSource.CUSTOM, renderValueSupplier);
+    }
+
+    @Override
+    public RendererType getRendererType() {
+        return RendererType.PANEL;
+    }
+
+    @Override
+    protected GComponent getComponent() {
+        return property;
+    }
+
+    @Override
+    public boolean isInputRemoveAllPMB() {
+        return false;
     }
 }

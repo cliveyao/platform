@@ -1,51 +1,77 @@
 package lsfusion.http.provider.navigator;
 
 import lsfusion.base.BaseUtils;
+import lsfusion.base.ServerUtils;
 import lsfusion.base.SystemUtils;
 import lsfusion.gwt.client.base.GwtSharedUtils;
-import lsfusion.gwt.client.navigator.ConnectionInfo;
 import lsfusion.gwt.server.MainDispatchServlet;
 import lsfusion.http.authentication.LSFAuthenticationToken;
+import lsfusion.http.controller.ExternalLogicsAndSessionRequestHandler;
+import lsfusion.http.controller.MainController;
 import lsfusion.http.provider.SessionInvalidatedException;
 import lsfusion.interop.connection.AuthenticationToken;
-import lsfusion.interop.connection.ClientType;
+import lsfusion.interop.connection.ComputerInfo;
+import lsfusion.interop.connection.ConnectionInfo;
+import lsfusion.interop.connection.UserInfo;
 import lsfusion.interop.logics.LogicsSessionObject;
 import lsfusion.interop.logics.ServerSettings;
 import lsfusion.interop.logics.remote.RemoteLogicsInterface;
 import lsfusion.interop.navigator.NavigatorInfo;
 import lsfusion.interop.navigator.remote.RemoteNavigatorInterface;
+import lsfusion.interop.session.ExternalRequest;
 import lsfusion.interop.session.SessionInfo;
 import org.springframework.beans.factory.DisposableBean;
 import org.springframework.context.i18n.LocaleContextHolder;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.authentication.WebAuthenticationDetails;
+import org.springframework.web.util.WebUtils;
 import ua_parser.Client;
 import ua_parser.Parser;
 
+import javax.servlet.http.Cookie;
 import javax.servlet.http.HttpServletRequest;
+import java.net.URLDecoder;
 import java.rmi.RemoteException;
 import java.util.Locale;
 import java.util.Map;
+import java.util.TimeZone;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 // session scoped - one for one browser (! not tab)
 public class NavigatorProviderImpl implements NavigatorProvider, DisposableBean {
 
+    public NavigatorProviderImpl() {}
+
     public String servSID = GwtSharedUtils.randomString(25);
-    
-    public static SessionInfo getSessionInfo(Authentication auth) {
+
+    public static ConnectionInfo getConnectionInfo(Authentication auth) {
         Locale clientLocale = LocaleContextHolder.getLocale();
-        return new SessionInfo(SystemUtils.getLocalHostName(), ((WebAuthenticationDetails) auth.getDetails()).getRemoteAddress(), clientLocale.getLanguage(), clientLocale.getCountry(),
-                BaseUtils.getDatePattern(), BaseUtils.getTimePattern());
+        return new ConnectionInfo(new ComputerInfo(SystemUtils.getLocalHostName(), ((WebAuthenticationDetails) auth.getDetails()).getRemoteAddress()), new UserInfo(clientLocale.getLanguage(), clientLocale.getCountry(), LocaleContextHolder.getTimeZone(), BaseUtils.getDatePattern(), BaseUtils.getTimePattern(), null));
     }
 
     public static SessionInfo getSessionInfo(HttpServletRequest request) {
-        return new SessionInfo(request.getRemoteHost(), request.getRemoteAddr(), null, null, null, null, request.getQueryString()); // we don't need client language and country because they were already provided when authenticating (see method above)
+        return new SessionInfo(getConnectionInfo(request), MainController.getExternalRequest(new ExternalRequest.Param[0], request));
     }
 
-    private static NavigatorInfo getNavigatorInfo(HttpServletRequest request, ConnectionInfo connectionInfo) {
+    public static ConnectionInfo getConnectionInfo(HttpServletRequest request) {
+        Locale clientLocale = LocaleContextHolder.getLocale();
+
+        String hostName = ExternalLogicsAndSessionRequestHandler.getRequestCookies(request).get(ServerUtils.HOSTNAME_COOKIE_NAME);
+        if(hostName == null)
+            hostName = request.getRemoteHost();
+
+        Cookie timeZone = WebUtils.getCookie(request, "LSFUSION_CLIENT_TIME_ZONE");
+        Cookie timeFormat = WebUtils.getCookie(request, "LSFUSION_CLIENT_TIME_FORMAT");
+        Cookie dateFormat = WebUtils.getCookie(request, "LSFUSION_CLIENT_DATE_FORMAT");
+
+        Cookie colorTheme = WebUtils.getCookie(request, "LSFUSION_CLIENT_COLOR_THEME");
+
+        return new ConnectionInfo(new ComputerInfo(hostName, request.getRemoteAddr()), new UserInfo(clientLocale.getLanguage(), clientLocale.getCountry(), timeZone != null ? TimeZone.getTimeZone(URLDecoder.decode(timeZone.getValue())) : null, dateFormat != null ? URLDecoder.decode(dateFormat.getValue()) : null, timeFormat != null ? URLDecoder.decode(timeFormat.getValue()) : null, colorTheme != null ? colorTheme.getValue() : null));
+    }
+
+    private static NavigatorInfo getNavigatorInfo(HttpServletRequest request) {
         String osVersion;
         String architecture = null;
         String processor = null;
@@ -72,8 +98,6 @@ public class NavigatorProviderImpl implements NavigatorProvider, DisposableBean 
         Integer maximumMemory = (int) (Runtime.getRuntime().maxMemory() / 1048576);
         Integer freeMemory = (int) (Runtime.getRuntime().freeMemory() / 1048576);
         String javaVersion = SystemUtils.getJavaVersion() + " " + System.getProperty("sun.arch.data.model") + " bit";
-        ClientType clientType = connectionInfo != null && connectionInfo.mobile ? ClientType.WEB_MOBILE : ClientType.WEB_DESKTOP;
-        String screenSize = connectionInfo != null ? connectionInfo.screenSize : null;
 
 //        we don't need client locale here, because it was already updated when authenticating
 //        Locale clientLocale = LSFAuthenticationToken.getLocale(auth);
@@ -83,7 +107,7 @@ public class NavigatorProviderImpl implements NavigatorProvider, DisposableBean 
 //        String country = clientLocale.getCountry();
 
         return new NavigatorInfo(getSessionInfo(request), osVersion, processor, architecture, cores, physicalMemory, totalMemory,
-                maximumMemory, freeMemory, javaVersion, screenSize, clientType, BaseUtils.getPlatformVersion(), BaseUtils.getApiVersion());
+                maximumMemory, freeMemory, javaVersion, BaseUtils.getPlatformVersion(), BaseUtils.getApiVersion());
     }
 
     // required for correct Jasper report generation
@@ -95,23 +119,23 @@ public class NavigatorProviderImpl implements NavigatorProvider, DisposableBean 
     }
 
     @Override
-    public String createNavigator(LogicsSessionObject sessionObject, HttpServletRequest request, ConnectionInfo connectionInfo) throws RemoteException {
+    public String createNavigator(LogicsSessionObject sessionObject, HttpServletRequest request) throws RemoteException {
         this.remoteLogics = sessionObject.remoteLogics;
         String sessionID = nextSessionID();
-        addLogicsAndNavigatorSessionObject(sessionID, createNavigatorSessionObject(sessionObject, request, connectionInfo));
+        addLogicsAndNavigatorSessionObject(sessionID, createNavigatorSessionObject(sessionObject, request));
         return sessionID;
     }
 
-    private NavigatorSessionObject createNavigatorSessionObject(LogicsSessionObject sessionObject, HttpServletRequest request, ConnectionInfo connectionInfo) throws RemoteException {
+    private NavigatorSessionObject createNavigatorSessionObject(LogicsSessionObject sessionObject, HttpServletRequest request) throws RemoteException {
         AuthenticationToken lsfToken = LSFAuthenticationToken.getAppServerToken();
 
-        NavigatorInfo navigatorInfo = getNavigatorInfo(request, connectionInfo);
+        NavigatorInfo navigatorInfo = getNavigatorInfo(request);
         RemoteNavigatorInterface remoteNavigator = sessionObject.remoteLogics.createNavigator(lsfToken, navigatorInfo);
 
         ServerSettings serverSettings = sessionObject.getServerSettings(navigatorInfo.session, null, false);
         if (serverSettings.sessionConfigTimeout > 0)
             request.getSession().setMaxInactiveInterval(serverSettings.sessionConfigTimeout);
-        return new NavigatorSessionObject(remoteNavigator, serverSettings.logicsName);
+        return new NavigatorSessionObject(remoteNavigator, serverSettings);
     }
 
     @Override
@@ -134,7 +158,7 @@ public class NavigatorProviderImpl implements NavigatorProvider, DisposableBean 
     public NavigatorSessionObject getNavigatorSessionObject(String sessionID) throws SessionInvalidatedException {
         NavigatorSessionObject navigatorSessionObject = currentLogicsAndNavigators.get(sessionID);
         if(navigatorSessionObject == null)
-            throw new SessionInvalidatedException();
+            throw new SessionInvalidatedException("Navigator " + sessionID);
         return navigatorSessionObject;
     }
 
@@ -142,7 +166,7 @@ public class NavigatorProviderImpl implements NavigatorProvider, DisposableBean 
     public NavigatorSessionObject createOrGetNavigatorSessionObject(String sessionID, LogicsSessionObject sessionObject, HttpServletRequest request) throws RemoteException {
         NavigatorSessionObject navigatorSessionObject = currentLogicsAndNavigators.get(sessionID);
         if(navigatorSessionObject == null) {
-            navigatorSessionObject = createNavigatorSessionObject(sessionObject, request, null);
+            navigatorSessionObject = createNavigatorSessionObject(sessionObject, request);
             addLogicsAndNavigatorSessionObject(sessionID, navigatorSessionObject);
         }
         return navigatorSessionObject;
@@ -151,13 +175,14 @@ public class NavigatorProviderImpl implements NavigatorProvider, DisposableBean 
     @Override
     public void removeNavigatorSessionObject(String sessionID) throws RemoteException {
         NavigatorSessionObject navigatorSessionObject = getNavigatorSessionObject(sessionID);
+        MainDispatchServlet.logger.error("Removing navigator " + sessionID + "...");
         currentLogicsAndNavigators.remove(sessionID);
         navigatorSessionObject.remoteNavigator.close();
     }
 
     @Override
-    public String getLogicsName(String sessionID) throws SessionInvalidatedException {
-        return getNavigatorSessionObject(sessionID).logicsName;
+    public ServerSettings getServerSettings(String sessionID) throws SessionInvalidatedException {
+        return getNavigatorSessionObject(sessionID).serverSettings;
     }
 
     @Override

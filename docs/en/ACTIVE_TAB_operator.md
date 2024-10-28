@@ -6,7 +6,9 @@ The `ACTIVE TAB` operator creates a [property](Properties.md) that checks if spe
 
 ### Syntax 
 
-    ACTIVE TAB formName.componentSelector
+```
+ACTIVE TAB formName.componentSelector
+```
 
 ### Description
 
@@ -36,7 +38,7 @@ FORM tabbedForm 'Tabbed form'
 
 DESIGN tabbedForm {
     NEW tabPane FIRST {
-        type = TABBED;
+        tabbed = TRUE;
         NEW contacts {
             caption = 'Contacts';
             MOVE BOX(u);

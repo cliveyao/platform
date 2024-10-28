@@ -1,6 +1,7 @@
 package lsfusion.client.classes.data;
 
 import lsfusion.base.BaseUtils;
+import lsfusion.base.DateConverter;
 import lsfusion.client.ClientResourceBundle;
 import lsfusion.client.classes.ClientTypeClass;
 import lsfusion.client.form.property.ClientPropertyDraw;
@@ -8,6 +9,7 @@ import lsfusion.client.form.property.cell.classes.controller.DateTimePropertyEdi
 import lsfusion.client.form.property.cell.classes.controller.PropertyEditor;
 import lsfusion.client.form.property.cell.classes.view.DateTimePropertyRenderer;
 import lsfusion.client.form.property.cell.view.PropertyRenderer;
+import lsfusion.client.form.property.table.view.AsyncChangeInterface;
 import lsfusion.client.view.MainFrame;
 import lsfusion.interop.classes.DataType;
 
@@ -17,6 +19,9 @@ import java.text.Format;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
+import java.time.format.FormatStyle;
 import java.util.Date;
 
 import static lsfusion.base.DateConverter.*;
@@ -43,7 +48,7 @@ public class ClientDateTimeClass extends ClientFormatClass<SimpleDateFormat> imp
     }
 
     public Format getDefaultFormat() {
-        return MainFrame.dateTimeFormat;
+        return MainFrame.tFormats.dateTime;
     }
 
     @Override
@@ -73,13 +78,18 @@ public class ClientDateTimeClass extends ClientFormatClass<SimpleDateFormat> imp
         return result;
     }
 
-    public PropertyEditor getDataClassEditorComponent(Object value, ClientPropertyDraw property) {
+    @Override
+    public PropertyEditor getDataClassEditorComponent(Object value, ClientPropertyDraw property, AsyncChangeInterface asyncChange) {
         return new DateTimePropertyEditor(value, getEditFormat(property), property);
     }
 
     public Object parseString(String s) throws ParseException {
         try {
-            return sqlTimestampToLocalDateTime(dateToStamp((Date) MainFrame.dateTimeFormat.parseObject(s)));
+            try {
+                return LocalDateTime.parse(s, MainFrame.tFormats.dateTimeParser);
+            } catch (DateTimeParseException ignored) {
+            }
+            return DateConverter.smartParse(s);
         } catch (Exception e) {
             throw new ParseException(s + ClientResourceBundle.getString("logics.classes.can.not.be.converted.to.date"), 0);
         }
@@ -87,7 +97,7 @@ public class ClientDateTimeClass extends ClientFormatClass<SimpleDateFormat> imp
 
     @Override
     public String formatString(Object obj) {
-        return obj != null ? MainFrame.dateTimeFormat.format(localDateTimeToSqlTimestamp((LocalDateTime) obj)) : "";
+        return obj != null ? ((LocalDateTime) obj).format(MainFrame.tFormats.dateTimeFormatter) : "";
     }
 
     @Override

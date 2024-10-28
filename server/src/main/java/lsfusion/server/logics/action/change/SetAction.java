@@ -21,8 +21,9 @@ import lsfusion.server.logics.action.flow.ForAction;
 import lsfusion.server.logics.action.implement.ActionMapImplement;
 import lsfusion.server.logics.action.session.DataSession;
 import lsfusion.server.logics.action.session.change.PropertyChange;
-import lsfusion.server.logics.action.session.change.modifier.Modifier;
 import lsfusion.server.logics.action.session.table.SessionTableUsage;
+import lsfusion.server.logics.form.interactive.action.async.map.AsyncMapChange;
+import lsfusion.server.logics.form.interactive.action.async.map.AsyncMapEventExec;
 import lsfusion.server.logics.property.Property;
 import lsfusion.server.logics.property.PropertyFact;
 import lsfusion.server.logics.property.classes.IsClassProperty;
@@ -37,8 +38,6 @@ import lsfusion.server.physics.dev.i18n.LocalizedString;
 
 import java.sql.SQLException;
 
-import static lsfusion.server.logics.property.PropertyFact.createSetAction;
-
 public class SetAction<P extends PropertyInterface, W extends PropertyInterface, I extends PropertyInterface> extends ExtendContextAction<I> {
 
     private PropertyInterfaceImplement<I> writeFrom;
@@ -47,7 +46,9 @@ public class SetAction<P extends PropertyInterface, W extends PropertyInterface,
     
     public static boolean hasFlow(PropertyMapImplement<?,?> writeTo, ChangeFlowType type) {
         if(type.isChange() && writeTo.property.canBeGlobalChanged())
-            return true;             
+            return true;
+        if(type == ChangeFlowType.ANYEFFECT)
+            return true;
         return false;
     }
 
@@ -78,7 +79,7 @@ public class SetAction<P extends PropertyInterface, W extends PropertyInterface,
     }
 
     @Override
-    public ImMap<Property, Boolean> aspectUsedExtProps() {
+    public ImMap<Property, Boolean> calculateUsedExtProps() {
         if(where!=null)
             return getUsedProps(writeFrom, where);
         return getUsedProps(writeFrom);
@@ -169,11 +170,23 @@ public class SetAction<P extends PropertyInterface, W extends PropertyInterface,
     public <T extends PropertyInterface, PW extends PropertyInterface> ActionMapImplement<?, T> pushFor(ImRevMap<PropertyInterface, T> mapping, ImSet<T> context, PropertyMapImplement<PW, T> push, ImOrderMap<PropertyInterfaceImplement<T>, Boolean> orders, boolean ordersNotNull) {
         assert hasPushFor(mapping, context, ordersNotNull);
 
-        return ForAction.pushFor(innerInterfaces, where, mapInterfaces, mapping, context, push, orders, ordersNotNull, (context1, where, orders1, ordersNotNull1, mapInnerInterfaces) -> createSetAction(context1, writeTo.map(mapInnerInterfaces), writeFrom.map(mapInnerInterfaces), where, orders1, ordersNotNull1));
+        return ForAction.pushFor(innerInterfaces, where, mapInterfaces, mapping, context, push, orders, ordersNotNull, (context1, where, orders1, ordersNotNull1, mapInnerInterfaces) -> PropertyFact.createSetAction(context1, writeTo.map(mapInnerInterfaces), writeFrom.map(mapInnerInterfaces), where, orders1, ordersNotNull1));
     }
 
     @Override
     public ActionDelegationType getDelegationType(boolean modifyContext) {
         return ActionDelegationType.IN_DELEGATE; // need this for property breakpoints
+    }
+
+    @Override
+    protected AsyncMapEventExec<PropertyInterface> calculateAsyncEventExec(boolean optimistic, boolean recursive) {
+        if((where == null || where.property instanceof ValueProperty) &&
+                mapInterfaces.valuesSet().containsAll(writeTo.mapping.valuesSet())) {
+            // it can be mapped because of the assertion mapInterfaces.values + writeTo.values contains all inner interfaces
+            AsyncMapChange<?, I> asyncChange = writeFrom.mapAsyncChange(writeTo, null);
+            if(asyncChange != null)
+                return asyncChange.map(mapInterfaces.reverse());
+        }
+        return null;
     }
 }

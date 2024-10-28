@@ -13,6 +13,7 @@ import lsfusion.client.logics.LogicsProvider;
 import lsfusion.interop.connection.AuthenticationToken;
 import lsfusion.interop.form.event.KeyStrokes;
 import lsfusion.interop.logics.LogicsConnection;
+import lsfusion.interop.logics.LogicsSessionObject;
 import lsfusion.interop.logics.ServerSettings;
 import lsfusion.interop.logics.remote.RemoteLogicsInterface;
 import lsfusion.interop.session.ExternalRequest;
@@ -248,11 +249,11 @@ public class LoginDialog extends JDialog {
             for (UserInfo userInfo : userInfos.result) {
                 users.put(userInfo.name);
             }
-            FileData fileData = new FileData(new RawFileData(users.toString().getBytes(StandardCharsets.UTF_8)), "json");
+            ExternalRequest.Param computerParam = ExternalRequest.getSystemParam(MainController.computerName);
+            ExternalRequest.Param fileParam = ExternalRequest.getSystemParam(users.toString());
             try {
-                ExternalResponse result = remoteLogics.exec(AuthenticationToken.ANONYMOUS, MainController.getSessionInfo(), "Authentication.syncUsers[ISTRING[100], JSONFILE]", new ExternalRequest(new Object[]{MainController.computerName, fileData}));
-                JSONArray unlockedUsers = new JSONArray(new String(((FileData) result.results[0]).getRawFile().getBytes(), StandardCharsets.UTF_8));
-                List<Object> currentUsers = unlockedUsers.toList();
+                ExternalResponse result = remoteLogics.exec(AuthenticationToken.ANONYMOUS, MainController.getConnectionInfo(), "Authentication.syncUsers[ISTRING[100], JSONFILE]", new ExternalRequest(new ExternalRequest.Param[]{computerParam, fileParam}));
+                List<Object> currentUsers = LogicsSessionObject.getJSONArrayResult(result).toList();
                 List<UserInfo> newUserInfos = new ArrayList<>();
                 for (UserInfo userInfo : userInfos.result) {
                     if (currentUsers.remove(userInfo.name)) {
@@ -449,7 +450,7 @@ public class LoginDialog extends JDialog {
         // synchronizing userInfos
         final Result<List<UserInfo>> rUserInfos = new Result<>(userInfos);
         try {
-            LogicsProvider.instance.runRequest(serverInfo, sessionObject -> {
+            LogicsProvider.instance.runRequest(serverInfo, (sessionObject, retry) -> {
                 syncUsers(sessionObject.remoteLogics, rUserInfos);
                 return null;
             });

@@ -74,7 +74,14 @@ public class RecalculatePropertyAction<P extends PropertyInterface, I extends Pr
                 proceedNullException();
         }
 
-        context.getDbManager().runAggregationRecalculation(context.getSession(), context.getSession().sql, (AggregateProperty<X>) recalc.property, propertyChange, true, false);
+        context.getDbManager().runMaterializationRecalculation(context.getSession(), context.getSession().sql, (AggregateProperty<X>) recalc.property, propertyChange, true, false);
         return FlowResult.FINISH;
+    }
+
+    @Override
+    public boolean hasFlow(ChangeFlowType type) {
+        if(type == ChangeFlowType.ANYEFFECT)
+            return true;
+        return super.hasFlow(type);
     }
 }

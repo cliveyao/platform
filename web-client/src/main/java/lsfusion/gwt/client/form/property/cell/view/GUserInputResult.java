@@ -1,27 +1,34 @@
 package lsfusion.gwt.client.form.property.cell.view;
 
+import lsfusion.gwt.client.form.property.PValue;
+
 import java.io.Serializable;
 
 public class GUserInputResult implements Serializable {
-    public static final GUserInputResult canceled = new GUserInputResult(true);
+    public static final GUserInputResult canceled = new GUserInputResult(true, null, null);
 
     private boolean editCanceled;
     private Serializable value;
+    private Integer contextAction;
 
     @SuppressWarnings("UnusedDeclaration")
     public GUserInputResult() {}
 
-    public GUserInputResult(boolean canceled) {
-        this(canceled, null);
+//    paste / custom
+    public GUserInputResult(PValue value) {
+        this(value, null);
     }
 
-    public GUserInputResult(Object value) {
-        this(false, value);
+    // editor + context (value = null) + paste / custom
+    public GUserInputResult(PValue value, Integer contextAction) {
+        this(false, value, contextAction);
     }
-
-    public GUserInputResult(boolean canceled, Object value) {
+    public GUserInputResult(boolean canceled, PValue value, Integer contextAction) {
         this.editCanceled = canceled;
-        this.value = (Serializable) value;
+        this.value = PValue.convertFileValueBack(value);
+        this.contextAction = contextAction;
+
+        this.pValue = value;
     }
 
     public boolean isCanceled() {
@@ -30,6 +37,15 @@ public class GUserInputResult implements Serializable {
 
     public Serializable getValue() {
         return value;
+    }
+
+    private transient PValue pValue;
+    public PValue getPValue() {
+        return pValue;
+    }
+
+    public Integer getContextAction() {
+        return contextAction;
     }
 
     @Override

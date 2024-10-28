@@ -1,16 +1,11 @@
 package lsfusion.gwt.client.form.property.cell.controller;
 
 import com.google.gwt.dom.client.Element;
-import com.google.gwt.user.client.Event;
 import lsfusion.gwt.client.base.view.EventHandler;
+import lsfusion.gwt.client.form.property.PValue;
+import lsfusion.gwt.client.form.property.cell.view.RenderContext;
 
 public interface CellEditor {
 
-    default void onBrowserEvent(Element parent, EventHandler handler) {
-    }
-
-    default void commitEditing(Element parent) { // force commit (on binding)
-    }
-
-    void startEditing(Event editEvent, Element parent, Object oldValue);
+    void start(EventHandler handler, Element parent, RenderContext renderContext, boolean notFocusable, PValue oldValue);
 }

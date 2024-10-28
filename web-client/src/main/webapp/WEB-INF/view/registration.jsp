@@ -2,15 +2,19 @@
 <%@ taglib prefix="c" uri="http://java.sun.com/jsp/jstl/core" %>
 <%@ page contentType="text/html; charset=UTF-8" pageEncoding="UTF-8" %>
 <%@ page isELIgnored="false" %>
+<%@ taglib prefix="lsf" uri="writeResources" %>
 
 <!DOCTYPE html>
 <html>
     <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
         <title>${title}</title>
+        <lsf:writeResources resources="${noAuthResourcesBeforeSystem}"/>
         <link rel="shortcut icon" href="${logicsIcon}"/>
         <link rel="stylesheet" media="only screen and (min-device-width: 601px)" href="static/noauth/css/login.css"/>
         <link rel="stylesheet" media="only screen and (max-device-width: 600px)" href="static/noauth/css/mobile_login.css"/>
+        <lsf:writeResources resources="${noAuthResourcesAfterSystem}"/>
         <script>
             const check = function () {
                 if (document.getElementById('password').value !==
@@ -47,7 +51,7 @@
                     <fieldset>
                         <div class="label-and-field">
                             <label for="username"><%= ServerMessages.getString(request, "login") %></label>
-                            <input type="text" id="username" name="username" class="round full-width-box" required="required"/>
+                            <input type="text" id="username" name="username" class="round full-width-box" required="required" value="${username}"/>
                         </div>
                         <div class="label-and-field">
                             <label for="password"><%= ServerMessages.getString(request, "password") %></label>
@@ -60,29 +64,32 @@
                         </div>
                         <div class="label-and-field">
                             <label for="firstName"><%= ServerMessages.getString(request, "first.name") %></label>
-                            <input type="text" id="firstName" name="firstName" class="round full-width-box" required="required"/>
+                            <input type="text" id="firstName" name="firstName" class="round full-width-box" required="required" value="${firstName}"/>
                         </div>
                         <div class="label-and-field">
                             <label for="lastName"><%= ServerMessages.getString(request, "last.name") %></label>
-                            <input type="text" id="lastName" name="lastName" class="round full-width-box" required="required"/>
+                            <input type="text" id="lastName" name="lastName" class="round full-width-box" required="required" value="${lastName}"/>
                         </div>
                         <div class="label-and-field">
                             <label for="email"><%= ServerMessages.getString(request, "email") %></label>
-                            <input type="email" id="email" name="email" class="round full-width-box" required="required"/>
+                            <input type="email" id="email" name="email" class="round full-width-box" required="required" value="${email}"/>
                         </div>
                         <input name="submit" type="submit" class="action-button round blue" id="submit" value="<%= ServerMessages.getString(request, "registration") %>"/>
-                        <c:if test="${not empty REGISTRATION_EXCEPTION}">
-                            <div class="error-block round full-width-box">
-                                <%= ServerMessages.getString(request, "registration.not.successful") %><br/>
-                                <%= ServerMessages.getString(request, "login.caused") %>: ${sessionScope["REGISTRATION_EXCEPTION"].message}
-                            </div>
-                            <c:remove var="REGISTRATION_EXCEPTION" scope="session"/>
-                        </c:if>
                     </fieldset>
                 </form>
+                <c:if test="${not empty REGISTRATION_EXCEPTION}">
+                    <div class="error-block round">
+                        <%= ServerMessages.getString(request, "registration.not.successful") %><br/>
+                        <%= ServerMessages.getString(request, "login.caused") %>: ${sessionScope["REGISTRATION_EXCEPTION"].message}
+                    </div>
+                    <c:remove var="REGISTRATION_EXCEPTION" scope="session"/>
+                </c:if>
             </div>
             <div class="footer">
-                <a class="main-page-link link" href="${loginPage}"><%= ServerMessages.getString(request, "main.page") %></a>
+                <a class="main-page-link link" href="${loginPage}"><%= ServerMessages.getString(request, "login.page") %></a>
+                <div class="client-version">
+                    ${apiVersion}
+                </div>
             </div>
         </div>
     </body>

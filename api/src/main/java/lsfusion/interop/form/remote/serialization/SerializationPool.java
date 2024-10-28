@@ -1,9 +1,12 @@
 package lsfusion.interop.form.remote.serialization;
 
+import lsfusion.base.BaseUtils;
 import lsfusion.base.col.interfaces.immutable.ImList;
 import lsfusion.base.col.interfaces.immutable.ImSet;
 import lsfusion.base.context.ApplicationContext;
 import lsfusion.base.context.ApplicationContextHolder;
+import lsfusion.base.file.AppImage;
+import lsfusion.base.file.IOUtils;
 
 import java.io.*;
 import java.lang.reflect.Constructor;
@@ -203,24 +206,22 @@ public abstract class SerializationPool<C> {
     }
 
     public void writeObject(DataOutputStream outStream, Object object) throws IOException {
-        outStream.writeBoolean(object != null);
-        if (object != null) {
-            new ObjectOutputStream(outStream).writeObject(object);
-        }
+        BaseUtils.writeObject(outStream, object);
+    }
+
+    public void writeImageIcon(DataOutputStream outStream, AppImage appImage) throws IOException {
+        IOUtils.writeAppImage(outStream, appImage);
     }
 
     public <T> T readObject(DataInputStream inStream) throws IOException {
-        try {
-            if (inStream.readBoolean()) {
-                T object = (T) new ObjectInputStream(inStream).readObject();
-                setInstanceContext(object);
-                return object;
-            } else {
-                return null;
-            }
-        } catch (ClassNotFoundException e) {
-            throw new IOException(getString("serialization.can.not.read.object"), e);
-        }
+        T object = BaseUtils.readObject(inStream);
+        if(object != null)
+            setInstanceContext(object);
+        return object;
+    }
+
+    public AppImage readImageIcon(DataInputStream inStream) throws IOException {
+        return IOUtils.readAppImage(inStream);
     }
 
     public void writeString(DataOutputStream outStream, String str) throws IOException {

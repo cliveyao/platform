@@ -73,6 +73,7 @@ public class TypeSerializer {
         if (type == DataType.DOUBLE) return DoubleClass.instance;
         if (type == DataType.NUMERIC) return NumericClass.get(ExtInt.deserialize(inStream), ExtInt.deserialize(inStream));
         if (type == DataType.LOGICAL) return LogicalClass.instance;
+        if (type == DataType.TLOGICAL) return LogicalClass.threeStateInstance;
         if (type == DataType.DATE) return DateClass.instance;
         if (type == DataType.YEAR) return YearClass.instance;
         if (type == DataType.DATETIME) return DateTimeClass.instance;
@@ -81,17 +82,36 @@ public class TypeSerializer {
         if (type == DataType.DATEINTERVAL) return IntervalClass.getInstance("DATE");
         if (type == DataType.TIMEINTERVAL) return IntervalClass.getInstance("TIME");
         if (type == DataType.DATETIMEINTERVAL) return IntervalClass.getInstance("DATETIME");
+        if (type == DataType.ZDATETIMEINTERVAL) return IntervalClass.getInstance("ZDATETIME");
         if (type == DataType.COLOR) return ColorClass.instance;
+        if (type == DataType.JSON) return JSONClass.instance;
+        if (type == DataType.JSONTEXT) return JSONTextClass.instance;
+        if (type == DataType.TSVECTOR) return TSVectorClass.instance;
+        if (type == DataType.TSQUERY) return TSQueryClass.instance;
+        if (type == DataType.HTMLSTRING) return HTMLStringClass.instance;
 
-        if (type == DataType.STRING || type == DataType.TEXT) {
+        if (type == DataType.STRING) {
             boolean blankPadded = inStream.readBoolean();
             boolean caseInsensitive = inStream.readBoolean();
             inStream.readBoolean(); // backward compatibility see StringClass.serialize
             ExtInt length = ExtInt.deserialize(inStream);
-            if( type == DataType.TEXT)
-                return inStream.readBoolean() ? TextClass.richInstance : TextClass.instance;
             return StringClass.get(blankPadded, caseInsensitive, length);
         }
+
+        if(type == DataType.TEXT) {
+            if (DBManager.oldDBStructureVersion < 33) {
+                inStream.readBoolean();
+                inStream.readBoolean();
+                inStream.readBoolean();
+                ExtInt.deserialize(inStream);
+
+                inStream.readBoolean();
+            }
+
+            return TextClass.instance;
+        }
+        if(type == DataType.HTMLTEXT) return HTMLTextClass.instance;
+        if(type == DataType.RICHTEXT) return RichTextClass.instance;
 
         if (type == DataType.IMAGE) return ImageClass.get(inStream.readBoolean(), inStream.readBoolean());
         if (type == DataType.WORD) return WordClass.get(inStream.readBoolean(), inStream.readBoolean());
@@ -99,7 +119,7 @@ public class TypeSerializer {
         if (type == DataType.TXT) return TXTClass.get(inStream.readBoolean(), inStream.readBoolean());
         if (type == DataType.CSV) return CSVClass.get(inStream.readBoolean(), inStream.readBoolean());
         if (type == DataType.HTML) return HTMLClass.get(inStream.readBoolean(), inStream.readBoolean());
-        if (type == DataType.JSON) return JSONClass.get(inStream.readBoolean(), inStream.readBoolean());
+        if (type == DataType.JSONFILE) return JSONFileClass.get(inStream.readBoolean(), inStream.readBoolean());
         if (type == DataType.XML) return XMLClass.get(inStream.readBoolean(), inStream.readBoolean());
         if (type == DataType.TABLE) return TableClass.get(inStream.readBoolean(), inStream.readBoolean());
         if (type == DataType.CUSTOMSTATICFORMATFILE) {
@@ -119,8 +139,14 @@ public class TypeSerializer {
             }
             return CustomStaticFormatFileClass.get(multiple, storeName, filterDescription, filterExtensions);
         }
+        if (type == DataType.NAMEDFILE) {
+            inStream.readBoolean(); //multiple
+            inStream.readBoolean(); //storeName
+            return NamedFileClass.instance;
+        }
         if (type == DataType.DYNAMICFORMATFILE) return DynamicFormatFileClass.get(inStream.readBoolean(), inStream.readBoolean());
         if (type == DataType.PDF) return PDFClass.get(inStream.readBoolean(), inStream.readBoolean());
+        if (type == DataType.VIDEO) return VideoClass.get(inStream.readBoolean(), inStream.readBoolean());
 
         if (type == DataType.IMAGELINK) return ImageLinkClass.get(inStream.readBoolean());
         if (type == DataType.WORDLINK) return WordLinkClass.get(inStream.readBoolean());
@@ -148,7 +174,12 @@ public class TypeSerializer {
         }
         if (type == DataType.DYNAMICFORMATLINK) return DynamicFormatLinkClass.get(inStream.readBoolean());
         if (type == DataType.PDFLINK) return PDFLinkClass.get(inStream.readBoolean());
+        if (type == DataType.VIDEOLINK) return VideoLinkClass.get(inStream.readBoolean());
+        if (type == DataType.DBFLINK) return DBFLinkClass.get(inStream.readBoolean());
         if (type == DataType.JDBC) return new JDBCTable.JDBCDataClass(inStream.readInt(), inStream.readUTF());
+
+        if (DBManager.oldDBStructureVersion > DBManager.newDBStructureVersion)
+            return TextClass.instance;
 
         throw new IOException();
     }

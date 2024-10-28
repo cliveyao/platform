@@ -1,19 +1,21 @@
 package lsfusion.gwt.client.base.view;
 
 import com.google.gwt.dom.client.Document;
+import com.google.gwt.dom.client.Element;
 import com.google.gwt.user.client.ui.ComplexPanel;
 import com.google.gwt.user.client.ui.ProvidesResize;
 import com.google.gwt.user.client.ui.RequiresResize;
 import com.google.gwt.user.client.ui.Widget;
-import lsfusion.gwt.client.base.Dimension;
+import lsfusion.gwt.client.base.GwtClientUtils;
 
-import static lsfusion.gwt.client.base.GwtClientUtils.calculateMaxPreferredSize;
-
-public class ResizableComplexPanel extends ComplexPanel implements RequiresResize, ProvidesResize, HasMaxPreferredSize, ResizableMainPanel {
-    private Widget main;
+public class ResizableComplexPanel extends ComplexPanel implements RequiresResize, ProvidesResize, ResizableMainPanel {
+    protected Widget main;
 
     public ResizableComplexPanel() {
-        setElement(Document.get().createDivElement());
+        this(Document.get().createDivElement());
+    }
+    public ResizableComplexPanel(Element element) {
+        setElement(element);
     }
 
     @Override
@@ -46,15 +48,11 @@ public class ResizableComplexPanel extends ComplexPanel implements RequiresResiz
         super.insert(w, getElement(), beforeIndex, true);
     }
 
-    @Override
-    public Dimension getMaxPreferredSize() {
-        return calculateMaxPreferredSize(main);
-    }
-
-    @Override
-    public void setMain(Widget main) {
+    public void setPercentMain(Widget main) {
         this.main = main;
+
         add(main);
+        GwtClientUtils.setupPercentParent(main.getElement());
     }
 
     @Override

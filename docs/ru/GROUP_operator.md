@@ -6,11 +6,13 @@ title: 'Оператор GROUP'
 
 ### Синтаксис 
 
-    GROUP 
-    type expr1, ..., exprN
-    [ORDER [DESC] orderExpr1, ..., orderExprK]
-    [WHERE whereExpr]
-    [BY groupExpr1, ..., groupExprM]
+```
+GROUP 
+type expr1, ..., exprN
+[ORDER [DESC] orderExpr1, ..., orderExprK]
+[WHERE whereExpr]
+[BY groupExpr1, ..., groupExprM]
+```
 
 ### Описание
 
@@ -67,7 +69,8 @@ hostTeam = DATA Team (Game);
 hostGoalsScored(team) = GROUP SUM hostGoals(Game game) BY hostTeam(game);
 
 name = DATA STRING[100] (Country);
-countryName = GROUP AGGR Country country WHERE country IS Country BY name(country); // получается свойство (STRING[100]) -> Country
+// получается свойство (STRING[100]) -> Country
+countryName = GROUP AGGR Country country BY name(country); 
 
 CLASS Book;
 CLASS Tag;

@@ -6,9 +6,11 @@ The `IF ... THEN` operator creates a [property](Properties.md) that implements [
 
 ### Syntax
 
-    IF condition 
-        THEN value
-        [ELSE alternativeValue]
+```
+IF condition 
+    THEN value
+    [ELSE alternativeValue]
+```
 
 ### Description
 
@@ -35,7 +37,8 @@ price1 = DATA NUMERIC[10,2] (Book);
 price2 = DATA NUMERIC[10,2] (Book);
 maxPrice (Book b) = IF price1(b) > price2(b) THEN price1(b) ELSE price2(b);
 
-sex (Human h) = IF h IS Male THEN 'Male' ELSE ('Female' IF h IS Female); // if h is of another class, it will be NULL
+// if h is of another class, it will be NULL
+sex (Human h) = IF h IS Male THEN 'Male' ELSE ('Female' IF h IS Female); 
 
 isDifferent(a, b) = IF a != b THEN TRUE;
 ```

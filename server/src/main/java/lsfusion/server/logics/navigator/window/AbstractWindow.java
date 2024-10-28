@@ -2,6 +2,7 @@ package lsfusion.server.logics.navigator.window;
 
 import lsfusion.interop.navigator.window.WindowType;
 import lsfusion.server.base.controller.thread.ThreadLocalContext;
+import lsfusion.server.logics.property.Property;
 import lsfusion.server.physics.dev.i18n.LocalizedString;
 import lsfusion.server.physics.dev.id.name.CanonicalNameUtils;
 
@@ -12,6 +13,8 @@ public class AbstractWindow {
     private String canonicalName;
     
     public LocalizedString caption = LocalizedString.NONAME;
+
+    public boolean drawScrollBars = true;
 
     public int position;
 
@@ -25,6 +28,11 @@ public class AbstractWindow {
     public boolean titleShown = true;
 
     public boolean visible = true;
+    
+    public Property propertyElementClass;
+    public String elementClass;
+
+    public boolean autoSize; 
 
     public AbstractWindow(String canonicalName, LocalizedString caption, int x, int y, int width, int height) {
         this(canonicalName, caption);
@@ -60,6 +68,12 @@ public class AbstractWindow {
 
         outStream.writeBoolean(titleShown);
         outStream.writeBoolean(visible);
+
+        outStream.writeBoolean(elementClass != null);
+        if (elementClass != null) {
+            outStream.writeUTF(elementClass);
+        }
+        outStream.writeBoolean(autoSize);
     }
 
     public void setDockPosition(int x, int y, int width, int height) {

@@ -13,7 +13,7 @@ Actions extension allows:
 
 ### Polymorphic form {#poly}
 
-As with a branching operator, for an abstract action there is a *polymorphic form*, where it is possible not to define a condition explicitly, but to use as a condition matching the [signature](Property_signature_CLASS.md) of the action that corresponds to this condition.
+As with a branching operator, for an abstract action there is a *polymorphic form*, where it is possible not to define a condition explicitly, but to use as a condition [matching the signature](Property_signature_ISCLASS.md) of the action that corresponds to this condition.
 
 ### Mutual exclusion of conditions {#exclusive}
 
@@ -28,13 +28,13 @@ The key features that implement the extension technique are the [`ABSTRACT` oper
 ### Examples
 
 ```lsf
-exportXls 'Export to Excel'  ABSTRACT CASE ( Order);         // In this case, ABSTRACT CASE OVERRIDE LAST is created
+exportXls 'Export to Excel' ABSTRACT CASE (Order); // ABSTRACT CASE OVERRIDE LAST is created        
 exportXls (Order o) + WHEN name(currency(o)) == 'USD' THEN {
     MESSAGE 'Export USD not implemented';
 }
 
 CLASS Task;
-run 'Execute'  ABSTRACT ( Task);                           // ABSTRACT MULTI EXCLUSIVE
+run 'Execute' ABSTRACT (Task); // ABSTRACT MULTI EXCLUSIVE
 
 CLASS Task1 : Task;
 name = DATA STRING[100] (Task);
@@ -48,7 +48,7 @@ price = DATA NUMERIC[14,2] (OrderDetail);
 
 CLASS InvoiceDetail;
 price = DATA NUMERIC[14,2] (InvoiceDetail);
-fill  ABSTRACT LIST ( OrderDetail, InvoiceDetail);   // ABSTRACT LIST LAST
+fill ABSTRACT LIST (OrderDetail, InvoiceDetail); // ABSTRACT LIST LAST
 
 fill (OrderDetail od, InvoiceDetail id) + {
     price(id) <- price(od);

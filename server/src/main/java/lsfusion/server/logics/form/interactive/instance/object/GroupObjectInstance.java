@@ -33,7 +33,6 @@ import lsfusion.server.data.expr.query.GroupType;
 import lsfusion.server.data.expr.query.RecursiveExpr;
 import lsfusion.server.data.expr.value.ValueExpr;
 import lsfusion.server.data.expr.where.classes.data.CompareWhere;
-import lsfusion.server.data.expr.where.ifs.IfExpr;
 import lsfusion.server.data.query.MapKeysInterface;
 import lsfusion.server.data.query.Query;
 import lsfusion.server.data.query.modify.Modify;
@@ -46,6 +45,7 @@ import lsfusion.server.data.value.DataObject;
 import lsfusion.server.data.value.NullValue;
 import lsfusion.server.data.value.ObjectValue;
 import lsfusion.server.data.where.Where;
+import lsfusion.server.language.action.LA;
 import lsfusion.server.logics.action.controller.context.ExecutionEnvironment;
 import lsfusion.server.logics.action.controller.stack.ExecutionStack;
 import lsfusion.server.logics.action.session.DataSession;
@@ -63,11 +63,14 @@ import lsfusion.server.logics.form.interactive.UpdateType;
 import lsfusion.server.logics.form.interactive.changed.ChangedData;
 import lsfusion.server.logics.form.interactive.changed.MFormChanges;
 import lsfusion.server.logics.form.interactive.changed.ReallyChanged;
+import lsfusion.server.logics.form.interactive.instance.FormEnvironment;
 import lsfusion.server.logics.form.interactive.instance.FormInstance;
 import lsfusion.server.logics.form.interactive.instance.filter.AndFilterInstance;
+import lsfusion.server.logics.form.interactive.instance.filter.CompareFilterInstance;
 import lsfusion.server.logics.form.interactive.instance.filter.FilterInstance;
 import lsfusion.server.logics.form.interactive.instance.filter.OrFilterInstance;
 import lsfusion.server.logics.form.interactive.instance.order.OrderInstance;
+import lsfusion.server.logics.form.interactive.instance.property.ActionObjectInstance;
 import lsfusion.server.logics.form.interactive.instance.property.PropertyDrawInstance;
 import lsfusion.server.logics.form.interactive.instance.property.PropertyObjectInstance;
 import lsfusion.server.logics.form.interactive.instance.property.PropertyReaderInstance;
@@ -76,7 +79,6 @@ import lsfusion.server.logics.form.interactive.property.GroupObjectProp;
 import lsfusion.server.logics.form.struct.object.GroupObjectEntity;
 import lsfusion.server.logics.property.Property;
 import lsfusion.server.logics.property.classes.ClassPropertyInterface;
-import lsfusion.server.logics.property.classes.IsClassProperty;
 import lsfusion.server.logics.property.data.SessionDataProperty;
 import lsfusion.server.logics.property.implement.PropertyRevImplement;
 import lsfusion.server.physics.admin.Settings;
@@ -98,14 +100,18 @@ public class GroupObjectInstance implements MapKeysInterface<ObjectInstance>, Pr
 
     public final PropertyObjectInstance propertyBackground;
     public final PropertyObjectInstance propertyForeground;
+    public final PropertyObjectInstance propertyCustomOptions;
     final static int DIRECTION_DOWN = 1;
     final static int DIRECTION_UP = 2;
     final static int DIRECTION_CENTER = 3;
 
     public RowBackgroundReaderInstance rowBackgroundReader = new RowBackgroundReaderInstance();
     public RowForegroundReaderInstance rowForegroundReader = new RowForegroundReaderInstance();
+    public CustomOptionsReaderInstance customOptionsReader = new CustomOptionsReaderInstance();
 
     public final GroupObjectEntity entity;
+
+    private boolean countTreeSubElements = true;
 
     public static ImSet<ObjectInstance> getObjects(ImSet<GroupObjectInstance> groups) {
         MExclSet<ObjectInstance> mResult = SetFact.mExclSet();
@@ -201,7 +207,9 @@ public class GroupObjectInstance implements MapKeysInterface<ObjectInstance>, Pr
 
     public Integer order = 0;
 
-    public GroupObjectInstance(GroupObjectEntity entity, ImOrderSet<ObjectInstance> objects, PropertyObjectInstance propertyBackground, PropertyObjectInstance propertyForeground, ImMap<ObjectInstance, PropertyObjectInstance> parent, ImMap<GroupObjectProp, PropertyRevImplement<ClassPropertyInterface, ObjectInstance>> props) {
+    public GroupObjectInstance(GroupObjectEntity entity, ImOrderSet<ObjectInstance> objects,
+                               PropertyObjectInstance propertyBackground, PropertyObjectInstance propertyForeground, PropertyObjectInstance propertyCustomOptions,
+                               ImMap<ObjectInstance, PropertyObjectInstance> parent, ImMap<GroupObjectProp, PropertyRevImplement<ClassPropertyInterface, ObjectInstance>> props) {
 
         this.entity = entity;
 
@@ -210,6 +218,7 @@ public class GroupObjectInstance implements MapKeysInterface<ObjectInstance>, Pr
 
         this.propertyBackground = propertyBackground;
         this.propertyForeground = propertyForeground;
+        this.propertyCustomOptions = propertyCustomOptions;
 
         for(ObjectInstance object : objects)
             object.groupTo = this;
@@ -223,24 +232,96 @@ public class GroupObjectInstance implements MapKeysInterface<ObjectInstance>, Pr
     }
 
     // caches
-    public ImSet<FilterInstance> setFilters = null;
-    public ImSet<FilterInstance> getSetFilters() {
-        if(setFilters==null) {
-            FilterInstance userComboFilter = combineUserFilters(userFilters);
-            ImSet<FilterInstance> userComboSet = userComboFilter != null ? SetFact.singleton(userComboFilter) : userFilters.immutableOrder().getSet();
-            setFilters = fixedFilters.merge(userComboSet).merge(SetFact.fromJavaSet(regularFilters));
+    public ImSet<FilterInstance> filters = null;
+    public ImSet<FilterInstance> combinedAllFixedFilters;
 
-            if (listViewType == ListViewType.CALENDAR)
-                setFilters = setFilters.merge(SetFact.fromJavaSet(viewFilters));
+    public ImSet<FilterInstance> getFixedFilters(boolean withClassFilter, boolean noCombine) {
+        ImSet<FilterInstance> result = this.fixedFilters;
+        if(withClassFilter) {
+            result = result.merge(classFilter);
+            if(!noCombine && !Settings.get().isDisableCombineFilters()) {
+                if(combinedAllFixedFilters == null)
+                    combinedAllFixedFilters = SetFact.singleton(FilterInstance.combineCached(result, true));
+                return combinedAllFixedFilters;
+            }
         }
-        return setFilters;
+        return result;
     }
 
-    private FilterInstance combineUserFilters(MOrderSet<FilterInstance> filterSet) {
+    public ImSet<FilterInstance> getDynamicFilters(DynamicFilters dynamicFilters) {
+        return SetFact.fromJavaSet(regularFilters).
+                merge(combineUserFilters(dynamicFilters.filterUserFilters(ListFact.fromJavaList(userFilters)))).
+                merge(dynamicFilters.filterViewFilters(SetFact.fromJavaSet(viewFilters)));
+    }
+
+    public interface DynamicFilters {
+
+        ImList<FilterInstance> filterUserFilters(ImList<FilterInstance> userFilters);
+        ImSet<FilterInstance> filterViewFilters(ImSet<FilterInstance> viewFilters);
+
+        DynamicFilters ALL = new DynamicFilters() {
+            @Override
+            public ImList<FilterInstance> filterUserFilters(ImList<FilterInstance> userFilters) {
+                return userFilters;
+            }
+
+            @Override
+            public ImSet<FilterInstance> filterViewFilters(ImSet<FilterInstance> viewFilters) {
+                return viewFilters;
+            }
+        };
+    }
+
+    public static DynamicFilters NOVIEWUSERFILTER(PropertyDrawInstance userProperty) {
+        return new DynamicFilters() {
+            @Override
+            public ImList<FilterInstance> filterUserFilters(ImList<FilterInstance> userFilters) {
+                return userFilters.filterList(element -> !(element instanceof CompareFilterInstance && ((CompareFilterInstance<?>) element).hasProperty(userProperty.getFilterProperty())));
+            }
+
+            @Override
+            public ImSet<FilterInstance> filterViewFilters(ImSet<FilterInstance> viewFilters) {
+                return SetFact.EMPTY();
+            }
+        };
+    }
+
+    public ImSet<FilterInstance> getFilters() {
+        return getFilters( false);
+    }
+    public ImSet<FilterInstance> getFilters(boolean noCombine) {
+        return getFilters(DynamicFilters.ALL, noCombine);
+    }
+    public ImSet<FilterInstance> getFilters(DynamicFilters dynamicFilters, boolean noCombine) {
+        if(dynamicFilters == DynamicFilters.ALL && !noCombine) {
+            if (filters == null)
+                filters = calculateFilters(dynamicFilters, noCombine);
+            return filters;
+        }
+
+        return calculateFilters(dynamicFilters, noCombine);
+    }
+
+    private ImSet<FilterInstance> calculateFilters(DynamicFilters dynamicFilters, boolean noCombine) {
+        ImSet<FilterInstance> result = getFixedFilters(true, noCombine).merge(getDynamicFilters(dynamicFilters));
+        if(!noCombine && !Settings.get().isDisableCombineFilters())
+            result = SetFact.singleton(FilterInstance.combineCached(result, true));
+        return result;
+    }
+
+    private void dynamicFiltersUpdated() {
+        filters = null;
+        updated |= UPDATED_FILTER;
+    }
+
+    private ImSet<FilterInstance> combineUserFilters(ImList<FilterInstance> userFilters) {
+        if(userFilters.isEmpty()) // optimization
+            return SetFact.EMPTY();
+
         FilterInstance comboFilter = null;
         List<List<FilterInstance>> organizedFilters = new ArrayList<>();
         List<FilterInstance> orFilters = new ArrayList<>();
-        for (FilterInstance filter : filterSet.immutableOrder()) {
+        for (FilterInstance filter : userFilters) {
             orFilters.add(filter);
             if (filter.junction) {
                 organizedFilters.add(orFilters);
@@ -270,53 +351,57 @@ public class GroupObjectInstance implements MapKeysInterface<ObjectInstance>, Pr
             }
             comboFilter = new AndFilterInstance(comboFilter, filter);
         }
-        return comboFilter;
+
+        if(comboFilter != null)
+            return SetFact.singleton(comboFilter);
+
+        return userFilters.toOrderSet().getSet();
     }
 
     // вообще все фильтры
     public ImSet<FilterInstance> fixedFilters = SetFact.EMPTY();
+    public FilterInstance classFilter;
 
-    private MOrderSet<FilterInstance> userFilters = SetFact.mOrderSet();
+    private final List<FilterInstance> userFilters = new ArrayList<>();
+    
+    public List<FilterInstance> getUserFilters() {
+        return userFilters;
+    }
+    
     public void clearUserFilters() {
-        userFilters = SetFact.mOrderSet();
+        if(!userFilters.isEmpty()) {
+            userFilters.clear();
 
-        setFilters = null;
-        updated |= UPDATED_FILTER;
+            dynamicFiltersUpdated();
+        }
     }
     public void addUserFilter(FilterInstance addFilter) {
         userFilters.add(addFilter);
 
-        setFilters = null;
-        updated |= UPDATED_FILTER;
+        dynamicFiltersUpdated();
     }
 
     private final Set<FilterInstance> regularFilters = new HashSet<>();
     public void addRegularFilter(FilterInstance filter) {
         regularFilters.add(filter);
 
-        setFilters = null;
-        updated |= UPDATED_FILTER;
+        dynamicFiltersUpdated();
     }
 
     public void removeRegularFilter(FilterInstance filter) {
         regularFilters.remove(filter);
 
-        setFilters = null;
-        updated |= UPDATED_FILTER;
+        dynamicFiltersUpdated();
     }
 
     private final Set<FilterInstance> viewFilters = new HashSet<>();
-    public void setViewFilters(List<FilterInstance> filters, int pageSize) {
-        viewFilters.clear();
-        viewFilters.addAll(filters);
-        setPageSize(pageSize);
-
-        setFilters = null;
-        updated |= UPDATED_FILTER;
+    public void setViewFilters(Set<FilterInstance> filters) {
+        if(!BaseUtils.hashEquals(viewFilters, filters)) {
+            viewFilters.clear();
+            viewFilters.addAll(filters);
+            dynamicFiltersUpdated();
+        }
     }
-
-    // с активным интерфейсом
-    public ImSet<FilterInstance> filters;
 
     public ImOrderMap<OrderInstance, Boolean> fixedOrders = MapFact.EMPTYORDER();
 
@@ -334,11 +419,22 @@ public class GroupObjectInstance implements MapKeysInterface<ObjectInstance>, Pr
         return setOrders;
     }
     private ImOrderMap<OrderInstance,Boolean> userOrders = MapFact.EMPTYORDER();
+    // is necessary to identify property draw in ReadOrderAction 
+    private ImMap<OrderInstance, PropertyDrawInstance> userOrdersPropertyMapping = MapFact.EMPTY();
 
-    public void changeOrder(OrderInstance property, Order modiType) {
+    public ImOrderMap<OrderInstance,Boolean> getUserOrders() {
+        return userOrders;
+    }
+    
+    public ImMap<OrderInstance, PropertyDrawInstance> getUserOrdersPropertyMapping() {
+        return userOrdersPropertyMapping;
+    }
+
+    public void changeOrder(OrderInstance property, PropertyDrawInstance propertyDraw, Order modiType) {
         ImOrderMap<OrderInstance, Boolean> newOrders;
         if (modiType == Order.REPLACE) {
             newOrders = MapFact.singletonOrder(property, userOrders.containsKey(property) && !userOrders.get(property));
+            userOrdersPropertyMapping = MapFact.EMPTY();
         } else if (modiType == Order.REMOVE) {
             newOrders = userOrders.removeOrderIncl(property);
         } else if (modiType == Order.DIR) {
@@ -351,6 +447,12 @@ public class GroupObjectInstance implements MapKeysInterface<ObjectInstance>, Pr
             newOrders = userOrders.addOrderExcl(property, false);
         }
 
+        if (modiType == Order.REMOVE) {
+            userOrdersPropertyMapping = userOrdersPropertyMapping.remove(property);
+        } else {
+            userOrdersPropertyMapping = userOrdersPropertyMapping.addIfNotContains(property, propertyDraw);
+        }
+
         if(!BaseUtils.hashEquals(newOrders, userOrders)) {// оптимизация для пользовательских настроек
             userOrders = newOrders;
             setOrders = null;
@@ -361,6 +463,7 @@ public class GroupObjectInstance implements MapKeysInterface<ObjectInstance>, Pr
     public void clearOrders() {
         if(!userOrders.isEmpty()) { // оптимизация для пользовательских настроек
             userOrders = MapFact.EMPTYORDER();
+            userOrdersPropertyMapping = MapFact.EMPTY();
             setOrders = null;
             updated |= UPDATED_ORDER;
         }
@@ -384,6 +487,9 @@ public class GroupObjectInstance implements MapKeysInterface<ObjectInstance>, Pr
 
     public final static int UPDATED_FORCE = (1 << 9);
     public final static int UPDATED_FILTERPROP = (1 << 10);
+    public final static int UPDATED_ORDERPROP = (1 << 11);
+
+    public final static int UPDATED_VIEWTYPEVALUE = (1 << 12);
 
     public int updated = UPDATED_ORDER | UPDATED_FILTER;
 
@@ -444,44 +550,37 @@ public class GroupObjectInstance implements MapKeysInterface<ObjectInstance>, Pr
         return entity;
     }
 
-    public interface FilterProcessor {
-        ImMap<ObjectInstance, ? extends Expr> process(FilterInstance filt, ImMap<ObjectInstance, ? extends Expr> mapKeys);
-
-        ImSet<FilterInstance> getFilters();
-    }
-
-    public Where getFilterWhere(ImMap<ObjectInstance, ? extends Expr> mapKeys, Modifier modifier, ReallyChanged reallyChanged, FilterProcessor filterProcessor, MSet<Property> mUsedProps) throws SQLException, SQLHandledException {
-        Where where = Where.TRUE();
-        for(FilterInstance filt : (filterProcessor != null ? filterProcessor.getFilters() : filters)) {
-            if(filterProcessor != null) {
-                ImMap<ObjectInstance, ? extends Expr> overridedKeys = filterProcessor.process(filt, mapKeys);
-                if(overridedKeys == null)
-                    continue;
-                mapKeys = overridedKeys;
-            }
-            where = where.and(filt.getWhere(mapKeys, modifier, reallyChanged, mUsedProps));
-        }
-        return where;
-    }
-
     public static ImMap<ObjectInstance, ValueClass> getGridClasses(ImSet<ObjectInstance> objects) {
         return objects.filterFn(element -> !element.noClasses).mapValues(ObjectInstance::getGridClass);
     }
-    public Where getClassWhere(ImMap<ObjectInstance, ? extends Expr> mapKeys, Modifier modifier, MSet<Property> mUsedProps) throws SQLException, SQLHandledException {
-        return IsClassProperty.getWhere(getGridClasses(objects), mapKeys, modifier, mUsedProps);
-    }
 
-    public Where getWhere(ImMap<ObjectInstance, ? extends Expr> mapKeys, Modifier modifier, ReallyChanged reallyChanged) throws SQLException, SQLHandledException {
-        return getWhere(mapKeys, modifier, reallyChanged, (MSet<Property>) null);
+    public static class FilterProcessor {
+        protected final GroupObjectInstance groupObject;
+
+        public FilterProcessor(GroupObjectInstance groupObject) {
+            this.groupObject = groupObject;
+        }
+
+        public Where process(FilterInstance filt, ImMap<ObjectInstance, ? extends Expr> mapKeys, Modifier modifier, ReallyChanged reallyChanged) throws SQLException, SQLHandledException {
+            return filt.getWhere(mapKeys, modifier, reallyChanged, null);
+        }
+
+        public ImSet<FilterInstance> getFilters() {
+            return groupObject.getFilters();
+        }
     }
-    public Where getWhere(ImMap<ObjectInstance, ? extends Expr> mapKeys, Modifier modifier, ReallyChanged reallyChanged, MSet<Property> mUsedProps) throws SQLException, SQLHandledException {
-        return getWhere(mapKeys, modifier, reallyChanged, null, mUsedProps);
+    public Where getWhere(ImMap<ObjectInstance, ? extends Expr> mapKeys, Modifier modifier, ReallyChanged reallyChanged) throws SQLException, SQLHandledException {
+        return getWhere(mapKeys, modifier, reallyChanged, new FilterProcessor(this));
     }
     public Where getWhere(ImMap<ObjectInstance, ? extends Expr> mapKeys, Modifier modifier, ReallyChanged reallyChanged, FilterProcessor processor) throws SQLException, SQLHandledException {
-        return getWhere(mapKeys, modifier, reallyChanged, processor, null);
-    }
-    public Where getWhere(ImMap<ObjectInstance, ? extends Expr> mapKeys, Modifier modifier, ReallyChanged reallyChanged, FilterProcessor processor, MSet<Property> mUsedProps) throws SQLException, SQLHandledException {
-        return getFilterWhere(mapKeys, modifier, reallyChanged, processor, mUsedProps).and(getClassWhere(mapKeys, modifier, mUsedProps));
+        Where where = Where.TRUE();
+        for(FilterInstance filt : processor.getFilters()) {
+            Where filtWhere = processor.process(filt, mapKeys, modifier, reallyChanged);
+            if(filtWhere == null)
+                continue;
+            where = where.and(filtWhere);
+        }
+        return where;
     }
 
     public Where getWhere(ImMap<ObjectInstance, ? extends Expr> mapKeys, Modifier modifier) throws SQLException, SQLHandledException {
@@ -540,10 +639,10 @@ public class GroupObjectInstance implements MapKeysInterface<ObjectInstance>, Pr
     // поиски по свойствам\объектам
     public SeekObjects userSeeks = null;
 
-    public void addSeek(OrderInstance order, ObjectValue value, boolean addSeek) {
+    public void addSeek(OrderInstance order, ObjectValue value, boolean down) {
         if(userSeeks==null || userSeeks == SEEK_NULL)
             userSeeks = SEEK_PREV();
-        userSeeks = ((SeekOrderObjects)userSeeks).add(order, value, addSeek);
+        userSeeks = ((SeekOrderObjects)userSeeks).add(order, value, down);
     }
 
     public void dropSeek(ObjectInstance object) {
@@ -577,7 +676,12 @@ public class GroupObjectInstance implements MapKeysInterface<ObjectInstance>, Pr
 
         final ImRevMap<ObjectInstance, KeyExpr> mapKeys = getMapKeys();
 
-        final ImSet<KeyExpr> usedContext = immutableCast(getFilterWhere(mapKeys, Property.defaultModifier, null, null, null).getOuterKeys());
+        final ImSet<KeyExpr> usedContext = immutableCast(getWhere(mapKeys, Property.defaultModifier, null, new FilterProcessor(this) {
+            @Override
+            public ImSet<FilterInstance> getFilters() {
+                return getFixedFilters(false, false);
+            }
+        }).getOuterKeys());
 
         return immutableCast(objects.filterFn(object -> { // если DataObject и нету ключей
             return object instanceof DataObjectInstance && !usedContext.contains(mapKeys.get(object));
@@ -635,8 +739,12 @@ public class GroupObjectInstance implements MapKeysInterface<ObjectInstance>, Pr
     }
 
     public void expandCollapseAll(FormInstance form, boolean current, boolean expand) throws SQLException, SQLHandledException {
+        expandCollapseAll(form, null, current, expand);
+    }
+
+    public void expandCollapseAll(FormInstance form, ImMap<ObjectInstance, DataObject> value, boolean current, boolean expand) throws SQLException, SQLHandledException {
         if (current && !isNull()) {
-            expandCollapseAll(form, getGroupObjectValue(), expand);
+            expandCollapseAll(form, value != null ? value : getGroupObjectValue(), expand);
         } else {
             GroupObjectInstance upTreeGroup = getUpTreeGroup();
             expandCollapseAll(form, upTreeGroup == null ? null : upTreeGroup.expandTable, expand);
@@ -756,7 +864,7 @@ public class GroupObjectInstance implements MapKeysInterface<ObjectInstance>, Pr
     public ImMap<GroupColumn, Expr> getGroupExprs(ImMap<ObjectInstance, KeyExpr> mapKeys, Modifier modifier, ReallyChanged reallyChanged) throws SQLException, SQLHandledException {
         return groupMode.groupProps.<Expr, SQLException, SQLHandledException>mapValuesEx(value -> {
             ImMap<ObjectInstance, Expr> mapObjects = MapFact.addExcl(mapKeys, value.columnKeys.mapValues((Function<DataObject, ValueExpr>) DataObject::getExpr));
-            Expr expr = value.property.getDrawInstance().getExpr(mapObjects, modifier, reallyChanged);
+            Expr expr = value.property.getGroupProperty().getExpr(mapObjects, modifier, reallyChanged);
             return FormulaUnionExpr.create(StringOverrideFormulaImpl.instance, ListFact.toList(expr, ValueExpr.IMPOSSIBLESTRING)); // override to support NULLs
         });
     }
@@ -765,6 +873,8 @@ public class GroupObjectInstance implements MapKeysInterface<ObjectInstance>, Pr
         assert isInTree();
 
         final ImRevMap<ObjectInstance, KeyExpr> mapKeys = KeyExpr.getMapKeys(GroupObjectInstance.getObjects(getUpTreeGroups()));
+
+        Where filterWhere = getWhere(mapKeys, modifier, reallyChanged);
 
         MExclMap<Object, Expr> mPropertyExprs = MapFact.mExclMap();
 
@@ -777,66 +887,69 @@ public class GroupObjectInstance implements MapKeysInterface<ObjectInstance>, Pr
         if (parent != null) {
             ImMap<ObjectInstance, Expr> parentExprs = parent.mapValuesEx((ThrowingFunction<PropertyObjectInstance, Expr, SQLException, SQLHandledException>) value -> value.getExpr(mapKeys, modifier));
 
-            Where nullWhere = Where.FALSE();
-            for (Expr parentExpr : parentExprs.valueIt()) {
-                nullWhere = nullWhere.or(parentExpr.getWhere().not());
-            }
-            expandWhere = expandWhere.and(nullWhere).or(getExpandWhere(MapFact.override(mapKeys, parentExprs))); // если есть parent, то те, чей parent равен null или expanded
-
             mPropertyExprs.exclAddAll(parentExprs);
 
-            mPropertyExprs.exclAdd("expandable", GroupExpr.create(parentExprs, ValueExpr.TRUE, GroupType.LOGICAL(), mapKeys.filter(parentExprs.keys()))); // boolean
-            if (treeGroup != null) {
-                GroupObjectInstance subGroup = treeGroup.getDownTreeGroup(this);
-                if (subGroup != null) {
-                    mPropertyExprs.exclAdd("expandable2", subGroup.getHasSubElementsExpr(mapKeys, modifier, reallyChanged));
-                }
-            }
+            expandWhere = expandWhere.and(getNullParentWhere(parentExprs)).or(getExpandWhere(MapFact.override(mapKeys, parentExprs))); // если есть parent, то те, чей parent равен null или expanded
+
+            mPropertyExprs.exclAdd("expandableParent", getSubElementsExpr(filterWhere, parentExprs, mapKeys.filter(parentExprs.keys()), countTreeSubElements)); // boolean
+        }
+
+        if (treeGroup != null) {
+            GroupObjectInstance subGroup = treeGroup.getDownTreeGroup(this);
+            if (subGroup != null)
+                mPropertyExprs.exclAdd("expandableDown", subGroup.getSubElementsExpr(mapKeys, modifier, reallyChanged, countTreeSubElements));
         }
 
         ImOrderMap<Expr, Boolean> orderExprs = orders.mapMergeOrderKeysEx((ThrowingFunction<OrderInstance, Expr, SQLException, SQLHandledException>) value -> value.getExpr(mapKeys, modifier));
 
-        return castExecuteObjects(new Query<>(mapKeys, mPropertyExprs.immutable(), getWhere(mapKeys, modifier, reallyChanged).and(expandWhere)).
+        return castExecuteObjects(new Query<>(mapKeys, mPropertyExprs.immutable(), filterWhere.and(expandWhere)).
                     executeClasses(session, env, baseClass, orderExprs));
     }
 
-    private Expr getHasSubElementsExpr(final ImRevMap<ObjectInstance, KeyExpr> outerMapKeys, final Modifier modifier, final ReallyChanged reallyChanged) throws SQLException, SQLHandledException {
+    private Expr getSubElementsExpr(Where filterWhere, ImMap<ObjectInstance, ? extends Expr> parentExprs, ImMap<ObjectInstance, KeyExpr> parentKeys, boolean countTreeSubElements) {
+        if(countTreeSubElements)
+            return GroupExpr.create(parentExprs, ValueExpr.COUNT, filterWhere, GroupType.SUM, parentKeys);
+
+        return GroupExpr.create(parentExprs, ValueExpr.get(filterWhere), GroupType.LOGICAL(), parentKeys);
+    }
+
+    private Where getNullParentWhere(ImMap<ObjectInstance, Expr> parentExprs) {
+        Where nullWhere = Where.FALSE();
+        for (Expr parentExpr : parentExprs.valueIt()) {
+            nullWhere = nullWhere.or(parentExpr.getWhere().not());
+        }
+        return nullWhere;
+    }
+
+    private Expr getSubElementsExpr(final ImRevMap<ObjectInstance, KeyExpr> outerMapKeys, final Modifier modifier, final ReallyChanged reallyChanged, boolean countTreeSubElements) throws SQLException, SQLHandledException {
         final ImRevMap<ObjectInstance, KeyExpr> mapKeys = KeyExpr.getMapKeys(GroupObjectInstance.getObjects(getUpTreeGroups()));
+
+        Where filterWhere = getWhere(mapKeys, modifier, reallyChanged);
 
         Where subGroupWhere = Where.TRUE();
 
         if (parent != null) {
             ImMap<ObjectInstance, Expr> parentExprs = parent.mapValuesEx((ThrowingFunction<PropertyObjectInstance, Expr, SQLException, SQLHandledException>) value -> value.getExpr(mapKeys, modifier));
 
-            Where nullWhere = Where.FALSE();
-            for (Expr parentExpr : parentExprs.valueIt()) {
-                nullWhere = nullWhere.or(parentExpr.getWhere().not());
-            }
-            subGroupWhere = subGroupWhere.and(nullWhere);
+            subGroupWhere = subGroupWhere.and(getNullParentWhere(parentExprs));
         }
 
-        subGroupWhere = subGroupWhere.and(getWhere(mapKeys, modifier, reallyChanged));
-
-        Expr validSubElementExpr = IfExpr.create(subGroupWhere, ValueExpr.TRUE, ValueExpr.NULL());
-
-        final ImMap<ObjectInstance, KeyExpr> upKeys = mapKeys.remove(objects);
-        return GroupExpr.create(upKeys, validSubElementExpr, GroupType.LOGICAL(), outerMapKeys); // boolean
+        return getSubElementsExpr(subGroupWhere.and(filterWhere), mapKeys.remove(objects), outerMapKeys, countTreeSubElements); // boolean
     }
 
-    public void change(SessionChanges session, ImMap<ObjectInstance, DataObject> value, FormInstance eventForm, ExecutionStack stack) throws SQLException, SQLHandledException {
-        // проставим все объектам метки изменений
+    public void change(SessionChanges session, ImMap<ObjectInstance, ? extends ObjectValue> value, FormInstance eventForm, ExecutionStack stack) throws SQLException, SQLHandledException {
         ImSet<ObjectInstance> upGroups = GroupObjectInstance.getObjects(getUpTreeGroups());
         assert value.isEmpty() || value.keys().equals(upGroups);
         for (ObjectInstance object : upGroups)
-            object.changeValue(session, value.isEmpty()? NullValue.instance:value.get(object));
+            object.changeValue(session, eventForm, value.isEmpty()? NullValue.instance:value.get(object));
         ImSet<ObjectInstance> downGroups = GroupObjectInstance.getObjects(getDownTreeGroups());
         for(ObjectInstance object : downGroups)
-            object.changeValue(session, NullValue.instance);
+            object.changeValue(session, eventForm, NullValue.instance);
 
-        eventForm.changeGroupObject(upGroups.addExcl(downGroups), stack);
+        eventForm.onGroupObjectChanged(upGroups.addExcl(downGroups), stack);
     }
 
-    public void update(SessionChanges session, MFormChanges changes, FormInstance eventForm, ImMap<ObjectInstance, DataObject> value, ExecutionStack stack) throws SQLException, SQLHandledException {
+    public void update(SessionChanges session, MFormChanges changes, FormInstance eventForm, ImMap<ObjectInstance, ? extends ObjectValue> value, ExecutionStack stack) throws SQLException, SQLHandledException {
         changes.objects.exclAdd(this, value.isEmpty() ? NullValue.getMap(getObjects(getUpTreeGroups())) : value);
         change(session, value, eventForm, stack);
     }
@@ -849,6 +962,7 @@ public class GroupObjectInstance implements MapKeysInterface<ObjectInstance>, Pr
     private boolean pendingUpdateFilters;
     private boolean pendingUpdateObject;
     private boolean pendingUpdateFilterProp;
+    private boolean pendingUpdateOrderProp;
     private boolean pendingUpdatePageSize;
 
     public final Set<PropertyReaderInstance> pendingUpdateProps = new HashSet<>();
@@ -871,7 +985,16 @@ public class GroupObjectInstance implements MapKeysInterface<ObjectInstance>, Pr
     public ImSet<Property> getUsedEnvironmentIncrementProps(GroupObjectProp propType) {
         return usedEnvironmentIncrementProps.get(propType);
     }
-            
+
+    private boolean checkEnvironmentRecursion(Property envProp, MSet<Property> mResultUsedProps, MSet<Property> mUsedProps) {
+        ImSet<Property> resultUsedProps = mResultUsedProps.immutable();
+        if(Property.depends(resultUsedProps, envProp))
+            return true;
+        if(mUsedProps != null)
+            mUsedProps.addAll(resultUsedProps);
+        return false;
+    }
+
     public void updateEnvironmentIncrementProp(IncrementChangeProps environmentIncrement, final Modifier modifier, Result<ChangedData> changedProps, final ReallyChanged reallyChanged, GroupObjectProp propType, boolean propsChanged, boolean dataChanged, Predicate<GroupObjectInstance> hidden) throws SQLException, SQLHandledException {
         PropertyRevImplement<ClassPropertyInterface, ObjectInstance> mappedProp = props.get(propType);
         if(mappedProp != null) {
@@ -885,30 +1008,70 @@ public class GroupObjectInstance implements MapKeysInterface<ObjectInstance>, Pr
                     updated = updated | UPDATED_FILTERPROP;
                     return;
                 }
+                if(propType.equals(GroupObjectProp.ORDER) &&
+                    !entity.isOrderExplicitlyUsed &&
+                    (hidden.test(this) || isPending())) {
+                    updated = updated | UPDATED_ORDERPROP;
+                    return;
+                }
             }
             
             final ImRevMap<ObjectInstance, KeyExpr> mapKeys = getMapKeys();
             PropertyChange<ClassPropertyInterface> change;
+            ImRevMap<ClassPropertyInterface, KeyExpr> mappedKeys = mappedProp.mapping.join(mapKeys);
+
+            // we don't want properties depending on mappedProp to be materialized, since this hints will likely to be dropped during environmentIncrement.add, and lead to "used returned table"
+            // now it's not needed we've cut the while branch with the recursion check
+//            environmentIncrement.eventChange(mappedProp.property, dataChanged, true);
+//            Predicate<Property> prevPredicate = AutoHintsAspect.pushCatchDisabledHint(property -> Property.depends(property, mappedProp.property));
+
+//            try {
+            MSet<Property> fmUsedProps = mUsedProps;
             switch (propType) {
                 case FILTER:
-                    change = new PropertyChange<>(mappedProp.mapping.join(mapKeys), ValueExpr.TRUE, getWhere(mapKeys, modifier, reallyChanged, mUsedProps));
+                    change = new PropertyChange<>(mappedKeys, ValueExpr.TRUE, getWhere(mapKeys, modifier, reallyChanged, new FilterProcessor(this) {
+                        @Override
+                        public Where process(FilterInstance filt, ImMap<ObjectInstance, ? extends Expr> mapKeys, Modifier modifier, ReallyChanged reallyChanged) throws SQLException, SQLHandledException {
+                            final MSet<Property> mFilterUsedProps = SetFact.mSet();
+                            Where result = filt.getWhere(mapKeys, modifier, reallyChanged, mFilterUsedProps);
+                            if (checkEnvironmentRecursion(mappedProp.property, mFilterUsedProps, fmUsedProps))
+                                return Where.TRUE();
+                            return result;
+                        }
+                    }));
                     break;
                 case ORDER:
-                    if(orders.isEmpty())
+                    int ordersSize = orders.size();
+                    MOrderExclMap<Expr, Boolean> mOrderExprs = MapFact.mOrderExclMapMax(ordersSize);
+                    MList<Type> mTypes = ListFact.mListMax(ordersSize);
+                    for (int i = 0; i < ordersSize; i++) {
+                        OrderInstance order = orders.getKey(i);
+                        final MSet<Property> mOrderUsedProps = SetFact.mSet();
+                        Expr orderExpr = order.getExpr(mapKeys, modifier, reallyChanged, mOrderUsedProps);
+                        if (checkEnvironmentRecursion(mappedProp.property, mOrderUsedProps, fmUsedProps))
+                            continue;
+                        mOrderExprs.exclAdd(orderExpr, orders.getValue(i));
+                        mTypes.add(order.getType());
+                    }
+                    ImOrderMap<Expr, Boolean> orderExprs = mOrderExprs.immutableOrder();
+
+                    if (orderExprs.isEmpty())
                         change = mappedProp.property.getNoChange();
                     else {
-                        final MSet<Property> fmUsedProps = mUsedProps;
-                        ImOrderMap<Expr, Boolean> orderExprs = orders.mapOrderKeysEx((ThrowingFunction<OrderInstance, Expr, SQLException, SQLHandledException>) value -> value.getExpr(mapKeys, modifier, reallyChanged, fmUsedProps));
-                        OrderClass orderClass = OrderClass.get(orders.keyOrderSet().mapListValues(new Function<OrderInstance, Type>() {
-                            public Type apply(OrderInstance value) {
-                                return value.getType();
-                            }}), orderExprs.valuesList());
-                        change = new PropertyChange<>(mappedProp.mapping.join(mapKeys), FormulaUnionExpr.create(orderClass, orderExprs.keyOrderSet()));
+                        Expr orderExpr;
+                        if (orderExprs.size() == 1 && orderExprs.singleValue().equals(false)) // optimization
+                            orderExpr = orderExprs.singleKey();
+                        else
+                            orderExpr = FormulaUnionExpr.create(OrderClass.get(mTypes.immutableList(), orderExprs.valuesList()), orderExprs.keyOrderSet());
+                        change = new PropertyChange<>(mappedKeys, orderExpr);
                     }
                     break;
                 default:
                     throw new UnsupportedOperationException();
             }
+//            } finally {
+//                AutoHintsAspect.popCatchDisabledHint(prevPredicate);
+//            }
             environmentIncrement.add(mappedProp.property, change, dataChanged);
             if(mUsedProps != null)
                 usedEnvironmentIncrementProps.add(propType, mUsedProps.immutable());
@@ -918,9 +1081,14 @@ public class GroupObjectInstance implements MapKeysInterface<ObjectInstance>, Pr
         }
     }
 
+    public interface ChangeEvents {
+        void onFilterChanged() throws SQLException, SQLHandledException;
+        void onOrderChanged() throws SQLException, SQLHandledException;
+    }
+
     @StackMessage("{message.form.update.group.keys}")
     @ThisMessage
-    public ImMap<ObjectInstance, DataObject> updateKeys(SQLSession sql, QueryEnvironment env, final FormInstance.FormModifier modifier, IncrementChangeProps environmentIncrement, ExecutionEnvironment execEnv, BaseClass baseClass, boolean hidden, final boolean refresh, MFormChanges result, MSet<PropertyDrawInstance> mChangedDrawProps, Result<ChangedData> changedProps, ReallyChanged reallyChanged) throws SQLException, SQLHandledException {
+    public ImMap<ObjectInstance, DataObject> updateKeys(SQLSession sql, QueryEnvironment env, final FormInstance.FormModifier modifier, IncrementChangeProps environmentIncrement, ExecutionEnvironment execEnv, BaseClass baseClass, boolean hidden, boolean refresh, MFormChanges result, MSet<PropertyDrawInstance> mChangedDrawProps, Result<ChangedData> changedProps, ReallyChanged reallyChanged, ChangeEvents changeEvents) throws SQLException, SQLHandledException {
         if (keyTable == null) // в общем то только для hidden'а но может и потом понадобиться
             keyTable = createKeyTable("upktable-" + System.identityHashCode(execEnv));
 
@@ -928,57 +1096,55 @@ public class GroupObjectInstance implements MapKeysInterface<ObjectInstance>, Pr
 
         // FILTERS
 
-        boolean updateFilters = refresh || toRefresh() || (updated & UPDATED_FILTER) != 0;
+        boolean updateFilters = (updated & UPDATED_FILTER) != 0;
         ImSet<GroupObjectInstance> sThis = SetFact.singleton(this);
-        applyFilters();
 
-        if (!updateFilters) // изменились "верхние" объекты для фильтров
-            for (FilterInstance filt : filters)
-                if (filt.objectUpdated(sThis)) {
-                    updateFilters = true;
-                    updateObjects = true;
-                    break;
-                }
+        for (FilterInstance filt : getFilters())
+            if (filt.objectUpdated(sThis)) {
+                updateFilters = true;
+                updateObjects = true;
+                break;
+            }
 
         if (!updateFilters) // изменились данные по фильтрам
-            for (FilterInstance filt : filters)
+            for (FilterInstance filt : getFilters())
                 if (filt.dataUpdated(changedProps.result, reallyChanged, modifier, hidden, sThis)) {
                     updateFilters = true;
                     break;
                 }
-        if (!updateFilters) // классы удалились\добавились
-            for (ObjectInstance object : objects)
-                if (object.classChanged(changedProps.result)) {  // || object.classUpdated() сомнительный or
-                    updateFilters = true;
-                    break;
-                }
 
-        if(updateFilters)
+        if(updateFilters) {
             updateFilterProperty(true, modifier, environmentIncrement, changedProps, reallyChanged);
+
+            changeEvents.onFilterChanged();
+        }
 
         // ORDERS
 
-        boolean hasOrderProperty = hasUpdateEnvironmentIncrementProp(GroupObjectProp.ORDER); // optimization
         boolean updateOrders = (updated & UPDATED_ORDER) != 0;
         orders = getSetOrders();
 
-        if (!updateOrders && (!updateFilters || hasOrderProperty)) // изменились "верхние" объекты для порядков
-            for (OrderInstance order : orders.keyIt())
-                if (order.objectUpdated(sThis)) {
-                    updateOrders = true;
-                    updateObjects = true;
-                    break;
-                }
-        if (!updateOrders && (!updateFilters || hasOrderProperty)) // изменились данные по порядкам
+        for (OrderInstance order : orders.keyIt())
+            if (order.objectUpdated(sThis)) {
+                updateOrders = true;
+                updateObjects = true;
+                break;
+            }
+
+        if (!updateOrders)
             for (OrderInstance order : orders.keyIt())
                 if (order.dataUpdated(changedProps.result, reallyChanged, modifier, hidden, sThis)) {
                     updateOrders = true;
                     break;
                 }
 
-        if(updateOrders)
-            updateOrderProperty(modifier, environmentIncrement, changedProps, reallyChanged);
+        if(updateOrders) {
+            updateOrderProperty(true, modifier, environmentIncrement, changedProps, reallyChanged);
 
+            changeEvents.onOrderChanged();
+        }
+
+        updateFilters = refresh || updateFilters;
         boolean updateKeys = updateFilters || updateOrders || (setGroupMode == null && userSeeks != null);
 
         boolean updatePageSize = (updated & UPDATED_PAGESIZE) != 0;
@@ -1039,22 +1205,25 @@ public class GroupObjectInstance implements MapKeysInterface<ObjectInstance>, Pr
 
         boolean updateObject = (updated & UPDATED_OBJECT) != 0;
         boolean updateFilterProp = updateFilters || (updated & UPDATED_FILTERPROP) != 0;
+        boolean updateOrderProp = updateOrders || (updated & UPDATED_ORDERPROP) != 0;
 
         if(toRefresh())
             result.updateStateObjects.add(this, isPending());
         if(!hidden && toUpdate()) {
-            updateKeys |= pendingUpdateKeys; updateObjects |= pendingUpdateObjects; updateObject |= pendingUpdateObject; updateFilterProp |= pendingUpdateFilterProp; updatePageSize |= pendingUpdatePageSize; updateFilters |= pendingUpdateFilters;
+            updateKeys |= pendingUpdateKeys; updateObjects |= pendingUpdateObjects; updateObject |= pendingUpdateObject; updateFilterProp |= pendingUpdateFilterProp; updateOrderProp |= pendingUpdateOrderProp; updatePageSize |= pendingUpdatePageSize; updateFilters |= pendingUpdateFilters;
             checkPending(result, () -> { pendingUpdateKeys = false; pendingUpdateScroll = false; } );
-            pendingUpdateObjects = false; pendingUpdateObject = false; pendingUpdateFilterProp = false; pendingUpdatePageSize = false; pendingUpdateFilters = false;
+            pendingUpdateObjects = false; pendingUpdateObject = false; pendingUpdateFilterProp = false; pendingUpdateOrderProp = false; pendingUpdatePageSize = false; pendingUpdateFilters = false;
         } else {
-            boolean finalUpdateKeys = updateKeys; boolean changedScroll = updateObject || updatePageSize;
+            boolean finalUpdateKeys = updateKeys; boolean changedScroll = !isInTree() && (updateObject || updatePageSize);
             checkPending(result, () -> { pendingUpdateKeys |= finalUpdateKeys; if(changedScroll) pendingUpdateScroll = updateScroll() != null; });
-            pendingUpdateObjects |= updateObjects; pendingUpdateObject |= updateObject; pendingUpdateFilterProp |= updateFilterProp; pendingUpdatePageSize |= updatePageSize; pendingUpdateFilters |= updateFilters;
+            pendingUpdateObjects |= updateObjects; pendingUpdateObject |= updateObject; pendingUpdateFilterProp |= updateFilterProp; pendingUpdateOrderProp |= updateOrderProp; pendingUpdatePageSize |= updatePageSize; pendingUpdateFilters |= updateFilters;
             return null;
         }
 
         if(updateFilterProp)
             updateFilterProperty(false, modifier, environmentIncrement, changedProps, reallyChanged);
+        if(updateOrderProp)
+            updateOrderProperty(false, modifier, environmentIncrement, changedProps, reallyChanged);
 
         ImMap<ObjectInstance, DataObject> currentObject = getGroupObjectValue();
         SeekObjects seeks = null;
@@ -1071,7 +1240,7 @@ public class GroupObjectInstance implements MapKeysInterface<ObjectInstance>, Pr
                     currentObject = MapFact.EMPTY();
                 } else if (updateKeys) {
                     UpdateType updateType = getUpdateType();
-                    if (!updateObjects) // не изменились фильтры, порядки, ищем текущий объект
+                    if (!updateObjects && !(updateType == UpdateType.NULL && isNull()))
                         updateType = UpdateType.PREV;
                     seeks = getSeekObjects(updateType);
                 } else if (updateObject || updatePageSize) {
@@ -1090,10 +1259,6 @@ public class GroupObjectInstance implements MapKeysInterface<ObjectInstance>, Pr
             return readKeys(result, updateFilters, updatePageSize, currentObject, seeks, direction, sql, env, modifier, execEnv, baseClass, reallyChanged);
 
         return null; // ничего не изменилось
-    }
-
-    public void applyFilters() {
-        filters = getSetFilters();
     }
 
     public Pair<SeekObjects, Integer> updateScroll() {
@@ -1138,14 +1303,19 @@ public class GroupObjectInstance implements MapKeysInterface<ObjectInstance>, Pr
                                         (key, value1) -> key instanceof ObjectInstance && value1 instanceof DataObject)));
                 keys = treeElements.mapOrderValues(MapFact::EMPTY);
 
-                ImOrderMap<ImMap<ObjectInstance, DataObject>, Boolean> groupExpandables =
+                ImOrderMap<ImMap<ObjectInstance, DataObject>, Integer> groupExpandables =
                         treeElements
-                                .filterOrderValuesMap(element -> element.containsKey("expandable") || element.containsKey("expandable2"))
                                 .mapOrderValues(
-                                        (Function<ImMap<Object, ObjectValue>, Boolean>) value -> {
-                                            ObjectValue expandable1 = value.get("expandable");
-                                            ObjectValue expandable2 = value.get("expandable2");
-                                            return expandable1 instanceof DataObject || expandable2 instanceof DataObject;
+                                        (Function<ImMap<Object, ObjectValue>, Integer>) value -> {
+                                            ObjectValue expandableParent = value.get("expandableParent");
+                                            ObjectValue expandableDown = value.get("expandableDown");
+                                            if(countTreeSubElements)
+                                                return (expandableParent instanceof DataObject ? (Integer)((DataObject) expandableParent).object : 0) +
+                                                        (expandableDown instanceof DataObject ? (Integer)((DataObject) expandableDown).object : 0);
+
+                                            if(expandableParent instanceof DataObject || expandableDown instanceof DataObject)
+                                                return 1;
+                                            return 0;
                                         });
 
                 result.expandables.exclAdd(this, groupExpandables.getMap());
@@ -1243,12 +1413,12 @@ public class GroupObjectInstance implements MapKeysInterface<ObjectInstance>, Pr
 
     public ListViewType listViewType;
     public void changeListViewType(ExecutionEnvironment execEnv, ConcreteCustomClass listViewType, ListViewType value) throws SQLException, SQLHandledException {
-        //to remove view filters when switch between views
-        setFilters = null;
-        viewFilters.clear();
+        setViewFilters(Collections.emptySet());
 
+        if(this.listViewType != null && this.listViewType.isValue() != value.isValue())
+            updated |= UPDATED_VIEWTYPEVALUE;
         this.listViewType = value;
-        execEnv.change(entity.getListViewType(listViewType).property, new PropertyChange<>(listViewType.getDataObject(value.getObjectName())));
+        execEnv.change(entity.getListViewType(listViewType), new PropertyChange<>(listViewType.getDataObject(value.getObjectName())));
     }
 
     private void updateViewProperty(ExecutionEnvironment execEnv, ImMap<ObjectInstance, DataObject> keys) throws SQLException, SQLHandledException {
@@ -1272,8 +1442,9 @@ public class GroupObjectInstance implements MapKeysInterface<ObjectInstance>, Pr
         execEnv.change(viewProperty.property, change);
     }
 
-    public void updateOrderProperty(FormInstance.FormModifier modifier, IncrementChangeProps environmentIncrement, Result<ChangedData> changedProps, ReallyChanged reallyChanged) throws SQLException, SQLHandledException {
-        modifier.updateEnvironmentIncrementProp(new Pair<>(this, GroupObjectProp.ORDER), environmentIncrement, changedProps, reallyChanged, true, true);
+    public void updateOrderProperty(boolean isOrderExplicitlyUsed, FormInstance.FormModifier modifier, IncrementChangeProps environmentIncrement, Result<ChangedData> changedProps, ReallyChanged reallyChanged) throws SQLException, SQLHandledException {
+        if (entity.isOrderExplicitlyUsed == isOrderExplicitlyUsed)
+            modifier.updateEnvironmentIncrementProp(new Pair<>(this, GroupObjectProp.ORDER), environmentIncrement, changedProps, reallyChanged, true, true);
     }
 
     public void updateFilterProperty(boolean isFilterExplicitlyUsed, FormInstance.FormModifier modifier, IncrementChangeProps environmentIncrement, Result<ChangedData> changedProps, ReallyChanged reallyChanged) throws SQLException, SQLHandledException {
@@ -1295,17 +1466,56 @@ public class GroupObjectInstance implements MapKeysInterface<ObjectInstance>, Pr
             ImFilterValueMap<ObjectInstance, DataObject> mvObjectKeys = objects.mapFilterValues();
             for (int j=0,size=objects.size();j<size;j++) {
                 ObjectInstance objectInstance = objects.get(j);
-                if (objectInstance.getBaseClass() instanceof ConcreteCustomClass)
-                    mvObjectKeys.mapValue(j, form.addFormObject((CustomObjectInstance)objectInstance, (ConcreteCustomClass) objectInstance.getBaseClass(), null, stack));
+                if (objectInstance.getBaseClass() instanceof ConcreteCustomClass) {
+                    mvObjectKeys.mapValue(j, createObject(form, objectInstance, session, stack));
+                }
             }
             mResultSet.exclAdd(mvObjectKeys.immutableValue());
         }
         return mResultSet.immutableOrder();
     }
 
+    private DataObject createObject(FormInstance form, ObjectInstance objectInstance, DataSession session, ExecutionStack stack) throws SQLException, SQLHandledException {
+        PropertyDrawInstance newActionProperty = getNewPropertyDrawInstance(form, objectInstance.getSID());
+        if(newActionProperty != null) {
+            ((ActionObjectInstance) newActionProperty.getActionOrProperty()).execute(form, stack, null, null, form);
+        } else {
+            LA addObjectAction = form.BL.LM.getAddObjectAction(form.entity, objectInstance.entity, (ConcreteCustomClass) objectInstance.getBaseClass());
+            addObjectAction.execute(form, stack, new FormEnvironment<>(null, null, form));
+        }
+
+        return (DataObject) form.BL.LM.getAddedObjectProperty().readClasses(form);
+    }
+
+    public PropertyDrawInstance getNewPropertyDrawInstance(FormInstance form, String objectSID) {
+        String propertySID = "new";
+        String integrationSID = propertySID + "[" + objectSID + "]";
+
+        //search 'new' with object
+        for (PropertyDrawInstance property : form.properties) {
+            if (integrationSID.equals(property.getIntegrationSID())) {
+                return property;
+            }
+        }
+
+        //search 'new' without object
+        PropertyDrawInstance result = null;
+        for (PropertyDrawInstance property : form.properties) {
+            if (propertySID.equals(property.getIntegrationSID())) {
+                if (result != null) {
+                    return null; //form has more than one 'new' property
+                }
+                result = property;
+            }
+        }
+
+        return result;
+    }
+
     private GroupObjectInstance() {
         propertyBackground = null;
         propertyForeground = null;
+        propertyCustomOptions = null;
 
         entity = null;
 
@@ -1348,8 +1558,8 @@ public class GroupObjectInstance implements MapKeysInterface<ObjectInstance>, Pr
             this(MapFact.EMPTY(), end);
         }
 
-        public SeekOrderObjects add(OrderInstance order, ObjectValue value, boolean down) {
-            return new SeekOrderObjects(values.override(order, value), this.end || down);
+        public SeekOrderObjects add(OrderInstance order, ObjectValue value, boolean end) {
+            return new SeekOrderObjects(values.override(order, value), this.end || end);
         }
 
         public SeekOrderObjects remove(ObjectInstance object) {
@@ -1422,7 +1632,7 @@ public class GroupObjectInstance implements MapKeysInterface<ObjectInstance>, Pr
             if (readSize == 1) { // в частном случае если есть "висячие" ключи не в фильтре и нужна одна запись ставим равно вместо >
                 for(DataObjectInstance freeObject : getFreeDataObjects()) {
                     ObjectValue freeValue = values.get(freeObject);
-                    if(freeValue==null || !(freeValue instanceof DataObject))
+                    if(!(freeValue instanceof DataObject))
                         freeValue = freeObject.getBaseClass().getDefaultObjectValue();
                     orderWhere = orderWhere.and(end==!down?mapKeys.get(freeObject).compare((DataObject)freeValue, Compare.EQUALS):Where.FALSE()); // seekDown==!down, чтобы и вверх и вниз не попали одни и те же ключи
                 }
@@ -1470,7 +1680,7 @@ public class GroupObjectInstance implements MapKeysInterface<ObjectInstance>, Pr
     private final static Type.Getter<ObjectInstance> typeGetter = ObjectInstance::getType;
 
     public class RowBackgroundReaderInstance implements PropertyReaderInstance {
-        public PropertyObjectInstance getPropertyObjectInstance() {
+        public PropertyObjectInstance getReaderProperty() {
             return propertyBackground;
         }
 
@@ -1494,7 +1704,7 @@ public class GroupObjectInstance implements MapKeysInterface<ObjectInstance>, Pr
     }
 
     public class RowForegroundReaderInstance implements PropertyReaderInstance {
-        public PropertyObjectInstance getPropertyObjectInstance() {
+        public PropertyObjectInstance getReaderProperty() {
             return propertyForeground;
         }
 
@@ -1514,6 +1724,25 @@ public class GroupObjectInstance implements MapKeysInterface<ObjectInstance>, Pr
         @Override
         public Object getProfiledObject() {
             return entity.propertyForeground;
+        }
+    }
+
+    public class CustomOptionsReaderInstance implements PropertyReaderInstance {
+        public PropertyObjectInstance getReaderProperty() {
+            return propertyCustomOptions;
+        }
+
+        public byte getTypeID() {
+            return PropertyReadType.CUSTOM_OPTIONS;
+        }
+
+        public int getID() {
+            return GroupObjectInstance.this.getID();
+        }
+
+        @Override
+        public Object getProfiledObject() {
+            return entity.propertyCustomOptions;
         }
     }
 }

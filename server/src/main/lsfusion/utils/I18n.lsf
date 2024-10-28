@@ -2,8 +2,6 @@ MODULE I18n;
 
 REQUIRE System, MasterData, Utils;
 
-// ------------------------------------------------ Язык ---------------------------------------------- //
-
 CLASS Dictionary '{i18n.dictionary}';
 TABLE dictionary (Dictionary);
 
@@ -59,50 +57,49 @@ languageTo = DATA Language (Dictionary);
 nameLanguageTo '{i18n.name.language.to}'(Dictionary dictionary) = name(languageTo(dictionary));
 
 translationInput '{i18n.translation.input}' = DATA LOCAL TEXT ();
+translationCode = DATA INTEGER ();
 translationResult '{i18n.translation.result}' = DATA LOCAL TEXT ();
 
-// ------------------------------------ Перевод через Google Translate -------------------------------- //
-
+// ------------------------------------ Google Translate -------------------------------- //
 languageFromTranslation = DATA Language ();
 nameLanguageFromTranslation '{i18n.name.language.from}'() = name(languageFromTranslation());
 languageToTranslation = DATA Language ();
 nameLanguageToTranslation '{i18n.name.language.to}'() = name(languageToTranslation());
 
-translate   INTERNAL  'lsfusion.server.physics.dev.i18n.action.TranslateAction' (TEXT, Language, Language);
+translateApiKey '{i18n.api.key}' = DATA STRING () CHARWIDTH 40;
+translate INTERNAL 'lsfusion.server.physics.dev.i18n.action.TranslateAction' (TEXT, Language, Language) NULL;
 
-translateTerm '{i18n.translate}'(DictionaryEntry dictionaryEntry)  { 
-
-    EXEC translate (TEXT(term(dictionaryEntry)),
-            languageFrom(dictionary(dictionaryEntry)),
-            languageTo(dictionary(dictionaryEntry)));
-    translation(dictionaryEntry) <- STRING[50](translationResult());
+translateTerm '{i18n.translate}'(DictionaryEntry e)  { 
+    translate(TEXT(term(e)), languageFrom(dictionary(e)), languageTo(dictionary(e)));
+    translation(e) <- STRING[50](translationResult());
 }
 
 translateText '{i18n.translate}'()  { 
-    EXEC translate (translationInput(), languageFromTranslation(), languageToTranslation());
+    translate(translationInput(), languageFromTranslation(), languageToTranslation());
 }
 
-// ------------------------------------ Перевод через словарь -------------------------------- //
-
-translate   INTERNAL  'lsfusion.server.physics.dev.i18n.action.TranslateDictionaryAction' (Dictionary, TEXT);
+// ------------------------------------ Translate dictionary -------------------------------- //
+translate INTERNAL  'lsfusion.server.physics.dev.i18n.action.TranslateDictionaryAction' (Dictionary, TEXT);
 
 WHEN LOCAL CHANGED (translationInput()) AND Dictionary dictionary IS Dictionary DO EXEC translate(dictionary, translationInput());
 
 FORM translation '{i18n.translation}'
-    PROPERTIES() translationInput, translationResult, nameLanguageFromTranslation, nameLanguageToTranslation,
+    PROPERTIES() translateApiKey, 
+                 translationInput, translationResult, nameLanguageFromTranslation, nameLanguageToTranslation,
                  translateText
 ;
 
 DESIGN translation {
     NEW languages {
         caption = '{i18n.languages}';
-        type = CONTAINERH;
+        horizontal = TRUE;
+        MOVE PROPERTY(translateApiKey());
         MOVE PROPERTY(nameLanguageFromTranslation());
         MOVE PROPERTY(nameLanguageToTranslation());
     }
     NEW translation {
         fill = 1;
-        type = CONTAINERH;
+        horizontal = TRUE;
         MOVE PROPERTY(translationInput()) {
             fill = 1;
             panelCaptionVertical = TRUE;
@@ -122,15 +119,13 @@ NAVIGATOR {
     }
 }
 
-// ---------------------------------------------- Мультиязычный объект -------------------------------- //
-
+// ---------------------------------------------- Multilanguage name -------------------------------- //
 CLASS MultiLanguageNamed '{i18n.multi.language.named}';
 
 TABLE multiLanguageNamedLanguage(MultiLanguageNamed, Language);
 languageName '{i18n.language.name.multi.language.named}' = DATA ISTRING[110] (MultiLanguageNamed, Language);
 
-// ---------------------------------------------- Словари --------------------------------------------- //
-
+// ---------------------------------------------- Dictionary --------------------------------------------- //
 FORM dictionary '{i18n.dictionary}'
     OBJECTS d = Dictionary PANEL
     PROPERTIES(d) name, insensitive, nameLanguageFrom, nameLanguageTo
@@ -146,11 +141,10 @@ FORM dictionary '{i18n.dictionary}'
 
 DESIGN dictionary {
     BOX {
-        type = CONTAINERV;
         MOVE BOX(d);
         MOVE BOX(e);
         NEW test {
-            type = CONTAINERH;
+            horizontal = TRUE;
             MOVE PROPERTY(translationInput()) {
                 fill = 1;
                 caption = '{i18n.form.dictionary.caption.phrase}';

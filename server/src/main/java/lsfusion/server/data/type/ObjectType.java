@@ -54,8 +54,9 @@ public class ObjectType extends AbstractType<Long> {
     public static final ObjectType instance = new ObjectType();
     public static final LongClass idClass = LongClass.instance;
 
-    public String getDB(SQLSyntax syntax, TypeEnvironment typeEnv) {
-        return idClass.getDB(syntax, typeEnv);
+    @Override
+    public DBType getDBType() {
+        return idClass;
     }
 
     public String getDotNetType(SQLSyntax syntax, TypeEnvironment typeEnv) {
@@ -101,6 +102,7 @@ public class ObjectType extends AbstractType<Long> {
     public int getReportPreferredWidth() { return 45; }
     public int getReportMinimumWidth() { return getReportPreferredWidth(); }
 
+    @Override
     public void fillReportDrawField(ReportDrawField reportField) {
         reportField.valueClass = Long.class;
         reportField.alignment = HorizontalTextAlignEnum.RIGHT;
@@ -136,7 +138,7 @@ public class ObjectType extends AbstractType<Long> {
     }
 
     public ExtInt getCharLength() {
-        return new ExtInt(10);
+        return idClass.getCharLength();
     }
 
     @Override
@@ -160,17 +162,17 @@ public class ObjectType extends AbstractType<Long> {
     }
 
     @Override
+    public String formatJSONSource(String valueSource, SQLSyntax syntax) {
+        return idClass.formatJSONSource(valueSource, syntax);
+    }
+
+    @Override
     public String getJSONType() {
         return idClass.getJSONType();
     }
 
     public Long parseString(String s) throws ParseException {
         return idClass.parseString(s);
-    }
-
-    @Override
-    public String formatString(Long value) {
-        return value == null ? null : String.valueOf(value);
     }
 
     public AndClassSet getBaseClassSet(BaseClass baseClass) {

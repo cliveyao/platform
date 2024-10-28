@@ -1,64 +1,58 @@
 package lsfusion.gwt.client.form.property.panel.view;
 
-import com.google.gwt.dom.client.Element;
-import com.google.gwt.user.client.ui.Widget;
-import lsfusion.gwt.client.base.GwtClientUtils;
-import lsfusion.gwt.client.base.GwtSharedUtils;
+import lsfusion.gwt.client.base.BaseImage;
+import lsfusion.gwt.client.base.view.SizedWidget;
 import lsfusion.gwt.client.form.controller.GFormController;
+import lsfusion.gwt.client.form.design.view.ComponentViewWidget;
 import lsfusion.gwt.client.form.object.GGroupObjectValue;
 import lsfusion.gwt.client.form.property.GPropertyDraw;
-import lsfusion.gwt.client.form.property.cell.classes.view.ActionCellRenderer;
-
-import static lsfusion.gwt.client.base.GwtClientUtils.stopPropagation;
 
 public class ActionPanelRenderer extends PanelRenderer {
 
-//    private final GFormController form;
+    private final SizedWidget sizedView;
 
-    public ActionPanelRenderer(final GFormController form, final GPropertyDraw property, GGroupObjectValue columnKey) {
-        super(form, property, columnKey);
+    public ActionPanelRenderer(final GFormController form, ActionOrPropertyValueController controller, final GPropertyDraw property, GGroupObjectValue columnKey) {
+        super(form, controller, property, columnKey, false);
 
-        value.setDynamic(false);
+        sizedView = value.getSizedWidget(false);
+
+        if (property.drawAsync)
+            form.setAsyncView(this);
 
         finalizeInit();
     }
 
     @Override
-    public Widget getComponent() {
-        return value;
-    }
-
-    @Override
-    protected Widget getTooltipWidget() {
-        return value;
+    public ComponentViewWidget getComponentViewWidget() {
+        return sizedView.view;
     }
 
     // hack, assert that render element is rendered with ActionCellRenderer
     @Override
     protected void setLabelText(String text) {
-        ActionCellRenderer.setLabelText(value.getRenderElement(), text);
+        BaseImage.updateText(value.getRenderElement(), text);
     }
 
-    private Object image;
-    public void setDynamicImage(Object image) {
-        if (!GwtSharedUtils.nullEquals(this.image, image)) {
-            this.image = image;
+    @Override
+    public void stopEditing() { // after editing someone should restore the text (because caption is rendered inside the element)
+        updateCaption();
+    }
 
-            assert property.hasDynamicImage();
-            GFormController.setDynamicImage(value.getRenderElement(), image);
-        }
+    @Override
+    protected void setLabelClasses(String classes) {
+//        BaseImage.updateClasses(value.getRenderElement());
+    }
+
+    @Override
+    protected void setCommentText(String text) {
+    }
+
+    @Override
+    protected void setCommentClasses(String classes) {
     }
 
     // interface for refresh button
-    private String nullImage = null;
-    public void setLoadingImage(String iconPath) {
-        Element renderElement = value.getRenderElement();
-        if(iconPath == null) {
-            if(nullImage != null) {
-                ActionCellRenderer.setImage(renderElement, nullImage, null, false);
-                nullImage = null;
-            }
-        } else
-            GwtClientUtils.setThemeImage(iconPath, imageUrl -> ActionCellRenderer.setImage(renderElement, imageUrl, nullImage == null ? s -> { nullImage = s; } : null, false));
+    public void setForceLoading(boolean set) {
+        value.setForceLoading(set);
     }
 }

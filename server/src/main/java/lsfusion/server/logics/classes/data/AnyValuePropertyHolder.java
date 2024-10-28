@@ -13,7 +13,6 @@ import lsfusion.server.data.value.NullValue;
 import lsfusion.server.data.value.ObjectValue;
 import lsfusion.server.language.property.LP;
 import lsfusion.server.logics.action.Action;
-import lsfusion.server.logics.action.controller.context.ExecutionContext;
 import lsfusion.server.logics.action.controller.context.ExecutionEnvironment;
 import lsfusion.server.logics.action.session.DataSession;
 import lsfusion.server.logics.classes.data.file.*;
@@ -32,6 +31,8 @@ public class AnyValuePropertyHolder {
     private final LP stringProperty;
     private final LP bpStringProperty;
     private final LP textProperty;
+    private final LP richTextProperty;
+    private final LP htmlTextProperty;
     private final LP intProperty;
     private final LP longProperty;
     private final LP doubleProperty;
@@ -41,14 +42,21 @@ public class AnyValuePropertyHolder {
     private final LP zDateTimeProperty;
     private final LP intervalDateProperty;
     private final LP intervalDateTimeProperty;
+    private final LP intervalZDateTimeProperty;
     private final LP intervalTimeProperty;
     private final LP logicalProperty;
+    private final LP tLogicalProperty;
     private final LP dateProperty;
     private final LP timeProperty;
     private final LP colorProperty;
+    private final LP jsonProperty;
+    private final LP htmlStringProperty;
+    private final LP jsonTextProperty;
     private final LP wordFileProperty;
     private final LP imageFileProperty;
     private final LP pdfFileProperty;
+    private final LP videoFileProperty;
+    private final LP dbfFileProperty;
     private final LP rawFileProperty;
     private final LP customFileProperty;
     private final LP excelFileProperty;
@@ -58,9 +66,12 @@ public class AnyValuePropertyHolder {
     private final LP jsonFileProperty;
     private final LP xmlFileProperty;
     private final LP tableFileProperty;
+    private final LP namedFileProperty;
     private final LP wordLinkProperty;
     private final LP imageLinkProperty;
     private final LP pdfLinkProperty;
+    private final LP videoLinkProperty;
+    private final LP dbfLinkProperty;
     private final LP rawLinkProperty;
     private final LP customLinkProperty;
     private final LP excelLinkProperty;
@@ -70,47 +81,63 @@ public class AnyValuePropertyHolder {
     private final LP jsonLinkProperty;
     private final LP xmlLinkProperty;
     private final LP tableLinkProperty;
+    private final LP tsVectorProperty;
 
-    public AnyValuePropertyHolder(LP<?> objectProperty, LP<?> stringProperty, LP<?> bpStringProperty, LP<?> textProperty, LP<?> intProperty, LP<?> longProperty, LP<?> doubleProperty, LP<?> numericProperty, LP<?> yearProperty,
-                                  LP<?> dateTimeProperty, LP<?> zDateTimeProperty, LP<?> intervalDateProperty, LP<?> intervalDateTimeProperty, LP<?> intervalTimeProperty,  LP<?> logicalProperty, LP<?> dateProperty, LP<?> timeProperty, LP<?> colorProperty, LP<?> wordFileProperty, LP<?> imageFileProperty,
-                                  LP<?> pdfFileProperty, LP<?> rawFileProperty, LP<?> customFileProperty, LP<?> excelFileProperty,
-                                  LP<?> textFileProperty, LP<?> csvFileProperty, LP<?> htmlFileProperty, LP<?> jsonFileProperty, LP<?> xmlFileProperty, LP<?> tableFileProperty,
-                                  LP<?> wordLinkProperty, LP<?> imageLinkProperty, LP<?> pdfLinkProperty, LP<?> rawLinkProperty,
+    public AnyValuePropertyHolder(LP<?> objectProperty, LP<?> stringProperty, LP<?> bpStringProperty, LP<?> textProperty, LP<?> richTextProperty, LP<?> htmlTextProperty,
+                                  LP<?> intProperty, LP<?> longProperty, LP<?> doubleProperty, LP<?> numericProperty, LP<?> yearProperty, LP<?> dateTimeProperty,
+                                  LP<?> zDateTimeProperty, LP<?> intervalDateProperty, LP<?> intervalDateTimeProperty, LP<?> intervalTimeProperty, LP<?> intervalZDateTimeProperty,
+                                  LP<?> logicalProperty, LP<?> tLogicalProperty, LP<?> dateProperty, LP<?> timeProperty, LP<?> colorProperty, LP<?> jsonProperty, LP<?> htmlStringProperty, LP<?> jsonTextProperty,
+                                  LP<?> wordFileProperty, LP<?> imageFileProperty, LP<?> pdfFileProperty, LP<?> videoFileProperty, LP<?> dbfFileProperty,
+                                  LP<?> rawFileProperty, LP<?> customFileProperty, LP<?> excelFileProperty, LP<?> textFileProperty, LP<?> csvFileProperty,
+                                  LP<?> htmlFileProperty, LP<?> jsonFileProperty, LP<?> xmlFileProperty, LP<?> tableFileProperty, LP<?> namedFileProperty,
+                                  LP<?> wordLinkProperty, LP<?> imageLinkProperty, LP<?> pdfLinkProperty, LP<?> videoLinkProperty, LP<?> dbfLinkProperty, LP<?> rawLinkProperty,
                                   LP<?> customLinkProperty, LP<?> excelLinkProperty, LP<?> textLinkProperty, LP<?> csvLinkProperty,
-                                  LP<?> htmlLinkProperty, LP<?> jsonLinkProperty, LP<?> xmlLinkProperty, LP<?> tableLinkProperty) {
+                                  LP<?> htmlLinkProperty, LP<?> jsonLinkProperty, LP<?> xmlLinkProperty, LP<?> tableLinkProperty, LP<?> tsVectorProperty) {
         assert objectProperty.property.getType() == ObjectType.instance
                 && stringProperty.property.getType().getCompatible(StringClass.get(1))!=null
                 && bpStringProperty.property.getType().getCompatible(StringClass.get(1))!=null
                 && textProperty.property.getType().getCompatible(StringClass.get(1))!=null
+                && richTextProperty.property.getType().getCompatible(RichTextClass.instance)!=null
+                && htmlTextProperty.property.getType().getCompatible(HTMLTextClass.instance)!=null
                 && intProperty.property.getType() == IntegerClass.instance
                 && longProperty.property.getType() == LongClass.instance
                 && doubleProperty.property.getType() == DoubleClass.instance
                 && numericProperty.property.getType().getCompatible(NumericClass.get(0, 0)) != null
                 && yearProperty.property.getType() == YearClass.instance
-                && dateTimeProperty.property.getType() == DateTimeClass.instance
-                && zDateTimeProperty.property.getType() == ZDateTimeClass.instance
+                && dateTimeProperty.property.getType().getCompatible(DateTimeClass.instance) != null
+                && zDateTimeProperty.property.getType().getCompatible(ZDateTimeClass.instance) != null
                 && intervalDateProperty.property.getType().getCompatible(IntervalClass.getInstance("DATE")) != null
                 && intervalDateTimeProperty.property.getType().getCompatible(IntervalClass.getInstance("DATETIME")) != null
                 && intervalTimeProperty.property.getType().getCompatible(IntervalClass.getInstance("TIME")) != null
+                && intervalZDateTimeProperty.property.getType().getCompatible(IntervalClass.getInstance("ZDATETIME")) != null
                 && logicalProperty.property.getType() == LogicalClass.instance
+                && tLogicalProperty.property.getType() == LogicalClass.threeStateInstance
                 && dateProperty.property.getType() == DateClass.instance
-                && timeProperty.property.getType() == TimeClass.instance
+                && timeProperty.property.getType().getCompatible(TimeClass.instance) != null
                 && colorProperty.property.getType() == ColorClass.instance
+                && jsonProperty.property.getType() == JSONClass.instance
+                && htmlStringProperty.property.getType() == HTMLStringClass.instance
+                && jsonTextProperty.property.getType() == JSONTextClass.instance
                 && wordFileProperty.property.getType() == WordClass.get()
                 && imageFileProperty.property.getType() == ImageClass.get()
                 && pdfFileProperty.property.getType() == PDFClass.get()
+                && videoFileProperty.property.getType() == VideoClass.get()
+                && dbfFileProperty.property.getType() == DBFClass.get()
                 && rawFileProperty.property.getType() == CustomStaticFormatFileClass.get()
                 && customFileProperty.property.getType() == DynamicFormatFileClass.get()
                 && excelFileProperty.property.getType() == ExcelClass.get()
                 && textFileProperty.property.getType() == TXTClass.get()
                 && csvFileProperty.property.getType() == CSVClass.get()
                 && htmlFileProperty.property.getType() == HTMLClass.get()
-                && jsonFileProperty.property.getType() == JSONClass.get()
+                && jsonFileProperty.property.getType() == JSONFileClass.get()
                 && xmlFileProperty.property.getType() == XMLClass.get()
                 && tableFileProperty.property.getType() == TableClass.get()
+                && namedFileProperty.property.getType() == NamedFileClass.instance
                 && wordLinkProperty.property.getType() == WordLinkClass.get(false)
                 && imageLinkProperty.property.getType() == ImageLinkClass.get(false)
                 && pdfLinkProperty.property.getType() == PDFLinkClass.get(false)
+                && videoLinkProperty.property.getType() == VideoLinkClass.get(false)
+                && dbfLinkProperty.property.getType() == DBFLinkClass.get(false)
                 && rawLinkProperty.property.getType() == CustomStaticFormatLinkClass.get()
                 && customLinkProperty.property.getType() == DynamicFormatLinkClass.get(false)
                 && excelLinkProperty.property.getType() == ExcelLinkClass.get(false)
@@ -120,12 +147,15 @@ public class AnyValuePropertyHolder {
                 && jsonLinkProperty.property.getType() == JSONLinkClass.get(false)
                 && xmlLinkProperty.property.getType() == XMLLinkClass.get(false)
                 && tableLinkProperty.property.getType() == TableLinkClass.get(false)
+                && tsVectorProperty.property.getType() == TSVectorClass.instance
                 ;
 
         this.objectProperty = objectProperty;
         this.stringProperty = stringProperty;
         this.bpStringProperty = bpStringProperty;
         this.textProperty = textProperty;
+        this.richTextProperty = richTextProperty;
+        this.htmlTextProperty = htmlTextProperty;
         this.intProperty = intProperty;
         this.longProperty = longProperty;
         this.doubleProperty = doubleProperty;
@@ -136,13 +166,20 @@ public class AnyValuePropertyHolder {
         this.intervalDateProperty = intervalDateProperty;
         this.intervalDateTimeProperty = intervalDateTimeProperty;
         this.intervalTimeProperty = intervalTimeProperty;
+        this.intervalZDateTimeProperty = intervalZDateTimeProperty;
         this.logicalProperty = logicalProperty;
+        this.tLogicalProperty = tLogicalProperty;
         this.dateProperty = dateProperty;
         this.timeProperty = timeProperty;
         this.colorProperty = colorProperty;
+        this.jsonProperty = jsonProperty;
+        this.htmlStringProperty = htmlStringProperty;
+        this.jsonTextProperty = jsonTextProperty;
         this.wordFileProperty = wordFileProperty;
         this.imageFileProperty = imageFileProperty;
         this.pdfFileProperty = pdfFileProperty;
+        this.videoFileProperty = videoFileProperty;
+        this.dbfFileProperty = dbfFileProperty;
         this.rawFileProperty = rawFileProperty;
         this.customFileProperty = customFileProperty;
         this.excelFileProperty = excelFileProperty;
@@ -152,9 +189,12 @@ public class AnyValuePropertyHolder {
         this.jsonFileProperty = jsonFileProperty;
         this.xmlFileProperty = xmlFileProperty;
         this.tableFileProperty = tableFileProperty;
+        this.namedFileProperty = namedFileProperty;
         this.wordLinkProperty = wordLinkProperty;
         this.imageLinkProperty = imageLinkProperty;
         this.pdfLinkProperty = pdfLinkProperty;
+        this.videoLinkProperty = videoLinkProperty;
+        this.dbfLinkProperty = dbfLinkProperty;
         this.rawLinkProperty = rawLinkProperty;
         this.customLinkProperty = customLinkProperty;
         this.excelLinkProperty = excelLinkProperty;
@@ -164,15 +204,19 @@ public class AnyValuePropertyHolder {
         this.jsonLinkProperty = jsonLinkProperty;
         this.xmlLinkProperty = xmlLinkProperty;
         this.tableLinkProperty = tableLinkProperty;
+        this.tsVectorProperty = tsVectorProperty;
     }
 
-    public LP<?> getLCP(Type valueType) {
-        if (valueType instanceof ObjectType) {
+    public LP<?> getLP(Type valueType) {
+        if (valueType instanceof ObjectType)
             return objectProperty;
-        } else if (valueType instanceof StringClass) {
-            if (((StringClass) valueType).length.isUnlimited()) {
-                return textProperty;
-            }
+        else if (valueType instanceof RichTextClass)
+            return richTextProperty;
+        else if (valueType instanceof HTMLTextClass)
+            return htmlTextProperty;
+        else if (valueType instanceof TextClass)
+            return textProperty;
+        else if (valueType instanceof StringClass) {
             return ((StringClass) valueType).blankPadded ? bpStringProperty : stringProperty;
         } else if (valueType instanceof IntegerClass) {
             if (valueType instanceof YearClass) {
@@ -195,22 +239,36 @@ public class AnyValuePropertyHolder {
             return intervalDateTimeProperty;
         } else if (valueType instanceof TimeIntervalClass) {
             return intervalTimeProperty;
+        } else if (valueType instanceof ZDateTimeIntervalClass) {
+            return intervalZDateTimeProperty;
         } else if (valueType instanceof LogicalClass) {
-            return logicalProperty;
+            return ((LogicalClass) valueType).threeState ? tLogicalProperty : logicalProperty;
         } else if (valueType instanceof DateClass) {
             return dateProperty;
         } else if (valueType instanceof TimeClass) {
             return timeProperty;
         } else if (valueType instanceof ColorClass) {
             return colorProperty;
+        } else if (valueType instanceof JSONClass) {
+            return jsonProperty;
+        } else if (valueType instanceof HTMLStringClass) {
+            return htmlStringProperty;
+        } else if (valueType instanceof JSONTextClass) {
+            return jsonTextProperty;
         } else if (valueType instanceof WordClass) {
             return wordFileProperty;
         } else if (valueType instanceof ImageClass) {
             return imageFileProperty;
         } else if (valueType instanceof PDFClass) {
             return pdfFileProperty;
+        } else if (valueType instanceof VideoClass) {
+            return videoFileProperty;
+        } else if (valueType instanceof DBFClass) {
+            return dbfFileProperty;
         } else if (valueType instanceof CustomStaticFormatFileClass) {
             return rawFileProperty;
+        }else if (valueType instanceof NamedFileClass) {
+            return namedFileProperty;
         } else if (valueType instanceof DynamicFormatFileClass) {
             return customFileProperty;
         } else if (valueType instanceof ExcelClass) {
@@ -221,7 +279,7 @@ public class AnyValuePropertyHolder {
             return csvFileProperty;
         } else if (valueType instanceof HTMLClass) {
             return htmlFileProperty;
-        } else if (valueType instanceof JSONClass) {
+        } else if (valueType instanceof JSONFileClass) {
             return jsonFileProperty;
         } else if (valueType instanceof XMLClass) {
             return xmlFileProperty;
@@ -235,6 +293,10 @@ public class AnyValuePropertyHolder {
             return imageLinkProperty;
         } else if (valueType instanceof PDFLinkClass) {
             return pdfLinkProperty;
+        } else if (valueType instanceof VideoLinkClass) {
+            return videoLinkProperty;
+        } else if (valueType instanceof DBFLinkClass) {
+            return dbfLinkProperty;
         } else if (valueType instanceof CustomStaticFormatLinkClass) {
             return rawLinkProperty;
         } else if (valueType instanceof DynamicFormatLinkClass) {
@@ -255,6 +317,8 @@ public class AnyValuePropertyHolder {
             return tableLinkProperty;
         } else if (valueType instanceof StaticFormatLinkClass) {
             return customLinkProperty;
+        } else if (valueType instanceof TSVectorClass) {
+            return tsVectorProperty;
         } else {
             throw new IllegalStateException(valueType + " is not supported by AnyValueProperty");
         }
@@ -264,36 +328,21 @@ public class AnyValuePropertyHolder {
     public ImOrderSet<SessionDataProperty> getProps() {
         return SetFact.toOrderExclSet(
                 // files
-                customFileProperty, rawFileProperty, wordFileProperty, imageFileProperty, pdfFileProperty, excelFileProperty,
-                textFileProperty, csvFileProperty, htmlFileProperty, jsonFileProperty, xmlFileProperty, tableFileProperty,
+                customFileProperty, rawFileProperty, wordFileProperty, imageFileProperty, pdfFileProperty, videoFileProperty, dbfFileProperty, excelFileProperty,
+                textFileProperty, csvFileProperty, htmlFileProperty, jsonFileProperty, xmlFileProperty, tableFileProperty, namedFileProperty,
                 // strings
-                textProperty, stringProperty, bpStringProperty,
+                textProperty, richTextProperty, htmlTextProperty, stringProperty, bpStringProperty,
                 // numbers
                 numericProperty, longProperty, intProperty, doubleProperty,
                 // date / times
-                dateTimeProperty, zDateTimeProperty, intervalDateProperty, intervalDateTimeProperty, intervalTimeProperty, dateProperty, timeProperty, yearProperty,
+                dateTimeProperty, zDateTimeProperty, intervalDateProperty, intervalDateTimeProperty, intervalTimeProperty,
+                intervalZDateTimeProperty, dateProperty, timeProperty, yearProperty,
                 // links
-                customLinkProperty, rawLinkProperty, wordLinkProperty, imageLinkProperty, pdfLinkProperty,  excelLinkProperty,
+                customLinkProperty, rawLinkProperty, wordLinkProperty, imageLinkProperty, pdfLinkProperty, videoLinkProperty, dbfLinkProperty, excelLinkProperty,
                 textLinkProperty, csvLinkProperty, htmlLinkProperty, jsonLinkProperty, xmlLinkProperty, tableLinkProperty,
                 // others
-                logicalProperty, colorProperty, objectProperty 
+                logicalProperty, tLogicalProperty, colorProperty, jsonProperty, jsonTextProperty, objectProperty, tsVectorProperty
         ).mapOrderSetValues(value -> (SessionDataProperty) value.property);
-    }
-        
-    public void write(Type valueType, ObjectValue value, ExecutionContext context, DataObject... keys) throws SQLException, SQLHandledException {
-        getLCP(valueType).change(value, context, keys);
-    }
-    
-    public void write(Type valueType, ObjectValue value, ExecutionEnvironment env, DataObject... keys) throws SQLException, SQLHandledException {
-        getLCP(valueType).change(value, env, keys);
-    }
-
-    public ObjectValue read(Type valueType, ExecutionContext context, DataObject... keys) throws SQLException, SQLHandledException {
-        return getLCP(valueType).readClasses(context, keys);
-    }
-
-    public ObjectValue read(Type valueType, ExecutionEnvironment env, DataObject... keys) throws SQLException, SQLHandledException {
-        return getLCP(valueType).readClasses(env, keys);
     }
 
     private static ObjectValue getFirstChangeProp(ImOrderSet<SessionDataProperty> props, Action<?> action, Result<SessionDataProperty> readedProperty) {

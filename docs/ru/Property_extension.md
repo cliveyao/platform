@@ -13,7 +13,7 @@ title: 'Расширение свойств'
 
 ### Полиморфная форма {#poly}
 
-Также как и [для оператора выбора](Selection_CASE_IF_MULTI_OVERRIDE_EXCLUSIVE.md#poly), для абстрактного свойства существует *полиморфная форма*, когда условие выбора и соответствующий ему результат задаются одним свойством. Соответственно, как и в операторе выбора, условием может являться либо принадлежность [сигнатуре](Property_signature_CLASS.md) этого свойства, либо само это свойство.
+Так же как и [для оператора выбора](Selection_CASE_IF_MULTI_OVERRIDE_EXCLUSIVE.md#poly), для абстрактного свойства существует *полиморфная форма*, когда условие выбора и соответствующий ему результат задаются одним свойством. Соответственно, как и в операторе выбора, условием может являться либо [принадлежность сигнатуре](Property_signature_ISCLASS.md) этого свойства, либо само это свойство.
 
 ### Взаимоисключаемость условий {#exclusive}
 
@@ -33,10 +33,13 @@ CLASS Invoice;
 CLASS InvoiceDetail;
 CLASS Range;
 
-rateChargeExchange(invoice) = ABSTRACT NUMERIC[14,6] (Invoice);             // В данном случае создается ABSTRACT MULTI EXCLUSIVE
-backgroundSku 'Цвет' (d) = ABSTRACT CASE FULL COLOR (InvoiceDetail); // В данном случае создается ABSTRACT CASE OVERRIDE LAST, и если будут
-                                                                            // подходить несколько реализаций, то вычислена будет первая из них
-overVAT = ABSTRACT VALUE OVERRIDE FIRST Range (InvoiceDetail);          // Здесь же будет вычислена последняя из подходящих реализаций
+// В данном случае создается ABSTRACT MULTI EXCLUSIVE
+rateChargeExchange(invoice) = ABSTRACT NUMERIC[14,6] (Invoice);             
+// В данном случае создается ABSTRACT CASE OVERRIDE LAST, и если будут подходить несколько реализаций, 
+// то вычислена будет первая из них
+backgroundSku 'Цвет' (d) = ABSTRACT CASE FULL COLOR (InvoiceDetail); 
+// Здесь же будет вычислена последняя из подходящих реализаций
+overVAT = ABSTRACT VALUE OVERRIDE FIRST Range (InvoiceDetail);          
 ```
 
 ```lsf
@@ -54,6 +57,8 @@ name(BClass b) = 'B' + innerName(b);
 name(CClass c) = 'C' + innerName(c);
 
 name[AClass](BClass b) += name(b);
-name(CClass c) += name(c); // Здесь слева будет найден name[AClass], потому что поиск идет только среди абстрактных свойств, справа же будет найден name[CClass]
+// Здесь слева будет найден name[AClass], потому что поиск идет только среди абстрактных свойств,
+// справа же будет найден name[CClass]
+name(CClass c) += name(c); 
 name(DClass d) += 'DClass' + innerName(d) IF d IS DClass;
 ```

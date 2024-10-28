@@ -1,19 +1,22 @@
 package lsfusion.server.logics.classes.data.integral;
 
+import com.hexiong.jdbf.JDBFException;
 import lsfusion.interop.classes.DataType;
 import lsfusion.interop.form.property.ExtInt;
 import lsfusion.server.data.sql.syntax.SQLSyntax;
 import lsfusion.server.data.stat.Stat;
+import lsfusion.server.data.type.DBType;
 import lsfusion.server.data.type.exec.TypeEnvironment;
 import lsfusion.server.logics.classes.data.DataClass;
 import lsfusion.server.logics.classes.data.ParseException;
+import lsfusion.server.logics.form.stat.struct.export.plain.dbf.OverJDBField;
 import lsfusion.server.physics.dev.i18n.LocalizedString;
 
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 
-public class LongClass extends IntClass<Long> {
+public class LongClass extends IntClass<Long> implements DBType {
 
     public final static LongClass instance = new LongClass();
 
@@ -55,7 +58,7 @@ public class LongClass extends IntClass<Long> {
         return value > 0;
     }
 
-    public String getDB(SQLSyntax syntax, TypeEnvironment typeEnv) {
+    public String getDBString(SQLSyntax syntax, TypeEnvironment typeEnv) {
         return syntax.getLongType();
     }
 
@@ -73,6 +76,11 @@ public class LongClass extends IntClass<Long> {
     @Override
     public int getBaseDotNetSize() {
         return 8;
+    }
+
+    @Override
+    public OverJDBField formatDBF(String fieldName) throws JDBFException {
+        return OverJDBField.createField(fieldName, 'N', 20, 0);
     }
 
     public int getSQL(SQLSyntax syntax) {

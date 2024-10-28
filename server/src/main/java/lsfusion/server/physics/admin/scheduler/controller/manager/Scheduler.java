@@ -1,7 +1,6 @@
 package lsfusion.server.physics.admin.scheduler.controller.manager;
 
 import lsfusion.base.BaseUtils;
-import lsfusion.base.DateConverter;
 import lsfusion.base.ExceptionUtils;
 import lsfusion.base.Result;
 import lsfusion.base.col.MapFact;
@@ -11,6 +10,9 @@ import lsfusion.server.base.controller.context.AbstractContext;
 import lsfusion.server.base.controller.lifecycle.LifecycleEvent;
 import lsfusion.server.base.controller.manager.MonitorServer;
 import lsfusion.server.base.controller.stack.ExecutionStackAspect;
+import lsfusion.server.base.controller.stack.StackMessage;
+import lsfusion.server.base.controller.stack.StackNewThread;
+import lsfusion.server.base.controller.stack.ThisMessage;
 import lsfusion.server.base.controller.thread.ExecutorFactory;
 import lsfusion.server.base.controller.thread.ThreadLocalContext;
 import lsfusion.server.base.controller.thread.ThreadUtils;
@@ -25,6 +27,7 @@ import lsfusion.server.language.ScriptingErrorLog;
 import lsfusion.server.language.action.LA;
 import lsfusion.server.logics.BusinessLogics;
 import lsfusion.server.logics.LogicsInstance;
+import lsfusion.server.logics.ServerResourceBundle;
 import lsfusion.server.logics.action.controller.context.ExecutionEnvironment;
 import lsfusion.server.logics.action.controller.stack.EExecutionStackRunnable;
 import lsfusion.server.logics.action.controller.stack.ExecutionStack;
@@ -42,20 +45,19 @@ import org.springframework.beans.factory.InitializingBean;
 import org.springframework.util.Assert;
 
 import java.sql.SQLException;
-import java.sql.Time;
 import java.sql.Timestamp;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.stream.Collectors;
 
 import static lsfusion.server.base.controller.thread.ThreadLocalContext.localize;
-import static lsfusion.server.logics.classes.data.time.DateTimeConverter.*;
+import static lsfusion.base.DateConverter.*;
 import static org.apache.commons.lang3.StringUtils.trim;
 
 public class Scheduler extends MonitorServer implements InitializingBean {
-    private static final Logger logger = ServerLoggers.systemLogger;
     public static final Logger schedulerLogger = ServerLoggers.schedulerLogger;
 
     public ScheduledExecutorService daemonTasksExecutor;
@@ -105,8 +107,12 @@ public class Scheduler extends MonitorServer implements InitializingBean {
         return logicsInstance;
     }
 
-    public void setupScheduledTask(DataSession session, DataObject scheduledTaskObject, String nameScheduledTask) throws SQLException, ScriptingErrorLog.SemanticErrorException, SQLHandledException {
-        if (daemonTasksExecutor != null) {
+    private boolean isServer() {
+        return dbManager.isServer();
+    }
+
+    public boolean setupScheduledTask(DataSession session, DataObject scheduledTaskObject, String nameScheduledTask) throws SQLException, ScriptingErrorLog.SemanticErrorException, SQLHandledException {
+        if (daemonTasksExecutor != null && isServer()) {
             Long scheduledTaskId = (Long) scheduledTaskObject.getValue();
             List<ScheduledFuture> futures = futuresMap.remove(scheduledTaskId);
             if (futures != null) {
@@ -114,6 +120,7 @@ public class Scheduler extends MonitorServer implements InitializingBean {
                 for (ScheduledFuture future : futures) {
                     future.cancel(true);
                 }
+                executingTasks.remove(scheduledTaskId);
             }
 
             if(BL.schedulerLM.activeScheduledTask.read(session, scheduledTaskObject) != null) {
@@ -136,11 +143,13 @@ public class Scheduler extends MonitorServer implements InitializingBean {
                     futuresMap.put(scheduledTaskId, futures);
                 }
             }
+            return true;
         }
+        return false;
     }
 
-    public void executeScheduledTask(DataSession session, DataObject scheduledTaskObject, String nameScheduledTask) throws SQLException, SQLHandledException {
-        if (daemonTasksExecutor != null) {
+    public boolean executeScheduledTask(DataSession session, DataObject scheduledTaskObject, String nameScheduledTask) throws SQLException, SQLHandledException {
+        if (daemonTasksExecutor != null && isServer()) {
             Long scheduledTaskId = (Long) scheduledTaskObject.getValue();
             List<ScheduledFuture> futures = futuresMap.get(scheduledTaskId);
             if (futures == null)
@@ -151,18 +160,24 @@ public class Scheduler extends MonitorServer implements InitializingBean {
                     null, null, null, null), scheduledTaskId, true, null, 0, false);
             futures.add(task.execute(daemonTasksExecutor));
             futuresMap.put(scheduledTaskId, futures);
+
+            return true;
         }
+
+        return false;
     }
 
-    public void setupScheduledTasks(DataSession session, Integer threadCount) throws SQLException, ScriptingErrorLog.SemanticErrorException, SQLHandledException {
+    public boolean setupScheduledTasks(DataSession session, Integer threadCount) throws SQLException, ScriptingErrorLog.SemanticErrorException, SQLHandledException {
 
         if (daemonTasksExecutor != null)
             daemonTasksExecutor.shutdownNow();
 
-        daemonTasksExecutor = ExecutorFactory.createMonitorScheduledThreadService(threadCount != null ? threadCount : 5, this);
+        daemonTasksExecutor = ExecutorFactory.createMonitorScheduledThreadService((threadCount != null ? threadCount : 5) + 1, this); // +1 because resetResourcesCacheTasks() should always be running
 
-        List<SchedulerTask> tasks = new ArrayList<>(BL.getSystemTasks(this));
-        fillUserScheduledTasks(session, tasks);
+        boolean isServer = isServer();
+        List<SchedulerTask> tasks = new ArrayList<>(BL.getSystemTasks(this, isServer));
+        if(isServer)
+            fillUserScheduledTasks(session, tasks);
 
         for (SchedulerTask task : tasks) {
             List<ScheduledFuture> futures = futuresMap.get(task.scheduledTaskId);
@@ -171,6 +186,8 @@ public class Scheduler extends MonitorServer implements InitializingBean {
             futures.addAll(task.schedule(daemonTasksExecutor));
             futuresMap.put(task.scheduledTaskId, futures);
         }
+
+        return !isServer;
     }
 
     private void fillUserScheduledTasks(DataSession session, List<SchedulerTask> tasks) throws SQLException, SQLHandledException, ScriptingErrorLog.SemanticErrorException {
@@ -204,16 +221,11 @@ public class Scheduler extends MonitorServer implements InitializingBean {
             LocalDateTime startDate = (LocalDateTime) value.get("startDateScheduledTask");
             LocalTime timeFrom = (LocalTime) value.get("timeFromScheduledTask");
             LocalTime timeTo = (LocalTime) value.get("timeToScheduledTask");
+            String daysOfWeekScheduledTask = (String) value.get("daysOfWeekScheduledTask");
+            String daysOfMonthScheduledTask = (String) value.get("daysOfMonthScheduledTask");
             Integer period = (Integer) value.get("periodScheduledTask");
             Object schedulerStartType = value.get("schedulerStartTypeScheduledTask");
             boolean fixedDelay = afterFinish.equals(schedulerStartType);
-
-            String daysOfWeekScheduledTask = (String) value.get("daysOfWeekScheduledTask");
-            Set<String> daysOfWeek = daysOfWeekScheduledTask == null ? new HashSet<>() : new HashSet(Arrays.asList(daysOfWeekScheduledTask.split(",| ")));
-            daysOfWeek.remove("");
-            String daysOfMonthScheduledTask = (String) value.get("daysOfMonthScheduledTask");
-            Set<String> daysOfMonth = daysOfMonthScheduledTask == null ? new HashSet<>() : new HashSet(Arrays.asList(daysOfMonthScheduledTask.split(",| ")));
-            daysOfMonth.remove("");
 
             if(startDate != null || runAtStart)
                 tasks.add(new SchedulerTask(nameScheduledTask, readUserSchedulerTask(session, modifier, currentScheduledTaskObject, nameScheduledTask, timeFrom, timeTo,
@@ -237,7 +249,7 @@ public class Scheduler extends MonitorServer implements InitializingBean {
         scheduledTaskDetailQuery.and(BL.schedulerLM.scheduledTaskScheduledTaskDetail.getExpr(modifier, scheduledTaskDetailExpr).compare(scheduledTaskObject, Compare.EQUALS));
 
         TreeMap<Integer, ScheduledTaskDetail> propertySIDMap = new TreeMap<>();
-        ImOrderMap<ImMap<Object, Object>, ImMap<Object, Object>> propertyResult = scheduledTaskDetailQuery.execute(session);
+        ImOrderMap<ImMap<Object, Object>, ImMap<Object, Object>> propertyResult = scheduledTaskDetailQuery.execute(session, MapFact.singletonOrder("order", false));
         int defaultOrder = propertyResult.size() + 100;
         for (ImMap<Object, Object> propertyValues : propertyResult.valueIt()) {
             String canonicalName = (String) propertyValues.get("canonicalNameAction");
@@ -255,17 +267,22 @@ public class Scheduler extends MonitorServer implements InitializingBean {
                 if (orderProperty == null) {
                     orderProperty = defaultOrder;
                     defaultOrder++;
+                } else {
+                    while(propertySIDMap.containsKey(orderProperty)) {
+                        orderProperty++;
+                    }
                 }
                 LA LA = script == null ? BL.findAction(canonicalName.trim()) : BL.schedulerLM.evalScript;
                 if(LA != null)
                     propertySIDMap.put(orderProperty, new ScheduledTaskDetail(LA, script, ignoreExceptions, timeout, params));
             }
         }
-        Set<String> daysOfWeek = daysOfWeekScheduledTask == null ? new HashSet<>() : new HashSet(Arrays.asList(daysOfWeekScheduledTask.split(",| ")));
-        daysOfWeek.remove("");
-        Set<String> daysOfMonth = daysOfMonthScheduledTask == null ? new HashSet<>() : new HashSet(Arrays.asList(daysOfMonthScheduledTask.split(",| ")));
-        daysOfMonth.remove("");
-        return new UserSchedulerTask(nameScheduledTask, scheduledTaskObject, propertySIDMap, timeFrom, timeTo, daysOfWeek, daysOfMonth);
+        return new UserSchedulerTask(nameScheduledTask, scheduledTaskObject, propertySIDMap, timeFrom, timeTo,
+                splitAndTrim(daysOfWeekScheduledTask), splitAndTrim(daysOfMonthScheduledTask));
+    }
+
+    private Set<String> splitAndTrim(String value) {
+        return value == null ? new HashSet<>() : Arrays.stream(value.split(",")).map(String::trim).collect(Collectors.toSet());
     }
 
     public class SystemSchedulerTask extends SchedulerTask {
@@ -353,6 +370,8 @@ public class Scheduler extends MonitorServer implements InitializingBean {
             daemonTasksExecutor.shutdownNow();
     }
 
+    Set<Object> executingTasks = new HashSet<>();
+
     private class UserSchedulerTask implements EExecutionStackRunnable {
         String nameScheduledTask;
         private DataObject scheduledTaskObject;
@@ -373,69 +392,79 @@ public class Scheduler extends MonitorServer implements InitializingBean {
             this.daysOfMonth = daysOfMonth;
         }
 
+        @StackNewThread
+        @StackMessage("scheduler.scheduled.task")
+        @ThisMessage
         public void run(ExecutionStack stack) throws Exception {
-            final Result<Long> threadId = new Result<>();
+            final Result<Thread> thread = new Result<>();
             Future<Boolean> future = null;
             try {
                 if (daemonTasksExecutor instanceof WrappingScheduledExecutorService) {
                     schedulerLogger.info(((WrappingScheduledExecutorService) daemonTasksExecutor).getThreadPoolInfo());
                 }
-                boolean isTimeToRun = isTimeToRun(localTimeToSqlTime(timeFrom), localTimeToSqlTime(timeTo), daysOfWeek, daysOfMonth);
+                boolean isTimeToRun = isTimeToRun();
+                boolean alreadyExecuting = executingTasks.contains(scheduledTaskObject.getValue());
                 schedulerLogger.info(String.format("Task %s. TimeFrom %s, TimeTo %s, daysOfWeek %s, daysOfMonth %s. %s",
                         nameScheduledTask, timeFrom == null ? "-" : timeFrom, timeTo == null ? "-" : timeTo,
                         daysOfWeek.isEmpty() ? "-" : daysOfWeek, daysOfMonth.isEmpty() ? "-" : daysOfMonth,
-                        isTimeToRun ? "Started successful" : "Not started due to conditions"));
+                        isTimeToRun ? alreadyExecuting ? "Already executing" : "Started successful" : "Not started due to conditions"));
 
                 if(isTimeToRun) {
-                    ExecutorService mirrorMonitorService = null;
-                    try {
-                        for (final ScheduledTaskDetail detail : lapMap.values()) {
-                            if (detail != null) {
+                    if (alreadyExecuting) {
+                        logAlreadyExecutingTask(nameScheduledTask, stack);
+                    } else {
+                        executingTasks.add(scheduledTaskObject.getValue());
+                        ExecutorService mirrorMonitorService = null;
+                        try {
+                            for (final ScheduledTaskDetail detail : lapMap.values()) {
+                                if (detail != null) {
 
-                                if (mirrorMonitorService == null)
-                                    mirrorMonitorService = ExecutorFactory.createMonitorMirrorSyncService(Scheduler.this);
+                                    if (mirrorMonitorService == null)
+                                        mirrorMonitorService = ExecutorFactory.createMonitorMirrorSyncService(Scheduler.this);
 
-                                future = mirrorMonitorService.submit(() -> {
-                                    threadId.set(Thread.currentThread().getId());
-                                    try {
-                                        return run(detail);
-                                    } finally {
-                                        threadId.set(null);
-                                    }
-                                });
-                                boolean succeeded;
-                                if (detail.timeout == null)
-                                    succeeded = future.get();
-                                else {
-                                    try {
-                                        succeeded = future.get(detail.timeout, TimeUnit.SECONDS);
-                                    } catch (TimeoutException e) {
-                                        ThreadUtils.interruptThread(dbManager, threadId.result, future);
-
-                                        ExecutorService terminateService = mirrorMonitorService;
-                                        mirrorMonitorService = null;
-                                        terminateService.shutdown();
-                                        if(!terminateService.awaitTermination(Settings.get().getWaitSchedulerCanceledDelay(), TimeUnit.MILLISECONDS)) { // giving thread some time to be canceled
-                                            logExceptionTask(detail.getCaption(), e, stack);
+                                    future = mirrorMonitorService.submit(() -> {
+                                        thread.set(Thread.currentThread());
+                                        try {
+                                            return run(detail);
+                                        } finally {
+                                            thread.set(null);
                                         }
-                                        
-                                        succeeded = false;
+                                    });
+                                    boolean succeeded;
+                                    if (detail.timeout == null)
+                                        succeeded = future.get();
+                                    else {
+                                        try {
+                                            succeeded = future.get(detail.timeout, TimeUnit.SECONDS);
+                                        } catch (TimeoutException e) {
+                                            ThreadUtils.interruptThread(dbManager, thread.result, future);
+
+                                            ExecutorService terminateService = mirrorMonitorService;
+                                            mirrorMonitorService = null;
+                                            terminateService.shutdown();
+                                            if(!terminateService.awaitTermination(Settings.get().getWaitSchedulerCanceledDelay(), TimeUnit.MILLISECONDS)) { // giving thread some time to be canceled
+                                                logExceptionTask(detail.getCaption(), e, stack);
+                                            }
+
+                                            succeeded = false;
+                                        }
                                     }
+
+                                    if (!succeeded && !detail.ignoreExceptions)
+                                        break;
                                 }
-                                
-                                if (!succeeded && !detail.ignoreExceptions)
-                                    break;
                             }
+                        } finally {
+                            executingTasks.remove(scheduledTaskObject.getValue());
+                            if (mirrorMonitorService != null)
+                                mirrorMonitorService.shutdown();
                         }
-                    } finally {
-                        if(mirrorMonitorService != null)
-                            mirrorMonitorService.shutdown();
                     }
                 }
-            } catch (Exception e) {
+            } catch (Throwable e) {
                 if (future != null) {
                     try {
-                        ThreadUtils.interruptThread(dbManager, threadId.result, future);
+                        ThreadUtils.interruptThread(dbManager, thread.result, future);
                     } catch (SQLException | SQLHandledException ignored) {
                     }
                 }
@@ -443,37 +472,36 @@ public class Scheduler extends MonitorServer implements InitializingBean {
             }
         }
 
-        private boolean isTimeToRun(Time timeFrom, Time timeTo, Set<String> daysOfWeek, Set<String> daysOfMonth) {
-            Calendar currentCal = Calendar.getInstance();
+        private boolean isTimeToRun() {
+            LocalDate currentDate = LocalDate.now();
+            LocalDateTime currentDateTime = LocalDateTime.now();
 
-            if((!daysOfWeek.isEmpty() && !daysOfWeek.contains(String.valueOf(currentCal.get(Calendar.DAY_OF_WEEK) - 1)))
-                    || (!daysOfMonth.isEmpty() && !daysOfMonth.contains(String.valueOf(currentCal.get(Calendar.DAY_OF_MONTH)))))
+            if ((!daysOfWeek.isEmpty() && !daysOfWeek.contains(String.valueOf(currentDateTime.getDayOfWeek().getValue() - 1)))
+                    || (!daysOfMonth.isEmpty() && !daysOfMonth.contains(String.valueOf(currentDateTime.getDayOfMonth())))) {
                 return false;
+            }
 
-            if(timeFrom.equals(localTimeToSqlTime(defaultTime)) && timeTo.equals(localTimeToSqlTime(defaultTime))) return true;
+            if (timeFrom.equals(defaultTime) && timeTo.equals(defaultTime)) {
+                return true;
+            }
 
-            Calendar calendarFrom = Calendar.getInstance();
-            calendarFrom.setTime(timeFrom);
-            calendarFrom.set(Calendar.DAY_OF_MONTH, currentCal.get(Calendar.DAY_OF_MONTH));
-            calendarFrom.set(Calendar.MONTH, currentCal.get(Calendar.MONTH));
-            calendarFrom.set(Calendar.YEAR, currentCal.get(Calendar.YEAR));
+            LocalDateTime dateTimeFrom = timeFrom.atDate(currentDate);
+            LocalDateTime dateTimeTo = timeTo.atDate(currentDate);
+            if (timeFrom.isAfter(timeTo)) {
+                dateTimeTo = dateTimeTo.plusDays(1);
+            }
 
-            Calendar calendarTo = Calendar.getInstance();
-            calendarTo.setTime(timeTo);
-            calendarTo.set(Calendar.DAY_OF_MONTH, currentCal.get(Calendar.DAY_OF_MONTH));
-            if(timeFrom.compareTo(timeTo) > 0)
-                calendarTo.add(Calendar.DAY_OF_MONTH, 1);
-            calendarTo.set(Calendar.MONTH, currentCal.get(Calendar.MONTH));
-            calendarTo.set(Calendar.YEAR, currentCal.get(Calendar.YEAR));
-
-            return currentCal.getTimeInMillis() >= calendarFrom.getTimeInMillis() && currentCal.getTimeInMillis() <= calendarTo.getTimeInMillis();
+            return currentDateTime.compareTo(dateTimeFrom) >= 0 && currentDateTime.compareTo(dateTimeTo) <= 0;
         }
-        
+
+        @StackNewThread
+        @StackMessage("scheduler.scheduled.task")
+        @ThisMessage
         public boolean run(ScheduledTaskDetail detail) {
             ExecutionStack stack = getStack(); // иначе assertion'ы внутри с проверкой контекста валятся
 
             Long taskLogId = null;
-            Exception exception = null;
+            Throwable throwable = null;
 
             String taskCaption = detail.getCaption();
             
@@ -513,44 +541,52 @@ public class Scheduler extends MonitorServer implements InitializingBean {
                 taskLogId = logFinishTask(taskCaption, stack, applyResult);
                 
                 return applyResult == null;
-            } catch (Exception e) {
-                taskLogId = logExceptionTask(taskCaption, e, stack);
-                exception = e;
+            } catch (Throwable t) {
+                taskLogId = logExceptionTask(taskCaption, t, stack);
+                throwable = t;
                 return false;
             } finally {
                 ImList<AbstractContext.LogMessage> logMessages = ThreadLocalContext.popLogMessage();
-                if(exception != null)
-                    logMessages = logMessages.addList(new AbstractContext.LogMessage(ExceptionUtils.toString(exception), true, ExecutionStackAspect.getExceptionStackTrace()));
+                if(throwable != null)
+                    logMessages = logMessages.addList(new AbstractContext.LogMessage(ExceptionUtils.toString(throwable), true, ExecutionStackAspect.getExceptionStackTrace()));
                 if(taskLogId != null)
                     logClientTasks(logMessages, taskLogId, taskCaption, stack);
             }
         }
 
         private void logStartTask(String taskCaption, ExecutionStack stack) {
-            logTask(taskCaption, "Запущено", "start", stack, null);
+            logTask(taskCaption, ServerResourceBundle.getString("scheduler.started"), "start", stack, null);
+        }
+
+        private void logAlreadyExecutingTask(String taskCaption, ExecutionStack stack) {
+            logTask(taskCaption, ServerResourceBundle.getString("scheduler.already.executing"), "start", stack, null, true);
         }
 
         private Long logFinishTask(String taskCaption, ExecutionStack stack, String applyResult) {
-            return logTask(taskCaption, applyResult == null ? "Выполнено успешно" : BaseUtils.truncate(applyResult, 200), "exception", stack, null);
+            return logTask(taskCaption, applyResult == null ? ServerResourceBundle.getString("scheduler.finished.successfully") : BaseUtils.truncate(applyResult, 200), "exception", stack, null);
         }
 
-        private Long logExceptionTask(String taskCaption, Exception e, ExecutionStack stack) {
-            return logTask(taskCaption, BaseUtils.truncate(String.valueOf(e), 200), "exception", stack, e);
+        private Long logExceptionTask(String taskCaption, Throwable t, ExecutionStack stack) {
+            return logTask(taskCaption, BaseUtils.truncate(String.valueOf(t), 200), "exception", stack, t);
         }
 
-        private Long logTask(String message, String result, String phase, ExecutionStack stack, Exception e) {
-            if(e != null)
-                schedulerLogger.error("Exception in task : " + message, e);
+        private Long logTask(String message, String result, String phase, ExecutionStack stack, Throwable t) {
+            return logTask(message, result, phase, stack, t, false);
+        }
+
+        private Long logTask(String message, String result, String phase, ExecutionStack stack, Throwable t, boolean error) {
+            if(t != null)
+                schedulerLogger.error("Exception in task : " + message + " - " + result, t);
             else
-                schedulerLogger.info("Task " + message + " " + phase);
+                schedulerLogger.info("Task " + message + " - " + result + " " + phase);
             
             try (DataSession session = createSession()) {
                 DataObject taskLogObject = session.addObject(BL.schedulerLM.scheduledTaskLog);
 
-                BL.schedulerLM.scheduledTaskScheduledTaskLog.change(scheduledTaskObject, (ExecutionEnvironment) session, taskLogObject);
+                BL.schedulerLM.scheduledTaskScheduledTaskLog.change(new DataObject((Long)scheduledTaskObject.getValue(), BL.schedulerLM.userScheduledTask), (ExecutionEnvironment) session, taskLogObject);
                 BL.schedulerLM.propertyScheduledTaskLog.change(message, session, taskLogObject);
-                BL.schedulerLM.dateScheduledTaskLog.change(getWriteDateTime(LocalDateTime.now()), session, taskLogObject);
-                if(e != null)
+                BL.schedulerLM.dateScheduledTaskLog.change(LocalDateTime.now(), session, taskLogObject);
+                if(t != null || error)
                     BL.schedulerLM.exceptionOccurredScheduledTaskLog.change(true, session, taskLogObject);
                 BL.schedulerLM.resultScheduledTaskLog.change(result, session, taskLogObject);
 
@@ -577,7 +613,7 @@ public class Scheduler extends MonitorServer implements InitializingBean {
         }
 
         private void logClientTask(DataSession session, DataObject taskLog, AbstractContext.LogMessage logMessage) throws SQLException, SQLHandledException {            
-            ServerLoggers.serviceLogger.info(logMessage.message);
+            ServerLoggers.schedulerLogger.info(logMessage.message);
             
             DataObject clientTaskLog = session.addObject(BL.schedulerLM.scheduledClientTaskLog);
             BL.schedulerLM.scheduledTaskLogScheduledClientTaskLog
@@ -588,7 +624,7 @@ public class Scheduler extends MonitorServer implements InitializingBean {
                 BL.schedulerLM.lsfStackScheduledClientTaskLog.change(lsfStack, session, clientTaskLog);
             if(logMessage.failed)
                 BL.schedulerLM.failedScheduledClientTaskLog.change(true, session, clientTaskLog);
-            BL.schedulerLM.dateScheduledClientTaskLog.change(getWriteDateTime(new Timestamp(logMessage.time)), session, clientTaskLog);
+            BL.schedulerLM.dateScheduledClientTaskLog.change(sqlTimestampToLocalDateTime(new Timestamp(logMessage.time)), session, clientTaskLog);
         }
     }
 

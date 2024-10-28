@@ -7,6 +7,7 @@ import lsfusion.client.form.property.cell.classes.controller.ColorPropertyEditor
 import lsfusion.client.form.property.cell.classes.controller.PropertyEditor;
 import lsfusion.client.form.property.cell.classes.view.ColorPropertyRenderer;
 import lsfusion.client.form.property.cell.view.PropertyRenderer;
+import lsfusion.client.form.property.table.view.AsyncChangeInterface;
 import lsfusion.interop.classes.DataType;
 
 import java.awt.*;
@@ -22,14 +23,14 @@ public class ClientColorClass extends ClientDataClass implements ClientTypeClass
     }
 
     @Override
-    protected PropertyEditor getDataClassEditorComponent(Object value, ClientPropertyDraw property) {
+    protected PropertyEditor getDataClassEditorComponent(Object value, ClientPropertyDraw property, AsyncChangeInterface asyncChange) {
         return new ColorPropertyEditor(value);
     }
 
     @Override
     public Object parseString(String s) throws ParseException {
         try {
-            return Color.decode("#" + s.substring(s.length() - 6, s.length()));
+            return Color.decode("#" + s.substring(s.length() - 6));
         } catch (Exception e) {
             throw new RuntimeException("error parsing color");
         }
@@ -40,7 +41,6 @@ public class ClientColorClass extends ClientDataClass implements ClientTypeClass
         return "#" + Integer.toHexString(((Color) obj).getRGB()).substring(2, 8);
     }
 
-    @Override
     public byte getTypeId() {
         return DataType.COLOR;
     }

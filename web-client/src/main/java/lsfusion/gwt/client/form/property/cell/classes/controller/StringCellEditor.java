@@ -2,6 +2,10 @@ package lsfusion.gwt.client.form.property.cell.classes.controller;
 
 import lsfusion.gwt.client.base.GwtSharedUtils;
 import lsfusion.gwt.client.form.property.GPropertyDraw;
+import lsfusion.gwt.client.form.property.PValue;
+import lsfusion.gwt.client.form.property.async.GInputList;
+import lsfusion.gwt.client.form.property.async.GInputListAction;
+import lsfusion.gwt.client.form.property.cell.controller.EditContext;
 import lsfusion.gwt.client.form.property.cell.controller.EditManager;
 
 public class StringCellEditor extends TextBasedCellEditor {
@@ -9,24 +13,29 @@ public class StringCellEditor extends TextBasedCellEditor {
     private int stringLength; 
 
     public StringCellEditor(EditManager editManager, GPropertyDraw property, boolean isVarString, int stringLength) {
-        super(editManager, property);
+        this(editManager, property, isVarString, stringLength, null, null);
+    }
+
+    public StringCellEditor(EditManager editManager, GPropertyDraw property, boolean isVarString, int stringLength, GInputList inputList, GInputListAction[] inputListActions) {
+        this(editManager, property, isVarString, stringLength, inputList, inputListActions, null);
+    }
+    public StringCellEditor(EditManager editManager, GPropertyDraw property, boolean isVarString, int stringLength, GInputList inputList, GInputListAction[] inputListActions, EditContext editContext) {
+        super(editManager, property, inputList, inputListActions, editContext);
         this.isVarString = isVarString;
         this.stringLength = stringLength;
     }
 
     @Override
-    protected String tryParseInputText(String inputText, boolean onCommit) {
-        return inputText.isEmpty() ? null : inputText;
-    }
-
-    @Override
-    protected String tryFormatInputText(Object value) {
+    protected String tryFormatInputText(PValue value) {
         if (value == null) {
             return "";
         }
 
-        String stringValue = value.toString();
-        return isVarString ? stringValue : GwtSharedUtils.rtrim(stringValue);
+        String string = PValue.getStringValue(value);
+        if(isVarString)
+            string = GwtSharedUtils.rtrim(string);
+
+        return string;
     }
 
     @Override

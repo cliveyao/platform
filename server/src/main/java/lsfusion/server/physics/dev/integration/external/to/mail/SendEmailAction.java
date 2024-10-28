@@ -1,11 +1,13 @@
 package lsfusion.server.physics.dev.integration.external.to.mail;
 
+import lsfusion.base.EscapeUtils;
 import lsfusion.base.col.MapFact;
+import lsfusion.base.col.SetFact;
 import lsfusion.base.col.interfaces.immutable.ImMap;
 import lsfusion.base.col.interfaces.immutable.ImOrderMap;
 import lsfusion.base.file.FileData;
 import lsfusion.base.file.RawFileData;
-import lsfusion.interop.action.MessageClientAction;
+import lsfusion.server.base.AppServerImage;
 import lsfusion.server.data.expr.key.KeyExpr;
 import lsfusion.server.data.query.build.QueryBuilder;
 import lsfusion.server.data.sql.exception.SQLHandledException;
@@ -14,23 +16,22 @@ import lsfusion.server.data.value.DataObject;
 import lsfusion.server.data.value.NullValue;
 import lsfusion.server.data.value.ObjectValue;
 import lsfusion.server.language.property.LP;
-import lsfusion.server.logics.action.SystemExplicitAction;
+import lsfusion.server.logics.action.BaseAction;
+import lsfusion.server.logics.action.SystemAction;
 import lsfusion.server.logics.action.controller.context.ExecutionContext;
+import lsfusion.server.logics.action.flow.ChangeFlowType;
+import lsfusion.server.logics.action.flow.FlowResult;
 import lsfusion.server.logics.action.session.change.modifier.Modifier;
-import lsfusion.server.logics.classes.ValueClass;
-import lsfusion.server.logics.classes.data.file.DynamicFormatFileClass;
-import lsfusion.server.logics.classes.data.file.FileClass;
 import lsfusion.server.logics.classes.data.file.StaticFormatFileClass;
-import lsfusion.server.logics.property.classes.ClassPropertyInterface;
 import lsfusion.server.logics.property.implement.PropertyInterfaceImplement;
 import lsfusion.server.logics.property.oraction.PropertyInterface;
 import lsfusion.server.physics.admin.log.ServerLoggers;
 import lsfusion.server.physics.dev.i18n.LocalizedString;
-import org.apache.log4j.Logger;
 
 import javax.mail.Message;
 import javax.mail.MessagingException;
 import java.io.IOException;
+import java.security.GeneralSecurityException;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -39,18 +40,14 @@ import java.util.Map;
 import java.util.regex.Pattern;
 
 import static javax.mail.Message.RecipientType.TO;
-import static lsfusion.base.BaseUtils.nullTrim;
-import static lsfusion.base.BaseUtils.nvl;
+import static lsfusion.base.BaseUtils.*;
 import static lsfusion.server.base.controller.thread.ThreadLocalContext.localize;
-import static org.apache.commons.lang3.StringUtils.trimToNull;
 
-public class SendEmailAction extends SystemExplicitAction {
-    private final static Logger logger = ServerLoggers.mailLogger;
+public class SendEmailAction extends SystemAction {
+    private PropertyInterfaceImplement<PropertyInterface> fromAddress;
+    private PropertyInterfaceImplement<PropertyInterface> subject;
 
-    private PropertyInterfaceImplement<ClassPropertyInterface> fromAddressAccount;
-    private PropertyInterfaceImplement<ClassPropertyInterface> subject;
-
-    private List<PropertyInterfaceImplement<ClassPropertyInterface>> recipients = new ArrayList<>();
+    private List<PropertyInterfaceImplement<PropertyInterface>> recipients = new ArrayList<>();
     private List<Message.RecipientType> recipientTypes = new ArrayList<>();
 
     private final List<PropertyInterfaceImplement> attachFileNames = new ArrayList<>();
@@ -62,92 +59,95 @@ public class SendEmailAction extends SystemExplicitAction {
     private final List<PropertyInterfaceImplement> inlineFiles = new ArrayList<>();
     private final Boolean syncType;
 
-    public SendEmailAction(LocalizedString caption, ValueClass[] classes, boolean syncType) {
-        super(caption, classes);
+    public static void setDrawOptions(BaseAction action) {
+        action.drawOptions.setAskConfirm(true);
+        action.setImage(AppServerImage.EMAIL);
+    }
 
-        drawOptions.setAskConfirm(true);
-        drawOptions.setImage("email.png");
+    public SendEmailAction(LocalizedString caption, int paramsCount, boolean syncType) {
+        super(caption, SetFact.toOrderExclSet(paramsCount, i -> new PropertyInterface()));
+
+        setDrawOptions(this);
         this.syncType = syncType;
     }
 
-    @Override
-    protected boolean isSync() { // формы используются, не определишь getUsedProps
-        return true;
+    public void setFromAddress(PropertyInterfaceImplement<PropertyInterface> fromAddress) {
+        this.fromAddress = fromAddress;
     }
 
-    public void setFromAddressAccount(PropertyInterfaceImplement<ClassPropertyInterface> fromAddressAccount) {
-        this.fromAddressAccount = fromAddressAccount;
-    }
-
-    public void setSubject(PropertyInterfaceImplement<ClassPropertyInterface> subject) {
+    public void setSubject(PropertyInterfaceImplement<PropertyInterface> subject) {
         this.subject = subject;
     }
 
-    public <R extends PropertyInterface> void addRecipient(PropertyInterfaceImplement<ClassPropertyInterface> recipient, Message.RecipientType type) {
-        recipients.add(recipient);
-        recipientTypes.add(type);
+    public void addRecipient(PropertyInterfaceImplement<PropertyInterface> recipient, Message.RecipientType type) {
+        this.recipients.add(recipient);
+        this.recipientTypes.add(type);
     }
 
     public void addAttachmentFile(PropertyInterfaceImplement fileName, PropertyInterfaceImplement file) {
-        attachFileNames.add(fileName);
-        attachFiles.add(file);
+        this.attachFileNames.add(fileName);
+        this.attachFiles.add(file);
     }
 
     public void addAttachmentFileProp(LP fileNameProp, LP fileProp) {
-        attachFileNameProps.add(fileNameProp);
-        attachFileProps.add(fileProp);
+        this.attachFileNameProps.add(fileNameProp);
+        this.attachFileProps.add(fileProp);
     }
 
     public void addInlineFile(PropertyInterfaceImplement file) {
-        inlineFiles.add(file);
+        this.inlineFiles.add(file);
     }
 
-    public void executeInternal(ExecutionContext<ClassPropertyInterface> context) {
+    @Override
+    protected FlowResult aspectExecute(ExecutionContext<PropertyInterface> context) {
         EmailLogicsModule emailLM = context.getBL().emailLM;
         try {
             Map<String, Message.RecipientType> recipients = getRecipientEmails(context);
-            String fromAddress = fromAddressAccount != null ? trimToNull((String) fromAddressAccount.read(context, context.getKeys())) : null;
+            String fromAddress = this.fromAddress != null ? trimToNull((String) this.fromAddress.read(context, context.getKeys())) : null;
             ObjectValue account = emailLM.inboxAccount.readClasses(context, fromAddress != null ? new DataObject(fromAddress) : NullValue.instance);
 
             if (account instanceof DataObject) {
-                String encryptedConnectionType = (String) emailLM.nameEncryptedConnectionTypeAccount.read(context, account);
-                String smtpHostAccount = (String) emailLM.smtpHostAccount.read(context, account);
-                String smtpPortAccount = (String) emailLM.smtpPortAccount.read(context, account);
+                String encryptedConnectionType = trimToEmpty((String) emailLM.nameEncryptedConnectionTypeAccount.read(context, account));
+                String smtpHost = trim((String) emailLM.smtpHostAccount.read(context, account));
+                String smtpPort = trimToEmpty((String) emailLM.smtpPortAccount.read(context, account));
+                boolean insecureSSL = emailLM.insecureSSLAccount.read(context, account) != null;
 
-                String fromAddressAccount = fromAddress != null ? fromAddress : trimToNull((String) emailLM.fromAddressAccount.read(context, account));
-
-                String subject = this.subject != null ? (String) this.subject.read(context, context.getKeys()) : localize("{mail.nosubject}");
-                String nameAccount = (String) emailLM.nameAccount.read(context, account);
-                String passwordAccount = (String) emailLM.passwordAccount.read(context, account);
-
-                if (emailLM.disableAccount.read(context, account) != null) {
-                    logger.error(localize("{mail.disabled}"));
-                    return;
+                if(fromAddress == null) {
+                    fromAddress = trimToNull((String) emailLM.fromAddressAccount.read(context, account));
                 }
 
-                if (smtpHostAccount == null || fromAddressAccount == null) {
-                    logError(context, localize("{mail.smtp.host.or.sender.not.specified.letters.will.not.be.sent}"));
-                    return;
+                String subject = this.subject != null ? (String) this.subject.read(context, context.getKeys()) : localize("{mail.nosubject}");
+                String user = trimToEmpty((String) emailLM.nameAccount.read(context, account));
+                String password = trimToEmpty((String) emailLM.passwordAccount.read(context, account));
+
+                if (emailLM.disableAccount.read(context, account) != null) {
+                    logErrorAndShowMessage(context, localize("{mail.disabled}"));
+                    return FlowResult.FINISH;
+                }
+
+                if (smtpHost == null || fromAddress == null) {
+                    logErrorAndShowMessage(context, localize("{mail.smtp.host.or.sender.not.specified.letters.will.not.be.sent}"));
+                    return FlowResult.FINISH;
                 }
 
                 if (recipients.isEmpty()) {
-                    logError(context, localize("{mail.recipient.not.specified}"));
-                    return;
+                    logErrorAndShowMessage(context, localize("{mail.recipient.not.specified}"));
+                    return FlowResult.FINISH;
                 }
-
-                EmailSender sender = new EmailSender(nullTrim(smtpHostAccount), nullTrim(smtpPortAccount), nullTrim(encryptedConnectionType), fromAddressAccount, nullTrim(nameAccount),nullTrim(passwordAccount), recipients);
 
                 List<EmailSender.AttachmentFile> attachFiles = new ArrayList<>();
                 List<String> inlineFiles = new ArrayList<>();
                 proceedFiles(context, attachFiles, inlineFiles);
 
-                sender.sendMail(context, subject, inlineFiles, attachFiles, syncType);
+                EmailSender.sendMail(context, fromAddress, recipients, subject, inlineFiles, attachFiles, smtpHost, smtpPort, encryptedConnectionType, user, password, syncType, insecureSSL);
             } else {
                 throw new RuntimeException(localize("{mail.failed.email.not.configured}"));
             }
-        } catch (SQLException | SQLHandledException | MessagingException | IOException e) {
-            logError(context, localize("{mail.failed.to.send.mail}") + " : " + e.toString());
+        } catch (SQLException | SQLHandledException | MessagingException | IOException | GeneralSecurityException e) {
+            logErrorAndShowMessage(context, localize("{mail.failed.to.send.mail}") + " : " + e);
         }
+
+        return FlowResult.FINISH;
     }
 
     private Map<String, Message.RecipientType> getRecipientEmails(ExecutionContext context) throws SQLException, SQLHandledException {
@@ -157,7 +157,7 @@ public class SendEmailAction extends SystemExplicitAction {
 
         Map<String, Message.RecipientType> recipientEmails = new HashMap<>();
         for (int i = 0; i < recipients.size(); ++i) {
-            PropertyInterfaceImplement<ClassPropertyInterface> recipient = recipients.get(i);
+            PropertyInterfaceImplement<PropertyInterface> recipient = recipients.get(i);
             Message.RecipientType recipientType = recipientTypes.get(i);
 
             String recipientEmailList = (String) recipient.read(context, context.getKeys());
@@ -167,7 +167,7 @@ public class SendEmailAction extends SystemExplicitAction {
                     email = trimToNull(email);
                     if (email == null || !p.matcher(email).matches()) {
                         if(email != null)
-                            context.requestUserInteraction(new MessageClientAction("Invalid email: " + email, "Invalid email"));
+                            context.messageError("Invalid email: " + email, "Invalid email");
                         continue;
                     }
 
@@ -181,7 +181,7 @@ public class SendEmailAction extends SystemExplicitAction {
         return recipientEmails;
     }
     
-    private void proceedFiles(ExecutionContext<ClassPropertyInterface> context, List<EmailSender.AttachmentFile> attachments, List<String> customInlines) throws SQLException, SQLHandledException {
+    private void proceedFiles(ExecutionContext<PropertyInterface> context, List<EmailSender.AttachmentFile> attachments, List<String> customInlines) throws SQLException, SQLHandledException {
         int attachmentCount = 0;
         for (int i = 0; i < attachFileNames.size(); i++) {
             attachmentCount++;
@@ -199,23 +199,8 @@ public class SendEmailAction extends SystemExplicitAction {
 
         for (PropertyInterfaceImplement inlineFile : this.inlineFiles) {
             ObjectValue inlineObject = inlineFile.readClasses(context);
-            if (inlineObject instanceof DataObject) {
-                Object inlineValue = inlineObject.getValue();
-                Type type = inlineObject.getType();
-                String inlineText;
-                if(type instanceof FileClass) {
-                    RawFileData rawFile;
-                    if (type instanceof DynamicFormatFileClass) {
-                        rawFile = ((FileData) inlineValue).getRawFile();
-                    } else {
-                        rawFile = (RawFileData) inlineValue;
-                    }
-                    inlineText = new String(rawFile.getBytes());
-                } else {
-                    inlineText = type.formatString(inlineValue);
-                }
-                customInlines.add(inlineText);
-            }
+            if (inlineObject instanceof DataObject)
+                customInlines.add(EscapeUtils.toHtml(inlineObject.getType().formatMessage(inlineObject.getValue())));
         }
     }
 
@@ -246,21 +231,25 @@ public class SendEmailAction extends SystemExplicitAction {
 
     private EmailSender.AttachmentFile getAttachFile(ObjectValue fileObject, String name) {
         Type objectType = fileObject.getType();
-        RawFileData rawFile;
-        String extension;
-        if (objectType instanceof StaticFormatFileClass) {
-            rawFile = (RawFileData) fileObject.getValue();
-            extension = ((StaticFormatFileClass) objectType).getOpenExtension(rawFile);
-        } else {
-            FileData file = (FileData) fileObject.getValue();
-            rawFile = file.getRawFile();
-            extension = file.getExtension();
-        }
-        return new EmailSender.AttachmentFile(rawFile, name + "." + extension, extension);
+        FileData file;
+        Object fileValue = fileObject.getValue();
+        if (objectType instanceof StaticFormatFileClass)
+            file = ((StaticFormatFileClass) objectType).getFileData((RawFileData) fileValue);
+        else
+            file = (FileData) fileValue;
+        String extension = file.getExtension();
+        return new EmailSender.AttachmentFile(file.getRawFile(), name + "." + extension, extension);
     }
 
-    private void logError(ExecutionContext context, String errorMessage) {
-        logger.error(errorMessage);
-        context.delayUserInterfaction(new MessageClientAction(errorMessage, localize("{mail.sending}")));
+    private void logErrorAndShowMessage(ExecutionContext context, String errorMessage) {
+        ServerLoggers.mailLogger.error(errorMessage);
+        context.messageError(errorMessage, localize("{mail.sending}"));
+    }
+
+    @Override
+    public boolean hasFlow(ChangeFlowType type) {
+        if(type == ChangeFlowType.SYNC)
+            return true;
+        return super.hasFlow(type);
     }
 }

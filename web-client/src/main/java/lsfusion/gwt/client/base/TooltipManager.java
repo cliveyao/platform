@@ -1,124 +1,172 @@
 package lsfusion.gwt.client.base;
 
-import com.google.gwt.core.client.Scheduler;
-import com.google.gwt.dom.client.NativeEvent;
+import com.google.gwt.core.client.JavaScriptObject;
+import com.google.gwt.dom.client.Element;
+import com.google.gwt.dom.client.Node;
+import com.google.gwt.dom.client.Style;
 import com.google.gwt.event.dom.client.*;
-import com.google.gwt.user.client.ui.FocusPanel;
-import com.google.gwt.user.client.ui.HTML;
-import com.google.gwt.user.client.ui.Widget;
-import lsfusion.gwt.client.base.view.PopupDialogPanel;
+import com.google.gwt.user.client.Cookies;
+import com.google.gwt.user.client.DOM;
+import com.google.gwt.user.client.Event;
+import com.google.gwt.user.client.ui.*;
+import lsfusion.gwt.client.ClientMessages;
+import lsfusion.gwt.client.base.view.FormButton;
+import lsfusion.gwt.client.base.view.PopupOwner;
+import lsfusion.gwt.client.form.object.table.grid.user.toolbar.view.GToolbarButton;
+import lsfusion.gwt.client.view.MainFrame;
 
-import static com.google.gwt.dom.client.BrowserEvents.*;
-import static lsfusion.gwt.client.base.GwtSharedUtils.isRedundantString;
+import java.util.Date;
 
 public class TooltipManager {
-    private static final TooltipManager instance = new TooltipManager();
+    private static final ClientMessages messages = ClientMessages.Instance.get();
 
-    private static final int DELAY_SHOW = 1500;
-    private static final int DELAY_HIDE = 100;
-
-    private int mouseX;
-    private int mouseY;
-
-    private PopupDialogPanel tooltip;
-    private HTML tooltipHtml;
-
-    private boolean mouseIn;
-
-    private String currentText = "";
-
-    public static TooltipManager get() {
-        return instance;
+    public static JavaScriptObject initTooltip(Widget widget, final TooltipHelper tooltipHelper) {
+        return initTooltip(new PopupOwner(widget), tooltipHelper);
     }
-    
-    public static void registerWidget(Widget widget, final TooltipHelper tooltipHelper) {
-        widget.addDomHandler(event -> get().showTooltip(event.getClientX(), event.getClientY(), tooltipHelper), MouseOverEvent.getType());
-        widget.addDomHandler(event -> get().hideTooltip(tooltipHelper), MouseDownEvent.getType());
-        widget.addDomHandler(event -> get().hideTooltip(null), MouseOutEvent.getType());
-        widget.addDomHandler(event -> get().updateMousePosition(event.getClientX(), event.getClientY()), MouseMoveEvent.getType());
+    public static JavaScriptObject initTooltip(PopupOwner popupOwner, final TooltipHelper tooltipHelper) {
+        if (!MainFrame.mobile && tooltipHelper.getTooltip(null) != null && MainFrame.showDetailedInfoDelay > 0) {
+            // assert that element is "new" and have no tippy (two mouseenter tippies will look odd, however manual tippy can be added)
+            assert !GwtClientUtils.hasProperty(popupOwner.element, "_tippy");
+            JavaScriptObject tippy = GwtClientUtils.initTippy(popupOwner, MainFrame.showDetailedInfoDelay, "mouseenter", null, null, null);
+            updateContent(tippy, tooltipHelper, null);
+            return tippy;
+        }
+        return null;
     }
 
-    // the same as registerWidget, but should be used when we don't have Widget
-    public static void checkTooltipEvent(NativeEvent event, TooltipHelper tooltipHelper) {
-        String eventType = event.getType();
-        if (MOUSEOVER.equals(eventType)) get().showTooltip(event.getClientX(), event.getClientY(), tooltipHelper);
-        else if (MOUSEOUT.equals(eventType)) get().hideTooltip(tooltipHelper);
-        else if (MOUSEDOWN.equals(eventType)) get().hideTooltip(null);
-        else if (MOUSEMOVE.equals(eventType)) get().updateMousePosition(event.getClientX(), event.getClientY());
-    }
-
-    public void showTooltip(final int offsetX, final int offsetY, final TooltipHelper tooltipHelper) {
-        final String tooltipText = tooltipHelper.getTooltip();
-        mouseX = offsetX;
-        mouseY = offsetY;
-        currentText = tooltipText;
-
-        if(tooltipText != null) {
-            mouseIn = true;
-
-            Scheduler.get().scheduleFixedDelay(() -> {
-                if (mouseIn && tooltipText.equals(currentText)) {
-                    if(tooltipHelper.stillShowTooltip()) {
-                        if(tooltip != null) { // need this to avoid blinking when hiding / showing tooltip
-                            tooltipHtml.setHTML(tooltipText);
-                            GwtClientUtils.setPopupPosition(tooltip, mouseX, mouseY);
-                        } else {
-                            tooltip = new PopupDialogPanel();
-                            tooltipHtml = new HTML(tooltipText, false);
-                            GwtClientUtils.showPopupInWindow(tooltip, new FocusPanel(tooltipHtml), mouseX, mouseY);
-                        }
-                    } else {
-                        if (tooltip != null) {
-                            tooltip.hide();
-                            tooltip = null;
-                            tooltipHtml = null;
-                        }
-                    }
-                }
-                return false;
-            }, DELAY_SHOW);
+    public static void updateContent(JavaScriptObject tippy, final TooltipHelper tooltipHelper, String dynamicTooltip) {
+        if(tippy != null) {
+            GwtClientUtils.updateTippyContent(tippy, getTooltipContent(tooltipHelper, dynamicTooltip, tippy));
         }
     }
 
-    public void hideTooltip(final TooltipHelper tooltipHelper) {
-        mouseIn = false;
-        currentText = "";
+    private static Element getTooltipContent(TooltipHelper tooltipHelper, String dynamicTooltip, JavaScriptObject tippy) {
+        String tooltip = tooltipHelper.getTooltip(dynamicTooltip);
+        if(GwtSharedUtils.isRedundantString(tooltip)) {
+            return null;
+        }
+        Element tooltipElement = EscapeUtils.toHTML(tooltip).getElement();
 
-        if(tooltipHelper != null) {
-            String tooltipText = tooltipHelper.getTooltip();
+        if (MainFrame.showDetailedInfo) {
+            String projectLSFDir = MainFrame.projectLSFDir;
 
-            // we want to delay tooltip hiding to check if the next tooltip showing is the same (this way we'll avoid blinking)
-            Scheduler.get().scheduleFixedDelay(() -> {
-                if (!(mouseIn && GwtClientUtils.nullEquals(tooltipText, currentText))) {
-                    if (tooltip != null) {
-                        tooltip.hide();
-                        tooltip = null;
-                        tooltipHtml = null;
+            if (!projectLSFDir.isEmpty()) {
+                setLinks(tooltipHelper, projectLSFDir, tooltipElement);
+            } else {
+                VerticalPanel verticalPanel = new VerticalPanel();
+                verticalPanel.setVisible(false);
+
+                TextBox textBox = new TextBox();
+                textBox.getElement().getStyle().setMarginLeft(5, Style.Unit.PX);
+                textBox.getElement().getStyle().setProperty("padding", "0px 3px");
+                textBox.getElement().setPropertyString("placeholder", messages.absolutePathToLsfusionDir());
+                textBox.setText(Cookies.getCookie("debugPath"));
+
+                HorizontalPanel userPathPanel = new HorizontalPanel();
+                userPathPanel.add(new Label(messages.enterPath()));
+                userPathPanel.add(textBox);
+                verticalPanel.add(userPathPanel);
+                verticalPanel.setHorizontalAlignment(HasHorizontalAlignment.ALIGN_CENTER);
+
+                FormButton button = new FormButton(messages.applyLabel());
+                button.getElement().getStyle().setProperty("padding", "0px 3px");
+                button.getElement().getStyle().setMarginTop(5, Style.Unit.PX);
+                verticalPanel.add(button);
+                DOM.sinkEvents(button.getElement(), Event.ONCLICK);
+                DOM.setEventListener(button.getElement(), event -> {
+                    if (DOM.eventGetType(event) == Event.ONCLICK) {
+                        String textBoxText = textBox.getText();
+                        if (!textBoxText.trim().isEmpty())
+                            Cookies.setCookie("debugPath", textBoxText, new Date(System.currentTimeMillis() + 2592000000L)); //cookies expire after 30 days
+                        else
+                            Cookies.removeCookie("debugPath");
+
+                        GwtClientUtils.hideTippy(tippy, false, false);
                     }
-                }
-                return false;
-            }, DELAY_HIDE);
-        } else {
-            if (tooltip != null) {
-                tooltip.hide();
-                tooltip = null;
-                tooltipHtml = null;
+                });
+
+                GToolbarButton preferencesButton = new GToolbarButton(StaticImage.USERPREFERENCES) {
+                    @Override
+                    public ClickHandler getClickHandler() {return event -> {};}
+                };
+                DOM.sinkEvents(preferencesButton.getElement(), Event.ONCLICK);
+                DOM.setEventListener(preferencesButton.getElement(), event -> {
+                    if (DOM.eventGetType(event) == Event.ONCLICK)
+                        verticalPanel.setVisible(!verticalPanel.isVisible());
+                });
+                GwtClientUtils.addClassName(preferencesButton, "tooltip-path-preferences-button");
+
+                String debugPath = Cookies.getCookie("debugPath");
+                setLinks(tooltipHelper, debugPath == null ? "use_default_path" : debugPath, tooltipElement);
+
+                tooltipElement.appendChild(preferencesButton.getElement());
+                tooltipElement.appendChild(verticalPanel.getElement());
+            }
+        }
+
+        return tooltipElement;
+    }
+
+    private static void setLinks(TooltipHelper tooltipHelper, String projectLSFDir, Element tooltipElement) {
+        for (int i = 0; i < tooltipElement.getChildCount(); i++) {
+            Node child = tooltipElement.getChild(i);
+            if (child.getNodeName().equals("A")) {
+                Element childElement = Element.as(child);
+                String elementClass = childElement.getAttribute("class");
+                if (elementClass.equals("lsf-tooltip-path"))
+                    setLink(childElement, projectLSFDir, tooltipHelper.getCreationPath(), tooltipHelper.getPath());
+                else if (elementClass.equals("lsf-form-property-declaration"))
+                    setLink(childElement, projectLSFDir, tooltipHelper.getFormDeclaration(), tooltipHelper.getFormRelativePath());
+                else if ((elementClass.equals("lsf-tooltip-help") && tooltipHelper.getCreationPath() != null ) ||
+                        (elementClass.equals("lsf-tooltip-form-decl-help") && tooltipHelper.getFormPath() != null))
+                    fillLinkElement(childElement, "https://github.com/lsfusion/platform/issues/649", "_blank", " ? ");
             }
         }
     }
 
-    // за время ожидания курсор может переместиться далеко от места, где вызвался showTooltip()
-    public void updateMousePosition(int x, int y) {
-        if (mouseIn) {
-            mouseX = x;
-            mouseY = y;
+    private static void setLink(Element element, String projectLSFDir, String declaration, String relativePath) {
+        element.getPreviousSibling().setNodeValue(" ");
+
+        if (declaration != null) {
+            //use "**" instead "="
+            String command = "--line**" + Integer.parseInt(declaration.substring(declaration.lastIndexOf("(") + 1, declaration.lastIndexOf(":"))) +
+                    "&path**" + projectLSFDir + relativePath;
+
+            //replace spaces and slashes because this command going through url
+            fillLinkElement(element, "lsfusion-protocol://" + command.replaceAll(" ", "++").replaceAll("\\\\", "/"),
+                    "_blank", declaration);
         }
     }
 
-    public static abstract class TooltipHelper {
-        public abstract String getTooltip();
+    private static void fillLinkElement(Element element, String href, String target, String innerText) {
+        element.setAttribute("href", href);
+        element.setAttribute("target", target);
+        element.setInnerText(innerText);
+    }
 
-        // to check if nothing changed after tooltip delay
-        public abstract boolean stillShowTooltip();
+    public static abstract class TooltipHelper {
+        public abstract String getTooltip(String dynamicTooltip);
+
+        public String getPath() {
+            return null;
+        }
+
+        public String getCreationPath() {
+            return null;
+        }
+
+        public String getFormPath() {
+            return null;
+        }
+
+        public String getFormDeclaration() {
+            String formPath = getFormPath();
+            return formPath != null ? formPath.substring(formPath.lastIndexOf("/") + 1).replace(".lsf", "") : null;
+        }
+
+        public String getFormRelativePath() {
+            String formPath = getFormPath();
+            return formPath != null ? formPath.substring(0, formPath.indexOf(".lsf") + 4) : null;
+        }
     }
 }

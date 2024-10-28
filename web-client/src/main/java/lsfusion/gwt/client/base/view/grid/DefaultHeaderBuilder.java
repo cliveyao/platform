@@ -19,8 +19,12 @@ import com.google.gwt.dom.client.Document;
 import com.google.gwt.dom.client.TableCellElement;
 import com.google.gwt.dom.client.TableRowElement;
 import com.google.gwt.dom.client.TableSectionElement;
+import lsfusion.gwt.client.base.GwtClientUtils;
+import lsfusion.gwt.client.form.property.table.view.GPropertyTableBuilder;
 
-import static lsfusion.gwt.client.view.StyleDefaults.customDataGridStyle;
+import java.util.List;
+
+import static lsfusion.gwt.client.view.MainFrame.v5;
 
 /**
  * Default implementation of {@link HeaderBuilder} that renders columns.
@@ -46,18 +50,28 @@ public class DefaultHeaderBuilder<T> extends DataGridHeaderBuilder<T> {
         }
 
         @Override
-        public String getCellStyle() {
-            return grid.style.dataGridHeaderCell() + " " + customDataGridStyle.dataGridHeaderCell();
+        public void setRowStyle(TableRowElement element) {
+            GwtClientUtils.addClassName(element, "data-grid-header-row", "dataGridHeaderRow", v5);
         }
 
         @Override
-        public String getFirstCellStyle() {
-            return grid.style.dataGridFirstHeaderCell();
+        public void setCellStyle(TableCellElement element) {
+            GwtClientUtils.addClassName(element, "data-grid-header-cell", "dataGridHeaderCell", v5);
         }
 
         @Override
-        public String getLastCellStyle() {
-            return grid.style.dataGridLastHeaderCell() + " " + customDataGridStyle.dataGridLastHeaderCell();
+        public void addFirstCellStyle(TableCellElement element) {
+            GwtClientUtils.addClassName(element, "data-grid-first-header-cell", "dataGridFirstHeaderCell", v5);
+        }
+
+        @Override
+        public void addLastCellStyle(TableCellElement element) {
+            GwtClientUtils.addClassName(element, "data-grid-last-header-cell", "dataGridLastHeaderCell", v5);
+        }
+
+        @Override
+        public boolean isFooter() {
+            return false;
         }
     }
 
@@ -79,18 +93,28 @@ public class DefaultHeaderBuilder<T> extends DataGridHeaderBuilder<T> {
         }
 
         @Override
-        public String getCellStyle() {
-            return grid.style.dataGridFooterCell() + " " + customDataGridStyle.dataGridFooterCell();
+        public void setRowStyle(TableRowElement element) {
+            GwtClientUtils.addClassName(element, "data-grid-footer-row", "dataGridFooterRow", v5);
         }
 
         @Override
-        public String getFirstCellStyle() {
-            return grid.style.dataGridFirstFooterCell();
+        public void setCellStyle(TableCellElement element) {
+            GwtClientUtils.addClassName(element, "data-grid-footer-cell", "dataGridFooterCell", v5);
         }
 
         @Override
-        public String getLastCellStyle() {
-            return grid.style.dataGridLastFooterCell();
+        public void addFirstCellStyle(TableCellElement element) {
+            GwtClientUtils.addClassName(element, "data-grid-first-footer-cell", "dataGridFirstFooterCell", v5);
+        }
+
+        @Override
+        public void addLastCellStyle(TableCellElement element) {
+            GwtClientUtils.addClassName(element, "data-grid-last-footer-cell", "dataGridLastFooterCell", v5);
+        }
+
+        @Override
+        public boolean isFooter() {
+            return true;
         }
     }
 
@@ -108,37 +132,24 @@ public class DefaultHeaderBuilder<T> extends DataGridHeaderBuilder<T> {
     protected void buildHeaderImpl(TableRowElement tr) {
         DataGrid<T> table = getTable();
 
-        // Early exit if there aren't any columns to render.
         int columnCount = table.getColumnCount();
-
-        // Get the common style names.
-        String cellClass = delegate.getCellStyle();
-        String firstCellClass = delegate.getFirstCellStyle();
-        String lastCellClass = delegate.getLastCellStyle();
-
-        // Loop through all column headers.
-        int curColumn;
-        for (curColumn = 0; curColumn < columnCount; curColumn++) {
+        for (int curColumn = 0; curColumn < columnCount; curColumn++) {
             Header<?> header = getHeader(curColumn);
 
             TableCellElement th = Document.get().createTHElement();
+            delegate.setCellStyle(th);
+            if (curColumn == 0)
+                delegate.addFirstCellStyle(th);
+            if (curColumn == columnCount - 1)
+                delegate.addLastCellStyle(th);
 
-            //куча if-ов, чтобы не заморачиваться с StringBuilder
-            if (curColumn == 0 && curColumn == columnCount - 1) {
-                th.setClassName(cellClass + " " + firstCellClass + " " + lastCellClass);
-            } else if (curColumn == 0) {
-                th.setClassName(cellClass + " " + firstCellClass);
-            } else if (curColumn == columnCount - 1) {
-                th.setClassName(cellClass + " " + lastCellClass);
-            } else {
-                th.setClassName(cellClass);
-            }
-
-            if(header != null) {
+            if(header != null)
                 renderHeader(th, header);
-            }
 
             tr.appendChild(th);
+
+            if(table.isColumnFlex(curColumn))
+                th.setColSpan(2);
         }
     }
 
@@ -158,5 +169,15 @@ public class DefaultHeaderBuilder<T> extends DataGridHeaderBuilder<T> {
 
             updateHeader(th, header);
         }
+    }
+
+    @Override
+    protected void updateHeaderStickyLeftImpl(TableRowElement tr, List<Integer> stickyColumns, List<DataGrid.StickyParams> stickyLefts) {
+        GPropertyTableBuilder.updateStickyLeft(tr, stickyColumns, stickyLefts, true);
+    }
+
+    @Override
+    protected void updateStickedState(TableRowElement tr, List<Integer> stickyColumns, int lastSticked) {
+        GPropertyTableBuilder.updateStickyCellsClasses(tr, stickyColumns, lastSticked);
     }
 }

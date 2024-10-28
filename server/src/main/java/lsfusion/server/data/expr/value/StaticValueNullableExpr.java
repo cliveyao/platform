@@ -17,6 +17,8 @@ import lsfusion.server.data.type.parse.ParseInterface;
 import lsfusion.server.data.value.Value;
 import lsfusion.server.logics.classes.user.set.AndClassSet;
 
+import java.util.Map;
+
 // по факту не nullable, но тут есть архитектурный нюанс, если не возвращать NotNull непонятно как класс заведомо определенный делать
 // можно конечно смешать каким-то образом с StaticClassExpr, но не совсем понятно как это будет работать (тот же IsClassExpr все же возвращает конкретный класс)
 public class StaticValueNullableExpr extends StaticNullableExpr implements Value {
@@ -116,7 +118,7 @@ public class StaticValueNullableExpr extends StaticNullableExpr implements Value
     }
 
     @Override
-    public String toDebugString() {
+    public String toDebugString(Map<String, String> sessionDebugInfo) {
         return toString();
     }
 
@@ -133,7 +135,7 @@ public class StaticValueNullableExpr extends StaticNullableExpr implements Value
 
     @Override
     public boolean isAlwaysSafeString() {        
-        return true;
+        return false; // just like other values, laterals also should be passed to the recursive function as parameters
     }
 
     @Override

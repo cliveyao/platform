@@ -3,6 +3,7 @@ package lsfusion.gwt.client.base.view;
 import com.bfr.client.selection.Range;
 import com.bfr.client.selection.RangeEndPoint;
 import com.bfr.client.selection.Selection;
+import com.bfr.client.selection.impl.RangeImpl;
 import com.google.gwt.core.client.Scheduler;
 import com.google.gwt.dom.client.Element;
 import com.google.gwt.dom.client.Node;
@@ -14,6 +15,36 @@ import lsfusion.gwt.client.base.Result;
 import java.util.function.Consumer;
 
 public class CopyPasteUtils {
+
+    public static native void copyToClipboard(String value)/*-{
+        // navigator clipboard api needs a secure context (https)
+        if (navigator.clipboard && window.isSecureContext) {
+            //writeText work in Firefox
+            navigator.clipboard.writeText(value).then(
+                function () {
+                }, function () { //Fallback for Chrome
+                    @lsfusion.gwt.client.base.view.CopyPasteUtils::copyToClipboardTextArea(*)(value);
+                }
+            );
+        } else {
+            //execCommand for http
+            @lsfusion.gwt.client.base.view.CopyPasteUtils::copyToClipboardTextArea(*)(value);
+        }
+
+    }-*/;
+
+    private static native void copyToClipboardTextArea(String value)/*-{
+        if (document.queryCommandSupported && document.queryCommandSupported("copy")) {
+            var textarea = document.createElement("textarea");
+            textarea.textContent = value;
+            document.body.appendChild(textarea);
+            textarea.focus();
+            textarea.select();
+            document.execCommand("copy");
+            document.body.removeChild(textarea);
+        }
+    }-*/;
+
     private static final Selection selection = Selection.getSelection();
 
     // actually it justs sets selection, since we don't consume event default handler does the rest
@@ -94,10 +125,18 @@ public class CopyPasteUtils {
         return res;
     }
 
+    private static native boolean intersectsNode(RangeImpl.JSRange range, Element element)
+        /*-{
+            return range.intersectsNode(element);
+        }-*/;
+
     public static void setEmptySelection(final Element element) {
         Node textNode;
         // just putting empty selection to any text containing element
-        if (element != null && !GwtClientUtils.isIEUserAgent() && (textNode = getAdjacentTextElement(element, element, true, false, new Result<>(0))) != null) {
+        Range range;
+        if (element != null && !GwtClientUtils.isIEUserAgent()
+                && !((range = selection.getRange()) != null && intersectsNode(range.getJSRange(), element)) // this check is important if element handles selection itself (for example quill editor)
+                && (textNode = getAdjacentTextElement(element, element, true, false, new Result<>(0))) != null) {
             Element textElement;
             textElement = GwtClientUtils.getElement(textNode);
             if(textElement == null) // if we haven't found element, just put it somewhere

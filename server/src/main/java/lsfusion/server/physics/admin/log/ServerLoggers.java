@@ -4,8 +4,8 @@ import lsfusion.base.DaemonThreadFactory;
 import lsfusion.base.ExceptionUtils;
 import lsfusion.base.col.MapFact;
 import lsfusion.base.col.interfaces.immutable.ImList;
+import lsfusion.base.lambda.E2Runnable;
 import lsfusion.base.log.FlushableRollingFileAppender;
-import lsfusion.interop.action.LogMessageClientAction;
 import lsfusion.server.base.controller.stack.ExecutionStackAspect;
 import lsfusion.server.base.controller.thread.ThreadLocalContext;
 import lsfusion.server.physics.admin.Settings;
@@ -57,7 +57,9 @@ public class ServerLoggers {
     public static final Logger pausablesInvocationLogger = Logger.getLogger("PausableInvocationsLogger");
     
     public static final Logger explainLogger = Logger.getLogger("ExplainLogger");
-    
+
+    public static final Logger explainAppLogger = Logger.getLogger("ExplainAppLogger");
+
     public static final Logger explainCompileLogger = Logger.getLogger("ExplainCompileLogger");
     
     public static final Logger startLogger = Logger.getLogger("StartLogger");
@@ -65,6 +67,10 @@ public class ServerLoggers {
     public static final Logger schedulerLogger = Logger.getLogger("SchedulerLogger");
 
     public static final Logger httpServerLogger = Logger.getLogger("HttpServerLogger");
+
+    public static final Logger httpFromExternalSystemRequestsLogger = Logger.getLogger("HttpFromExternalSystemRequestsLogger");
+
+    public static final Logger httpToExternalSystemRequestsLogger = Logger.getLogger("HttpToExternalSystemRequestsLogger");
 
     private static final int FORCE_FLUSH_DELAY = 60;
 
@@ -88,7 +94,7 @@ public class ServerLoggers {
         if(!assertion) {
             Settings settings;
             if(interactive && (settings = Settings.get()) != null && settings.isEnableInteractiveAssertLog())
-                ThreadLocalContext.delayUserInteraction(new LogMessageClientAction(ThreadLocalContext.localize("{logics.server.interactive.assert}"), true));
+                ThreadLocalContext.message(ThreadLocalContext.localize("{logics.server.interactive.assert}"));
             assertLogger.info(message + '\n' + ExecutionStackAspect.getExStackTrace());
         }
         assert assertion : message;
@@ -98,6 +104,10 @@ public class ServerLoggers {
         sqlHandLogger.error("SUPPRESSED : " + ExceptionUtils.toString(t) + '\n' + ExecutionStackAspect.getExStackTrace());
     }
     
+    public static void handledExLog(String message) {
+        sqlHandLogger.info(message + '\n' + ExecutionStackAspect.getExStackTrace());
+    }
+
     public static void handledLog(String message) {
         sqlHandLogger.info(message + '\n' + ExceptionUtils.getStackTrace());
     }
@@ -119,15 +129,21 @@ public class ServerLoggers {
     }
 
     public static void exinfoLog(String message) {
-        exInfoLogger.info(message + '\n' + ExceptionUtils.getStackTrace());
+        exInfoLogger.info(message);
+        if (exInfoLogger.isTraceEnabled())
+            exInfoLogger.trace(ExceptionUtils.getStackTrace());
     }
 
     public static void remoteLifeLog(String message) {
-        remoteLogger.info(message + '\n' + ExceptionUtils.getStackTrace());
+        remoteLogger.info(message);
+        if (remoteLogger.isTraceEnabled())
+            remoteLogger.trace(ExceptionUtils.getStackTrace());
     }
 
     public static void sqlConnectionLog(String message) {
-        sqlConnectionLogger.info(message + '\n' + ExceptionUtils.getStackTrace());
+        sqlConnectionLogger.info(message);
+        if (sqlConnectionLogger.isTraceEnabled())
+            sqlConnectionLogger.trace(ExceptionUtils.getStackTrace());
     }
 
     private static Map<Long, Boolean> userExLogs = MapFact.getGlobalConcurrentHashMap();
@@ -183,13 +199,35 @@ public class ServerLoggers {
             pausablesInvocationLogger.info(s);
     }
 
-    public static void pausableLogStack(String s) {
-        if(isPausableLogEnabled())
-            pausablesInvocationLogger.info(s + '\n' + ExceptionUtils.getStackTrace());
-    }
-
     public static void pausableLog(String s, Throwable t) {
         if(isPausableLogEnabled())
             pausablesInvocationLogger.debug(s);
+    }
+
+    public static void startLogDebug(String message) {
+        startLogger.debug(message);
+    }
+
+    public static void startLogWarn(String message) {
+        startLogger.warn(message);
+    }
+
+    public static void startLogError(String message) {
+        startLogger.error(message);
+    }
+
+    public static void startLogError(String message, Throwable t) {
+        startLogger.error(message, t);
+    }
+
+    public static void startLog(String message) {
+        startLogger.info(message);
+    }
+
+    public static <E1 extends Exception, E2 extends Exception> void runWithStartLog(E2Runnable<E1, E2> run, String message) throws E1, E2 {
+        long start = System.currentTimeMillis();
+        startLogger.info(message + " started");
+        run.run();
+        startLogger.info(message + " finished, " + (System.currentTimeMillis() - start) + "ms");
     }
 }

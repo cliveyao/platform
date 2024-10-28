@@ -8,7 +8,9 @@ import lsfusion.base.col.interfaces.immutable.ImOrderMap;
 import lsfusion.base.col.interfaces.immutable.ImOrderSet;
 import lsfusion.base.col.interfaces.immutable.ImRevMap;
 import lsfusion.base.col.interfaces.mutable.MExclMap;
-import lsfusion.interop.action.MessageClientAction;
+import lsfusion.base.file.FileData;
+import lsfusion.base.file.NamedFileData;
+import lsfusion.base.file.RawFileData;
 import lsfusion.interop.form.property.Compare;
 import lsfusion.server.data.OperationOwner;
 import lsfusion.server.data.expr.key.KeyExpr;
@@ -32,16 +34,19 @@ import lsfusion.server.logics.action.session.change.PropertyChange;
 import lsfusion.server.logics.action.session.table.SessionTableUsage;
 import lsfusion.server.logics.classes.ValueClass;
 import lsfusion.server.logics.classes.data.LogicalClass;
+import lsfusion.server.logics.classes.data.file.*;
 import lsfusion.server.logics.classes.data.integral.IntegerClass;
 import lsfusion.server.logics.classes.data.integral.NumericClass;
 import lsfusion.server.logics.classes.data.time.DateClass;
 import lsfusion.server.logics.classes.data.time.DateTimeClass;
 import lsfusion.server.logics.classes.data.time.TimeClass;
+import lsfusion.server.logics.classes.user.AbstractCustomClass;
 import lsfusion.server.logics.classes.user.ConcreteCustomClass;
 import lsfusion.server.logics.classes.user.CustomClass;
 import lsfusion.server.logics.classes.user.UnknownClass;
 import lsfusion.server.logics.property.Property;
 import lsfusion.server.logics.property.classes.ClassPropertyInterface;
+import lsfusion.server.logics.property.classes.infer.ClassType;
 import lsfusion.server.logics.property.data.StoredDataProperty;
 import lsfusion.server.physics.dev.integration.internal.to.InternalAction;
 
@@ -59,7 +64,9 @@ import java.util.*;
 import java.util.function.Function;
 
 import static lsfusion.base.BaseUtils.trimToNull;
-import static lsfusion.server.logics.classes.data.time.DateTimeConverter.*;
+import static lsfusion.base.DateConverter.*;
+import static lsfusion.base.TimeConverter.sqlTimeToLocalTime;
+import static lsfusion.server.base.controller.thread.ThreadLocalContext.localize;
 
 public class CustomRestoreAction extends InternalAction {
     private final ClassPropertyInterface backupInterface;
@@ -76,12 +83,14 @@ public class CustomRestoreAction extends InternalAction {
         String dbName = null;
         try {
             String fileBackup = (String) findProperty("file[Backup]").read(context, backupObject);
+            boolean isMultithread = findProperty("isMultithread[Backup]").read(context, backupObject) != null;
+
             Map<String, CustomRestoreTable> tables = getTables(context);
             if (new File(fileBackup).exists() && !tables.isEmpty()) {
-                dbName = context.getDbManager().customRestoreDB(fileBackup, tables.keySet());
+                dbName = context.getDbManager().customRestoreDB(fileBackup, tables.keySet(), isMultithread);
                 importColumns(context, dbName, tables);
             } else {
-                context.requestUserInteraction(new MessageClientAction("Backup File not found or no selected tables", "Error"));
+                context.messageError(localize("{backup.file.not.found.or.no.selected.tables}"));
             }
         } catch (Exception e) {
             throw Throwables.propagate(e);
@@ -194,6 +203,12 @@ public class CustomRestoreAction extends InternalAction {
                         ImMap<KeyField, DataObject> keysMap = MapFact.EMPTY();
                         for (int k = 0; k < keysEntry.size(); k++) {
                             ValueClass valueClass = getKeyClass(context, table.classKeys.get(k));
+                            //if the table class is abstract, but the property has concrete interface class,
+                            //we can get class from property interfaces
+                            //If property has abstract interface class, objects still cannot be restored
+                            if (valueClass instanceof AbstractCustomClass) {
+                                valueClass = table.lpProperties.get(0).getInterfaceClasses(ClassType.signaturePolicy)[k];
+                            }
                             DataObject keyObject = context.getSession().getDataObject(valueClass, keysEntry.get(k));
                             if (keyObject.objectClass instanceof UnknownClass && valueClass instanceof ConcreteCustomClass && table.restoreObjects) {
                                 keyObject = context.getSession().addObject((ConcreteCustomClass) valueClass, keyObject);
@@ -209,10 +224,39 @@ public class CustomRestoreAction extends InternalAction {
                                     if (object == null) return NullValue.instance;
                                     ValueClass classValue = ((StoredDataProperty) prop.property).value;
                                     if (classValue instanceof CustomClass) {
-                                        //TODO: убрать new Long, когда все базы перейдут на LONG
-                                        return context.getSession().getDataObject(((StoredDataProperty) prop.property).value, object instanceof Integer ? new Long((Integer) object) : object);
+                                        return context.getSession().getDataObject(((StoredDataProperty) prop.property).value, object);
                                     } else if (classValue instanceof LogicalClass) {
                                         return getBooleanObject(object);
+                                    } else if (classValue instanceof DynamicFormatFileClass) {
+                                        return new DataObject(new FileData((byte[]) object), DynamicFormatFileClass.get());
+                                    } else if (classValue instanceof NamedFileClass) {
+                                        return new DataObject(new NamedFileData((byte[]) object), NamedFileClass.instance);
+                                    } else if (classValue instanceof WordClass) {
+                                        return new DataObject(new RawFileData((byte[]) object), WordClass.get());
+                                    } else if (classValue instanceof ImageClass) {
+                                        return new DataObject(new RawFileData((byte[]) object), ImageClass.get());
+                                    } else if (classValue instanceof TableClass) {
+                                        return new DataObject(new RawFileData((byte[]) object), TableClass.get());
+                                    } else if (classValue instanceof CustomStaticFormatFileClass) {
+                                        return new DataObject(new RawFileData((byte[]) object), CustomStaticFormatFileClass.get());
+                                    } else if (classValue instanceof PDFClass) {
+                                        return new DataObject(new RawFileData((byte[]) object), PDFClass.get());
+                                    } else if (classValue instanceof VideoClass) {
+                                        return new DataObject(new RawFileData((byte[]) object), VideoClass.get());
+                                    } else if (classValue instanceof ExcelClass) {
+                                        return new DataObject(new RawFileData((byte[]) object), ExcelClass.get());
+                                    } else if (classValue instanceof DBFClass) {
+                                        return new DataObject(new RawFileData((byte[]) object), DBFClass.get());
+                                    } else if (classValue instanceof HTMLClass) {
+                                        return new DataObject(new RawFileData((byte[]) object), HTMLClass.get());
+                                    } else if (classValue instanceof TXTClass) {
+                                        return new DataObject(new RawFileData((byte[]) object), TXTClass.get());
+                                    } else if (classValue instanceof CSVClass) {
+                                        return new DataObject(new RawFileData((byte[]) object), CSVClass.get());
+                                    } else if (classValue instanceof XMLClass) {
+                                        return new DataObject(new RawFileData((byte[]) object), XMLClass.get());
+                                    } else if (classValue instanceof JSONFileClass) {
+                                        return new DataObject(new RawFileData((byte[]) object), JSONFileClass.get());
                                     } else if (object instanceof String)
                                         return new DataObject(((String) object).trim());
                                     else if (object instanceof Integer)
@@ -242,6 +286,30 @@ public class CustomRestoreAction extends InternalAction {
             }
         } catch (Exception e) {
             throw Throwables.propagate(e);
+        }
+    }
+
+    private LocalDate getWriteDate(Object value) {
+        if (value instanceof LocalDate) {
+            return (LocalDate) value;
+        } else {
+            return sqlDateToLocalDate((Date) value);
+        }
+    }
+
+    private LocalTime getWriteTime(Object value) {
+        if (value instanceof LocalTime) {
+            return (LocalTime) value;
+        } else {
+            return sqlTimeToLocalTime((Time) value);
+        }
+    }
+
+    private LocalDateTime getWriteDateTime(Object value) {
+        if (value instanceof LocalDateTime) {
+            return (LocalDateTime) value;
+        } else {
+            return sqlTimestampToLocalDateTime((Timestamp) value);
         }
     }
 

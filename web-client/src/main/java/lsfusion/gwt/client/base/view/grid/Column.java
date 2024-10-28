@@ -16,19 +16,30 @@
 package lsfusion.gwt.client.base.view.grid;
 
 import com.google.gwt.dom.client.Element;
+import com.google.gwt.dom.client.TableCellElement;
+import lsfusion.gwt.client.base.jsni.HasNativeSID;
 import lsfusion.gwt.client.base.view.EventHandler;
 import lsfusion.gwt.client.base.view.grid.cell.Cell;
+import lsfusion.gwt.client.form.property.cell.view.RendererType;
 
-public abstract class Column<T, C> {
+public abstract class Column<T, C> implements HasNativeSID {
 
   public Column() {
   }
 
   public abstract boolean isFocusable();
 
-  public abstract void onEditEvent(EventHandler handler, boolean isBinding, Cell editCell, Element editCellParent);
+  public abstract boolean isSticky();
 
-  public abstract void renderAndUpdateDom(Cell cell, Element cellElement);
+  public abstract void onEditEvent(EventHandler handler, Cell editCell, Element editRenderElement);
 
-  public abstract void updateDom(Cell cell, Element cellElement);
+  public abstract void renderDom(Cell cell, TableCellElement cellElement);
+
+  public abstract void updateDom(Cell cell, TableCellElement cellElement);
+
+//  public Element getSizedDom(Cell cell, TableCellElement cellElement) {
+//      return cellElement;
+//  }
+//
+  public abstract boolean isCustomRenderer(RendererType rendererType);
 }

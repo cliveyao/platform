@@ -1,6 +1,5 @@
 package lsfusion.server.data.expr.classes;
 
-import lsfusion.base.BaseUtils;
 import lsfusion.base.Pair;
 import lsfusion.base.col.ListFact;
 import lsfusion.base.col.MapFact;
@@ -45,6 +44,7 @@ import lsfusion.server.logics.classes.user.BaseClass;
 import lsfusion.server.logics.classes.user.ConcreteObjectClass;
 import lsfusion.server.logics.classes.user.ObjectValueClassSet;
 import lsfusion.server.logics.classes.user.set.AndClassSet;
+import lsfusion.server.physics.admin.Settings;
 
 public class IsClassExpr extends InnerExpr implements StaticClassExprInterface {
 
@@ -58,13 +58,14 @@ public class IsClassExpr extends InnerExpr implements StaticClassExprInterface {
 
         this.classTables = classTables;
         this.type = type;
+
+        assert !type.isExclInconsistent() || classTables.size() > Settings.get().getInlineClassThreshold(); // we need this for example in getStaticClass (but in general it gives more clean solution)
     }
 
     public boolean isComplex() {
         return classTables.size() > 0;
     }
 
-    public static final int subqueryThreshold = 6;
     public InnerExpr getInnerJoinExpr() {
         return (InnerExpr) getJoinExpr();
     }
@@ -77,33 +78,32 @@ public class IsClassExpr extends InnerExpr implements StaticClassExprInterface {
             else
                 return classTable.getStoredExpr(expr);
         } else {
-            assert classTables.size() > inlineThreshold;
+            assert classTables.size() > Settings.get().getInlineClassThreshold();
             // будем делить на inlineThreshold корзин
             Pair<KeyExpr,Expr> subQuery = getBaseClass().getSubQuery(classTables, type);
-            return new SubQueryExpr(new SubQueryExpr.Query(subQuery.second, false), MapFact.singleton(subQuery.first, expr));
+            return new SubQueryExpr(new SubQueryExpr.Query(subQuery.second, false, 0), MapFact.singleton(subQuery.first, expr));
         }
     }
 
-    public static final int inlineThreshold = 4;
     public static Expr create(SingleClassExpr expr, ImSet<ObjectClassField> classes, IsClassType type) {
         classes = packTables(Where.TRUE(), expr, classes, type);
 
-        if(classes.size()> inlineThreshold || classes.size()==1)
-            return getExpr(type, BaseExpr.create(new IsClassExpr(expr, classes, type)));
+        if(classes.size() == 1 && type.isExclInconsistent())
+            return getSingleExpr(type, BaseExpr.create(new IsClassExpr(expr, classes, IsClassType.INCONSISTENT)));
+        else if(classes.size() > Settings.get().getInlineClassThreshold() || classes.size() == 1)
+            return BaseExpr.create(new IsClassExpr(expr, classes, type));
         else
-            return getTableExpr(expr, classes, inlineThreshold, type);
+            return getTableExpr(expr, classes, type);
     }
 
-    public static Expr getTableExpr(SingleClassExpr expr, ImSet<ObjectClassField> classTables, final int threshold, IsClassType type) {
+    public static Expr getTableExpr(SingleClassExpr expr, ImSet<ObjectClassField> classTables, IsClassType type) {
         final ImOrderSet<ObjectClassField> orderClassTables = classTables.toOrderSet();
         CaseExprInterface mCases = null;
         MLinearOperandMap mLinear = null;
         MList<Expr> mAgg =  null;
 
-        ImMap<Integer, ImSet<ObjectClassField>> group = classTables.group(new BaseUtils.Group<Integer, ObjectClassField>() {
-            public Integer group(ObjectClassField key) {
-                return orderClassTables.indexOf(key) % threshold;
-            }});
+        int threshold = Settings.get().getInlineClassThreshold();
+        ImMap<Integer, ImSet<ObjectClassField>> group = classTables.group(key -> orderClassTables.indexOf(key) % threshold);
 
         switch (type) {
             case SUMCONSISTENT:
@@ -144,7 +144,7 @@ public class IsClassExpr extends InnerExpr implements StaticClassExprInterface {
                 result = mLinear.getExpr();
                 break;
             case AGGCONSISTENT:
-                result = FormulaUnionExpr.create(new StringAggConcatenateFormulaImpl(","), mAgg.immutableList());
+                result = FormulaUnionExpr.create(new StringConcatenateFormulaImpl(","), mAgg.immutableList());
                 break;
             default:
                 result = mCases.getFinal();
@@ -155,13 +155,14 @@ public class IsClassExpr extends InnerExpr implements StaticClassExprInterface {
         return result;
     }
 
-    private static Expr getExpr(IsClassType type, Expr classExpr) {
-        if(type==IsClassType.AGGCONSISTENT)
-            classExpr = FormulaExpr.create(new CastFormulaImpl(StringClass.getv(false, ExtInt.UNLIMITED)), ListFact.singleton(classExpr));
-
-        if(type==IsClassType.SUMCONSISTENT)
-            classExpr = ValueExpr.COUNT.and(classExpr.getWhere());
-        return classExpr;
+    private static Expr getSingleExpr(IsClassType type, Expr classExpr) {
+        switch (type) {
+            case AGGCONSISTENT:
+                return FormulaExpr.create(new CastFormulaImpl(StringClass.getv(false, ExtInt.UNLIMITED)), ListFact.singleton(classExpr));
+            case SUMCONSISTENT:
+                return ValueExpr.COUNT.and(classExpr.getWhere());
+        }
+        throw new UnsupportedOperationException();
     }
 
     /*    public void fillAndJoinWheres(MapWhere<FJData> joins, Where andWhere) {

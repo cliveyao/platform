@@ -6,19 +6,23 @@ title: 'Оператор ABSTRACT'
 
 ### Синтаксис
 
-    ABSTRACT [type [exclusionType]] [CHECKED] returnClassName(argClassName1, ..., argClassNameN)
+```
+ABSTRACT [type [exclusionType]] [CHECKED] returnClassName(argClassName1, ..., argClassNameN)
+```
 
 Где `exclusionType` бывает двух видов:
 
-    EXCLUSIVE
-    OVERRIDE [FIRST | LAST]
+```
+EXCLUSIVE
+OVERRIDE [FIRST | LAST]
+```
 
 ### Описание
 
 Оператор `ABSTRACT` создает абстрактное свойство, реализации которого можно определять позже (например, в других [модулях](Modules.md), зависящих от модуля, содержащего это `ABSTRACT` свойство). Реализации добавляются к свойству с помощью [инструкции `+=`](+=_statement.md). При вычислении абстрактного свойства выбирается и вычисляется его *подходящая* реализация. Выбор подходящей реализации зависит от выполнения *условий выбора*, которые задаются при добавлении реализаций, и от типа оператора `ABSTRACT`.
 
 -   `CASE` - общий случай, условие выбора будет явно задаваться в реализации с помощью [блока `WHEN`](+=_statement.md).
--   `MULTI` - [полиморфная форма](Property_extension.md#poly), условием выбора будет являться принадлежность параметров [сигнатуре](CLASS_operator.md) реализации. Этот тип является типом по умолчанию, и может явно не задаваться.
+-   `MULTI` - [полиморфная форма](Property_extension.md#poly), условием выбора будет являться [принадлежность параметров сигнатуре](ISCLASS_operator.md) реализации. Этот тип является типом по умолчанию, и может явно не задаваться.
 -   `VALUE` - полиморфная форма, условием выбора будет являться определенность (отличие от `NULL`) значения реализации (то есть по сути сама реализация).
 
 [Тип взаимоисключения](Property_extension.md#exclusive) оператора определяет, могут ли несколько условий реализаций абстрактного свойства одновременно выполняться при некотором наборе параметров. Тип `EXCLUSIVE `указывает на то, что условия реализаций не могут одновременно выполняться. Тип `OVERRIDE` допускает несколько одновременно выполняющихся условий, при этом то, какая из реализаций будет в итоге выбрана, определяется ключевыми словами `FIRST` и `LAST`.
@@ -65,9 +69,14 @@ CLASS Invoice;
 CLASS InvoiceDetail;
 CLASS Range;
 
-rateChargeExchange(invoice) = ABSTRACT NUMERIC[14,6] (Invoice);             // В данном случае создается ABSTRACT MULTI EXCLUSIVE
-backgroundSku 'Цвет' (d) = ABSTRACT CASE FULL COLOR (InvoiceDetail); // В данном случае создается ABSTRACT CASE OVERRIDE LAST, и если будут
-                                                                            // подходить несколько реализаций, то вычислена будет первая из них
-overVAT = ABSTRACT VALUE OVERRIDE FIRST Range (InvoiceDetail);          // Здесь же будет вычислена последняя из подходящих реализаций
+// В данном случае создается ABSTRACT MULTI EXCLUSIVE
+rateChargeExchange(invoice) = ABSTRACT NUMERIC[14,6] (Invoice);
+             
+// В данном случае создается ABSTRACT CASE OVERRIDE LAST, и если будут подходить несколько реализаций, 
+// то вычислена будет первая из них
+backgroundSku 'Цвет' (d) = ABSTRACT CASE FULL COLOR (InvoiceDetail); 
+                                                                            
+// Здесь же будет вычислена последняя из подходящих реализаций
+overVAT = ABSTRACT VALUE OVERRIDE FIRST Range (InvoiceDetail);          
 ```
 

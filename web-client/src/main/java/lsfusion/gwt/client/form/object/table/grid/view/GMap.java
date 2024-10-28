@@ -3,40 +3,27 @@ package lsfusion.gwt.client.form.object.table.grid.view;
 import com.google.gwt.core.client.JavaScriptObject;
 import com.google.gwt.core.client.JsArray;
 import com.google.gwt.core.client.Scheduler;
-import com.google.gwt.dom.client.Document;
 import com.google.gwt.dom.client.Element;
-import com.google.gwt.dom.client.StyleElement;
 import com.google.gwt.user.client.ui.RequiresResize;
-import lsfusion.gwt.client.base.GwtClientUtils;
-import lsfusion.gwt.client.base.GwtSharedUtils;
+import lsfusion.gwt.client.base.*;
 import lsfusion.gwt.client.form.controller.GFormController;
 import lsfusion.gwt.client.form.object.GGroupObjectValue;
+import lsfusion.gwt.client.form.object.table.TableContainer;
 import lsfusion.gwt.client.form.object.table.grid.controller.GGridController;
-import org.vectomatic.dom.svg.OMSVGDocument;
-import org.vectomatic.dom.svg.OMSVGFEColorMatrixElement;
-import org.vectomatic.dom.svg.OMSVGFilterElement;
-import org.vectomatic.dom.svg.OMSVGSVGElement;
-import org.vectomatic.dom.svg.utils.OMSVGParser;
+import lsfusion.gwt.client.form.property.PValue;
+import lsfusion.gwt.client.view.MainFrame;
+import lsfusion.gwt.client.view.StyleDefaults;
 
-import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Objects;
 
-import static java.lang.Math.pow;
-import static lsfusion.gwt.client.base.view.ColorUtils.correctSB;
-import static lsfusion.gwt.client.base.view.ColorUtils.mixColors;
 import static lsfusion.gwt.client.base.view.grid.AbstractDataGridBuilder.COLUMN_ATTRIBUTE;
-import static lsfusion.gwt.client.view.StyleDefaults.getFocusColor;
-import static lsfusion.gwt.client.view.StyleDefaults.getFocusedCellBackgroundColor;
 
 public class GMap extends GSimpleStateTableView<JavaScriptObject> implements RequiresResize {
-    // No need to support color themes here as we apply svg filters to the icon anyway.
-    private final String DEFAULT_MARKER_ICON_URL = GwtClientUtils.getModuleImagePath("map_marker.png");
 
-    public GMap(GFormController form, GGridController grid) {
-        super(form, grid);
+    public GMap(GFormController form, GGridController grid, TableContainer tableContainer) {
+        super(form, grid, tableContainer);
     }
 
     private static class GroupMarker {
@@ -44,12 +31,13 @@ public class GMap extends GSimpleStateTableView<JavaScriptObject> implements Req
         public final String name;
         public String color;
         public final Object line;
-        public final String icon;
+        public final String caption;
+        public final BaseImage image;
 
         // should be polymorphed later
-        public final Double latitude;
-        public final Double longitude;
-        public final String polygon;
+        public Double latitude;
+        public Double longitude;
+        public String polygon;
 
         public boolean isCurrent;
         public boolean isReadOnly;
@@ -62,7 +50,8 @@ public class GMap extends GSimpleStateTableView<JavaScriptObject> implements Req
             name = getName(object);
             color = getMarkerColor(object);
             line = getLine(object);
-            icon = getIcon(object);
+            caption = getCaption(object, javaScriptObject -> null);
+            image = getImage(object, () -> StaticImage.MARKER);
 
             latitude = getLatitude(object);
             longitude = getLongitude(object);
@@ -70,12 +59,16 @@ public class GMap extends GSimpleStateTableView<JavaScriptObject> implements Req
         }
     }
 
-    protected void changePointProperty(JavaScriptObject object, Double lat, Double lng) {
-        changeProperties(new String[]{"latitude", "longitude"}, new JavaScriptObject[]{object, object}, new Serializable[]{lat, lng});
+    protected void changePointProperty(JavaScriptObject object, Double lat, Double lng, GroupMarker groupMarker) {
+        groupMarker.latitude = lat;
+        groupMarker.longitude = lng;
+        changeProperties(new String[]{"latitude", "longitude"}, new JavaScriptObject[]{object, object}, new PValue[]{PValue.getPValue(lat), PValue.getPValue(lng)});
     }
 
-    protected void changePolygonProperty(JavaScriptObject object, JsArray<WrapperObject> latlngs) {
-        changeProperty("polygon", object, getPolygon(latlngs));
+    protected void changePolygonProperty(JavaScriptObject object, JsArray<WrapperObject> latlngs, GroupMarker groupMarker) {
+        String polygon = getPolygon(latlngs);
+        groupMarker.polygon = polygon;
+        changeProperty("polygon", object, PValue.getPValue(polygon));
     }
 
     private static String getPolygon(JsArray<WrapperObject> latlngs) {
@@ -116,7 +109,7 @@ public class GMap extends GSimpleStateTableView<JavaScriptObject> implements Req
     private Map<GGroupObjectValue, GroupMarker> groupMarkers = new HashMap<>();
     private ArrayList<JavaScriptObject> lines = new ArrayList<>(); // later also should be
     @Override
-    protected void render(Element renderElement, JsArray<JavaScriptObject> listObjects) {
+    protected void onUpdate(Element renderElement, JsArray<JavaScriptObject> listObjects) {
         if(map == null) {
             markerClusters = createMarkerClusters();
             map = createMap(renderElement, markerClusters, grid.getMapTileProvider());
@@ -130,13 +123,13 @@ public class GMap extends GSimpleStateTableView<JavaScriptObject> implements Req
 
         for(int i=0,size=listObjects.length();i<size;i++) {
             JavaScriptObject object = listObjects.get(i);
-            GGroupObjectValue key = getKey(object);
+            GGroupObjectValue key = getObjects(object);
 
             GroupMarker groupMarker = new GroupMarker(object);
             if (groupMarker.color == null) {
-                Object rowBackgroundColor = getRowBackgroundColor(getKey(object));
+                String rowBackgroundColor = getRowBackgroundColor(getObjects(object));
                 if (rowBackgroundColor != null) {
-                    groupMarker.color = rowBackgroundColor.toString();
+                    groupMarker.color = rowBackgroundColor;
                 }
             }
             groupMarker.isCurrent = isCurrentKey(key);
@@ -146,10 +139,11 @@ public class GMap extends GSimpleStateTableView<JavaScriptObject> implements Req
 
             JavaScriptObject marker = oldMarkers.remove(key);
             if(marker == null) {
-                marker = createMarker(map, groupMarker.polygon != null, fromObject(key), markerClusters, object);
+                marker = createMarker(map, groupMarker.polygon != null, markerClusters, object);
                 markers.put(key, marker);
                 fitBounds = true;
             }
+            setGroupMarker(marker, groupMarker); // we need to update model in the coordinates change
 
             boolean isPoly = groupMarker.polygon != null;
 
@@ -159,7 +153,7 @@ public class GMap extends GSimpleStateTableView<JavaScriptObject> implements Req
             boolean refreshMarkers = false;
 
             if(oldGroupMarker == null || !(GwtClientUtils.nullEquals(groupMarker.color, oldGroupMarker.color))) {
-                updateColor(marker, groupMarker.color, getDisplayClusterColor(groupMarker.color));
+                updateColor(marker, groupMarker.color, groupMarker.color != null ? groupMarker.color : StyleDefaults.getComponentBackground());
                 refreshMarkers = true;
             }
 
@@ -174,8 +168,12 @@ public class GMap extends GSimpleStateTableView<JavaScriptObject> implements Req
             if (refreshMarkers)
                 markersToRefresh.push(marker);
 
-            if(!isPoly && (oldGroupMarker == null || !(GwtClientUtils.nullEquals(groupMarker.icon, oldGroupMarker.icon) && GwtClientUtils.nullEquals(groupMarker.color, oldGroupMarker.color) && groupMarker.isCurrent == oldGroupMarker.isCurrent)))
-                updateIcon(marker, groupMarker.icon, getDisplayColorFilter(groupMarker));
+            if(!isPoly && (oldGroupMarker == null || !(
+                    GwtClientUtils.nullEquals(groupMarker.image, oldGroupMarker.image) &&
+                    GwtClientUtils.nullEquals(groupMarker.caption, oldGroupMarker.caption) &&
+                    GwtClientUtils.nullEquals(groupMarker.color, oldGroupMarker.color) &&
+                    groupMarker.isCurrent == oldGroupMarker.isCurrent)))
+                updateIcon(groupMarker, marker);
 
             if(groupMarker.isEditing())
                 enableEditing(marker, isPoly);
@@ -208,9 +206,9 @@ public class GMap extends GSimpleStateTableView<JavaScriptObject> implements Req
 
     private boolean getReadOnly(GGroupObjectValue key, GroupMarker groupMarker) {
         if (groupMarker.polygon != null)
-            return isReadOnly("polygon", key);
+            return isReadOnly("polygon", key, true);
         else
-            return isReadOnly("latitude", key) && isReadOnly("longitude", key);
+            return isReadOnly("latitude", key, true) && isReadOnly("longitude", key, true);
     }
 
     protected native boolean hasFitBoundsProperty(JavaScriptObject object)/*-{
@@ -222,16 +220,12 @@ public class GMap extends GSimpleStateTableView<JavaScriptObject> implements Req
         var map = L.map(element);
 
         if (tileProvider === 'google') {
-            $wnd.loadCustomScriptIfNoExist('https://maps.googleapis.com/maps/api/js?key=' + $wnd.lsfParams.get('mapApiKey_Google'))
             L.gridLayer
                 .googleMutant({
                     type: "roadmap" // valid values are 'roadmap', 'satellite', 'terrain' and 'hybrid'
                 }).addTo(map);
         } else if (tileProvider === 'yandex') {
-            L.yandex()
-                .loadApi({
-                    apiParams: $wnd.lsfParams.get('mapApiKey_Yandex')
-                }).addTo(map);
+            L.yandex().addTo(map);
         } else {
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                 attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
@@ -298,7 +292,7 @@ public class GMap extends GSimpleStateTableView<JavaScriptObject> implements Req
         return L.latLng(latitude, longitude);
     }-*/;
 
-    protected JavaScriptObject showPopup(JavaScriptObject popupElementClicked, Element popupElement) {
+    protected JavaScriptObject showPopup(Element popupElement, JavaScriptObject popupElementClicked) {
         return showMapPopup(popupElementClicked, popupElement);
     }
 
@@ -318,7 +312,10 @@ public class GMap extends GSimpleStateTableView<JavaScriptObject> implements Req
     }-*/;
 
 
-    protected native JavaScriptObject createMarker(JavaScriptObject map, boolean polygon, JavaScriptObject key, JavaScriptObject markerClusters, JavaScriptObject object)/*-{
+    protected native JavaScriptObject setGroupMarker(JavaScriptObject marker, GroupMarker groupMarker)/*-{
+        marker.groupMarker = groupMarker;
+    }-*/;
+    protected native JavaScriptObject createMarker(JavaScriptObject map, boolean polygon, JavaScriptObject markerClusters, JavaScriptObject object)/*-{
         var L = $wnd.L;
 
         var thisObject = this;
@@ -328,7 +325,7 @@ public class GMap extends GSimpleStateTableView<JavaScriptObject> implements Req
             marker = L.polygon([L.latLng(0, 1), L.latLng(1, -1), L.latLng(-1, -1)]);
 
             marker.on('edit', function (e) {
-                thisObject.@GMap::changePolygonProperty(*)(object, marker.getLatLngs()[0]); // https://github.com/Leaflet/Leaflet/issues/5212
+                thisObject.@GMap::changePolygonProperty(*)(object, marker.getLatLngs()[0], marker.groupMarker); // https://github.com/Leaflet/Leaflet/issues/5212
             });
         } else {
             marker = L.marker([0, 0],{
@@ -343,31 +340,34 @@ public class GMap extends GSimpleStateTableView<JavaScriptObject> implements Req
 
             marker.on('dragend', function (e) {
                 var latlng = marker.getLatLng();
-                thisObject.@GMap::changePointProperty(*)(object, latlng.lat, latlng.lng);
+                thisObject.@GMap::changePointProperty(*)(object, latlng.lat, latlng.lng, marker.groupMarker);
             });
         }
 
         marker.on('click', function (e) {
-            var oldKey = thisObject.@GMap::getCurrentKey()();
-
-            thisObject.@GMap::changeSimpleGroupObject(*)(key, true, marker); // we want "full rerender", at least for now
-
-            if (!@Objects::equals(Ljava/lang/Object;Ljava/lang/Object;)(oldKey, key)) {
-                thisObject.@GMap::updateCurrent(*)(oldKey, false);
-
-                thisObject.@GMap::updateCurrent(*)(key, true);
-            }
-
+            thisObject.@GMap::changeSimpleGroupObject(*)(object, true, marker); // we want "full rerender", at least for now
         });
 
         markerClusters.addLayer(marker);
         
         return marker;
     }-*/;
-    
-    protected void updateCurrent(JavaScriptObject keyObject, boolean isCurrent) {
-        if(keyObject != null) {
-            GGroupObjectValue key = toObject(keyObject);
+
+    @Override
+    protected long changeGroupObject(GGroupObjectValue key, boolean rendered) {
+        GGroupObjectValue oldKey = this.currentKey;
+
+        long result = super.changeGroupObject(key, rendered);
+
+        updateCurrent(oldKey, false);
+
+        updateCurrent(key, true);
+
+        return result;
+    }
+
+    protected void updateCurrent(GGroupObjectValue key, boolean isCurrent) {
+        if(key != null) {
             GroupMarker groupMarker = groupMarkers.get(key);
             JavaScriptObject marker = markers.get(key);
             boolean isPoly = groupMarker.polygon != null;
@@ -377,49 +377,11 @@ public class GMap extends GSimpleStateTableView<JavaScriptObject> implements Req
 
             groupMarker.isCurrent = isCurrent;
             if (!isPoly)
-                updateIcon(marker, groupMarker.icon, getDisplayColorFilter(groupMarker));
+                updateIcon(groupMarker, marker);
 
             if(groupMarker.isEditing())
                 enableEditing(marker, isPoly);
         }
-    }
-
-    private String getDisplayColorFilter(GroupMarker marker) {
-        String color = marker.color;
-        boolean isCurrent = marker.isCurrent;
-        if (color == null) {
-            if (marker.icon == null) {
-                color = getFocusColor(true);
-                if (isCurrent) {
-                    color = darken(mixColors(color, getFocusedCellBackgroundColor(true)));
-                }
-            } else if (isCurrent) {
-                color = darken(getFocusedCellBackgroundColor(true));
-            }
-        } else {
-            if (isCurrent) {
-                color = darken(mixColors(color, getFocusedCellBackgroundColor(true)), 2);
-            } else {
-                color = darken(color);
-            }
-        }
-        
-        return createFilter(color);
-    }
-
-    protected String getDisplayClusterColor(String color) {
-        return color == null ? getFocusColor(false) : darken(color);
-    }
-
-    protected String darken(String color) {
-        return darken(color, 1);
-    }
-    
-    protected String darken(String color, int times) {
-        if (color != null) {
-            return correctSB(color, (float) pow(1.8f, times), (float) pow(0.8f, times));
-        }
-        return null;
     }
 
     protected native void removeMarker(JavaScriptObject marker, JavaScriptObject markerClusters)/*-{
@@ -451,12 +413,9 @@ public class GMap extends GSimpleStateTableView<JavaScriptObject> implements Req
         return element.polygon;
     }-*/;
 
-    protected static native String getIcon(JavaScriptObject element)/*-{
-        return element.icon;
-    }-*/;
-
+    // name - deprecated
     protected native static String getName(JavaScriptObject element)/*-{
-        return element.name ? element.name.toString() : null;
+        return element.tooltip ? element.tooltip.toString() : (element.name ? element.name.toString() : null);
     }-*/;
 
     protected native JavaScriptObject createLine(JavaScriptObject map, JsArray<JavaScriptObject> markers)/*-{
@@ -480,44 +439,6 @@ public class GMap extends GSimpleStateTableView<JavaScriptObject> implements Req
         map.removeLayer(line.line);
         map.removeLayer(line.lineArrow);
     }-*/;
-
-    protected String createFilter(String colorStr) {
-        String svgStyle = null;
-        if (colorStr != null) {
-            int red = Integer.valueOf(colorStr.substring(1, 3), 16);
-            int green = Integer.valueOf(colorStr.substring(3, 5), 16);
-            int blue = Integer.valueOf(colorStr.substring(5, 7), 16);
-            String svgID = "svg_" + red + "_" + green + "_" + blue;
-            svgStyle = svgID + "-style";
-
-            com.google.gwt.dom.client.Element svgEl = Document.get().getElementById(svgID);
-            if (svgEl == null) {
-                OMSVGDocument doc = OMSVGParser.currentDocument();
-
-                OMSVGSVGElement svgElement = doc.createSVGSVGElement();
-                OMSVGFilterElement svgFilterElement = doc.createSVGFilterElement();
-                svgFilterElement.setId(svgID);
-                svgFilterElement.setAttribute("color-interpolation-filters", "sRGB");
-
-                OMSVGFEColorMatrixElement svgfeColorMatrixElement = doc.createSVGFEColorMatrixElement();
-                svgfeColorMatrixElement.setAttribute("type", "matrix");
-                svgfeColorMatrixElement.setAttribute("values", (float) red / 256 + " 0 0 0  0 \n" +
-                        (float) green / 256 + " 0 0 0  0  \n" +
-                        (float) blue / 256 + " 0 0 0  0 \n" +
-                        "0 0 0 1  0");
-                svgFilterElement.appendChild(svgfeColorMatrixElement);
-                svgElement.appendChild(svgFilterElement);
-
-                appendSVG(map, svgElement.getElement());
-
-                StyleElement styleElement = Document.get().createStyleElement();
-                styleElement.setType("text/css");
-                styleElement.setInnerHTML("." + svgStyle + " { filter: url(#" + svgID + ") }");
-                Document.get().getElementsByTagName("head").getItem(0).appendChild(styleElement);
-            }
-        }
-        return svgStyle;
-    }
 
     // we need to disable editing before changing icon + check for dragging because of clustering (when there is no dragging which is used by editing)
     protected native void disableEditing(JavaScriptObject object, boolean poly)/*-{
@@ -543,19 +464,27 @@ public class GMap extends GSimpleStateTableView<JavaScriptObject> implements Req
         return GwtClientUtils.getParentWithAttribute(target, COLUMN_ATTRIBUTE);
     }
 
-    protected native void updateIcon(JavaScriptObject marker, String icon, String filterStyle)/*-{
-        var L = $wnd.L;
-        var iconUrl = icon != null ? icon : this.@GMap::DEFAULT_MARKER_ICON_URL;
-        if (iconUrl == null) {
-            iconUrl = L.Icon.Default.prototype._getIconUrl('icon'); 
-        }
-        var myIcon = L.divIcon({
-            html: "<img class=\"" + (filterStyle ? filterStyle : "") + "\" src=" + iconUrl + " alt=\"\" tabindex=\"0\" " +
-                @lsfusion.gwt.client.base.view.grid.AbstractDataGridBuilder::COLUMN_ATTRIBUTE + "=\"true\" " +
-                @lsfusion.gwt.client.base.view.grid.AbstractDataGridBuilder::IGNORE_DBLCLICK_CHECK + "=\"true\">",
-            className: ''
-        });
-        marker.setIcon(myIcon);
+    private static native void setMarkerColor(Element element, String color) /*-{
+        element.style.setProperty("--marker-color", color);
+    }-*/;
+
+    protected void updateIcon(GroupMarker groupMarker, JavaScriptObject marker) {
+        Element element = createImageCaptionElement(groupMarker.image, groupMarker.caption, ImageHtmlOrTextType.MAP);
+
+        String color = groupMarker.color;
+        if(color != null)
+            setMarkerColor(element, color);
+        element.setAttribute(COLUMN_ATTRIBUTE, "");
+        element.setAttribute(MainFrame.IGNORE_DBLCLICK_CHECK, "");
+
+        updateJsIcon(marker, element, groupMarker.isCurrent ? "focused-marker" : "");
+    }
+
+    protected native void updateJsIcon(JavaScriptObject marker, Element element, String className)/*-{
+        marker.setIcon($wnd.L.divIcon({
+            html: element,
+            className: className
+        }));
     }-*/;
 
     protected native void updateColor(JavaScriptObject marker, String color, String clusterColor)/*-{

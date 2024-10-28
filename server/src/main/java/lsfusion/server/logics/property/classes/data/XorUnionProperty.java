@@ -10,11 +10,8 @@ import lsfusion.server.data.expr.query.GroupType;
 import lsfusion.server.data.expr.value.ValueExpr;
 import lsfusion.server.data.where.Where;
 import lsfusion.server.data.where.WhereBuilder;
-import lsfusion.server.logics.LogicsModule;
-import lsfusion.server.logics.action.session.change.DataChanges;
-import lsfusion.server.logics.action.session.change.PropertyChange;
-import lsfusion.server.logics.action.session.change.PropertyChanges;
-import lsfusion.server.logics.action.session.change.StructChanges;
+import lsfusion.server.logics.BaseLogicsModule;
+import lsfusion.server.logics.action.session.change.*;
 import lsfusion.server.logics.property.CalcType;
 import lsfusion.server.logics.property.IncrementUnionProperty;
 import lsfusion.server.logics.property.Property;
@@ -29,7 +26,7 @@ import lsfusion.server.physics.dev.i18n.LocalizedString;
 
 import java.util.function.Function;
 
-public class XorUnionProperty extends IncrementUnionProperty {
+public class XorUnionProperty extends IncrementFormulaUnionProperty {
 
     public XorUnionProperty(LocalizedString caption, ImOrderSet<Interface> interfaces, ImList<PropertyInterfaceImplement<Interface>> operands) {
         super(caption, interfaces);
@@ -63,10 +60,11 @@ public class XorUnionProperty extends IncrementUnionProperty {
         });
 
         Where resultWhere = prevExpr.getWhere();
+        PropertyChanges prevPropChanges = getPrevPropChanges(propChanges);
         for(int i=0,size=operands.size();i<size;i++) {
             PropertyInterfaceImplement<Interface> operand = operands.get(i);
             Pair<Expr, Where> operandExpr = operandExprs.get(i);
-            Where prevOperandWhere = operand.mapExpr(joinImplement).getWhere();
+            Where prevOperandWhere = operand.mapExpr(joinImplement, prevPropChanges).getWhere();
             resultWhere = resultWhere.xor(operandExpr.first.getWhere().xor(prevOperandWhere).and(operandExpr.second));
             if(changedWhere!=null) changedWhere.add(operandExpr.second);
         }
@@ -74,8 +72,8 @@ public class XorUnionProperty extends IncrementUnionProperty {
     }
 
     @Override
-    protected ImSet<Property> calculateUsedDataChanges(StructChanges propChanges) {
-        return SetFact.add(propChanges.getUsedDataChanges(getDepends()), propChanges.getUsedChanges(getDepends()));
+    protected ImSet<Property> calculateUsedDataChanges(StructChanges propChanges, CalcDataType type) {
+        return SetFact.add(propChanges.getUsedDataChanges(type, getDepends()), propChanges.getUsedChanges(getDepends()));
     }
 
     @Override
@@ -96,7 +94,7 @@ public class XorUnionProperty extends IncrementUnionProperty {
     }
 
     @Override
-    protected DataChanges calculateDataChanges(PropertyChange<Interface> change, WhereBuilder changedWhere, PropertyChanges propChanges) {
+    protected DataChanges calculateDataChanges(PropertyChange<Interface> change, CalcDataType type, WhereBuilder changedWhere, PropertyChanges propChanges) {
         DataChanges result = DataChanges.EMPTY;
         for(PropertyInterfaceImplement<Interface> operand : operands.reverseList()) {
             Where siblingWhere = Where.FALSE();
@@ -104,7 +102,7 @@ public class XorUnionProperty extends IncrementUnionProperty {
                 if(siblingOperand!=operand)
                     siblingWhere = siblingWhere.xor(siblingOperand.mapExpr(change.getMapExprs(), propChanges).getWhere());
             WhereBuilder operandWhere = new WhereBuilder();
-            result = result.add(operand.mapJoinDataChanges(new PropertyChange<>(change, ValueExpr.get(change.expr.getWhere().xor(siblingWhere))), GroupType.ASSERTSINGLE_CHANGE(), operandWhere, propChanges));
+            result = result.add(operand.mapJoinDataChanges(new PropertyChange<>(change, ValueExpr.get(change.expr.getWhere().xor(siblingWhere))), type, GroupType.ASSERTSINGLE_CHANGE(), operandWhere, propChanges));
             change = change.and(operandWhere.toWhere().not());
             if(changedWhere!=null) changedWhere.add(operandWhere.toWhere());
         }
@@ -117,13 +115,8 @@ public class XorUnionProperty extends IncrementUnionProperty {
     }
 
     @Override
-    public DrillDownFormEntity createDrillDownForm(LogicsModule LM) {
+    public DrillDownFormEntity createDrillDownForm(BaseLogicsModule LM) {
         return new XorUnionDrillDownFormEntity(LocalizedString.create("{logics.property.drilldown.form.xor.union}"), this, LM
         );
-    }
-
-    @Override
-    public ExClassSet calcInferValueClass(ImMap<Interface, ExClassSet> inferred, InferType inferType) {
-        return ExClassSet.removeValues(super.calcInferValueClass(inferred, inferType));
     }
 }

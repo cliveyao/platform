@@ -1,60 +1,104 @@
 package lsfusion.gwt.client.form.design.view.flex;
 
-import com.google.gwt.dom.client.Style;
-import com.google.gwt.event.dom.client.*;
 import com.google.gwt.event.logical.shared.BeforeSelectionHandler;
-import com.google.gwt.event.shared.HandlerRegistration;
-import com.google.gwt.safehtml.shared.SafeHtml;
 import com.google.gwt.user.client.DOM;
 import com.google.gwt.user.client.Event;
-import com.google.gwt.user.client.ui.*;
-import com.google.gwt.user.client.ui.impl.FocusImpl;
+import com.google.gwt.user.client.ui.Composite;
+import com.google.gwt.user.client.ui.Widget;
+import lsfusion.gwt.client.base.GwtClientUtils;
 import lsfusion.gwt.client.base.view.FlexPanel;
 import lsfusion.gwt.client.base.view.GFlexAlignment;
-import lsfusion.gwt.client.view.StyleDefaults;
+import lsfusion.gwt.client.form.event.GKeyStroke;
+import lsfusion.gwt.client.view.MainFrame;
 
 import java.util.function.Consumer;
 
 /** based on from com.google.gwt.user.client.ui.TabBar */
 public class FlexTabBar extends Composite implements TabBar {
-    private static final String STYLENAME_DEFAULT = "gwt-TabBarItem";
 
-    public interface Tab extends HasAllKeyHandlers, HasClickHandlers {
-    }
+    private final FlexPanel panel;
 
-    private FlexPanel panel = new FlexPanel(false);
+    public final boolean end;
 
-    private Widget selectedTab;
+    private int selectedTab = -1;
 
-    public FlexTabBar(Widget extraTabWidget) {
+    private final int extraStartWidgets;
+
+    public FlexTabBar(Widget extraTabWidget, boolean vertical, boolean end) {
+        panel = new FlexPanel(vertical);
+
+        this.end = end;
+
+        // need this rules here (not for the panel) to avoid cascade css rules (when tab is in another tab)
+        // we can't use for example .tab-bar-horz .nav-tabs rule, because sometimes nav-tabs can be this bar or sometimes can be its child
+        String[] navTabs = new String[] {"nav", "nav-tabs", (vertical ? "nav-tabs-horz" : "nav-tabs-vert"), (end ? "nav-tabs-end" : "nav-tabs-start")};
+        GwtClientUtils.addClassNames(panel, navTabs);
+
+        //focus for nav-tabs instead of each nav-item
+        /*panel.getElement().setTabIndex(0);
+
+        addDomHandler(event -> {
+            if(GKeyStroke.isKeyRightEvent(event.getNativeEvent())) {
+                selectTabByArrow(true);
+            } else if(GKeyStroke.isKeyLeftEvent(event.getNativeEvent())) {
+                selectTabByArrow(false);
+            }
+        }, KeyDownEvent.getType());*/
+
+        FlexPanel wrappedPanel;
+        if(MainFrame.mobile || extraTabWidget != null) {
+            // we have to wrap panel to set auto overflow, since nav-tabs needs overflow:visible (sets margin - 1, to override the border)
+            // and we need overflow auto not to overlap extra widget (and in the mobile mode when the bar can be very long)
+            wrappedPanel = new FlexPanel(vertical);
+            if (MainFrame.mobile) // in mobile mode we don't want the bar to wrap (but to scroll to the right)
+                wrappedPanel.addFill(panel);
+            else
+                wrappedPanel.addFillShrink(panel);
+            GwtClientUtils.addClassName(wrappedPanel, vertical ? "nav-tabs-bar-wrap-horz" : "nav-tabs-bar-wrap-vert");
+        } else // if we use wrap and don't have extra widgets we don't wrap tab bar into the panel, to let the tab bar overflow (just like caption panel), and save dom element
+            wrappedPanel = panel;
+
         if (extraTabWidget == null) {
-            initWidget(panel);
+            initWidget(wrappedPanel);
         } else {
-            FlexPanel tabBarContainer = new FlexPanel();
-            tabBarContainer.addFill(panel);
-            tabBarContainer.add(extraTabWidget);
+            FlexPanel tabBarContainer = new FlexPanel(vertical);
+
+            tabBarContainer.addFillShrink(wrappedPanel);
+
+            // to have border underneath
+            // we can't set nav-tabs to the whole flex tab bar, because we want overflow:auto, and margin - 1 (to override the border) needs overflow:visible
+            GwtClientUtils.addClassNames(extraTabWidget, navTabs);
+            GwtClientUtils.addClassName(extraTabWidget, "nav-extra-toolbar");
+            tabBarContainer.addStretched(extraTabWidget);
+
             initWidget(tabBarContainer);
         }
 
+       GwtClientUtils.addClassName(this, "tab-bar");
+
         sinkEvents(Event.ONMOUSEDOWN);
 
-        setStyleName("gwt-TabBar");
-        panel.getElement().getStyle().setProperty("flexWrap", "wrap");
+//       GwtClientUtils.addXStyleName(this, "nav-tabs-" + (vertical ? "vert" : "horz"));
+//        panel.getElement().getStyle().setProperty("flexWrap", "wrap");
 
-        Label first = new Label();
-        Label rest = new Label();
-
-        first.setWordWrap(true);
-        rest.setWordWrap(true);
-
-        first.setText("\u00A0");
-        rest.setText("\u00A0");
-
-        first.setStyleName("gwt-TabBarFirst");
-        rest.setStyleName("gwt-TabBarRest");
-
-        panel.add(first, GFlexAlignment.STRETCH);
-        panel.addFill(rest);
+//        if(!MainFrame.useBootstrap) {
+//            // first is to have an offset on the left, rest not sure what for (and if it has some width, when wrapping gives empty line)
+//            Label first = new Label();
+//
+//            first.setWordWrap(true);
+////        rest.setWordWrap(true);
+//
+//            first.setText("\u00A0");
+////        rest.setText("\u00A0");
+//
+//            GwtClientUtils.addXStyleName(first, "nav-item-first");
+////        GwtClientUtils.addXStyleName(rest, "nav-item-rest");
+//
+//            panel.add(first, GFlexAlignment.STRETCH);
+//
+//            extraStartWidgets = 1;
+//        } else
+            extraStartWidgets = 0;
     }
 
     private Consumer<Integer> beforeSelectionHandler;
@@ -68,41 +112,60 @@ public class FlexTabBar extends Composite implements TabBar {
     }
 
     public int getSelectedTab() {
-        if (selectedTab == null) {
-            return -1;
-        }
-        return panel.getWidgetIndex(selectedTab) - 1;
+        return selectedTab;
     }
 
     public int getTabCount() {
-        return panel.getWidgetCount() - 2;
+        return panel.getWidgetCount() - extraStartWidgets;
     }
 
     public void insertTab(Widget widget, int beforeIndex) {
         checkInsertBeforeTabIndex(beforeIndex);
 
-        ClickDelegatePanel delWidget = new ClickDelegatePanel(widget);
-        delWidget.setStyleName(STYLENAME_DEFAULT);
-        delWidget.setHeight(StyleDefaults.VALUE_HEIGHT_STRING);
-        final Style delWidgetStyle = delWidget.getElement().getStyle();
-        delWidgetStyle.setDisplay(Style.Display.FLEX);
-        delWidgetStyle.setProperty("alignItems", "center");
+        Item delWidget;
+        // it's tricky here. Since we want to keep DOM simple (and save extra element) we're using Composite
+        // but if the Composite is removed, we can't create it once again so we use the Composite created previous time
+        // the other solution is to add event handlers to the widget somehow (but the current solution is also not that bad)
+        if(widget.getParent() instanceof Item)
+            delWidget = (Item) widget.getParent();
+        else {
+            delWidget = new Item(widget);
 
-        panel.add(delWidget, beforeIndex + 1, GFlexAlignment.STRETCH);
+            GwtClientUtils.addClassName(delWidget, "nav-item");
+            delWidget.getElement().setTabIndex(0);
 
-        setStyleName(DOM.getParent(delWidget.getElement()), STYLENAME_DEFAULT + "-wrapper", true);
+            GwtClientUtils.addClassName(delWidget, "nav-link");
+            GwtClientUtils.addClassName(delWidget, "link-secondary");
+        }
+
+        if(beforeIndex <= selectedTab)
+            selectedTab++;
+
+        panel.add(delWidget, beforeIndex + extraStartWidgets, GFlexAlignment.STRETCH);
+        delWidget.getElement().scrollIntoView();
     }
 
     public void removeTab(int index) {
         checkTabIndex(index);
 
-        // (index + 1) to account for 'first' placeholder widget.
-        Widget toRemove = panel.getWidget(index + 1);
-        if (toRemove == selectedTab) {
-            selectedTab = null;
-        }
-        panel.remove(toRemove);
+        if (index == selectedTab) {
+            // to be sure it is not drawn as active when inserted again if it is not supposed to 
+            updateSelectionStyle(false);
+            selectedTab = -1;
+        } else if(index < selectedTab)
+            selectedTab--;
+
+        panel.remove(getTabItem(index));
     }
+
+/*    private void selectTabByArrow(boolean next) {
+        int index = selectedTab + (next ? 1 : -1);
+        if (index == getTabCount())
+            index = 0;
+        if (index == -1)
+            index = getTabCount() - 1;
+        selectTab(index);
+    }*/
 
     /**
      * Programmatically selects the specified tab and fires events. Use index -1
@@ -111,82 +174,26 @@ public class FlexTabBar extends Composite implements TabBar {
      * @return <code>true</code> if successful, <code>false</code> if the change
      *         is denied by the {@link BeforeSelectionHandler}.
      */
-    public boolean selectTab(int index) {
+    public void selectTab(int index) {
+        if(index == selectedTab)
+            return;
+
         checkTabIndex(index);
 
         beforeSelectionHandler.accept(index);
 
         // Check for -1.
-        setSelectionStyle(selectedTab, false);
-        if (index == -1) {
-            selectedTab = null;
-            return true;
-        }
-
-        selectedTab = panel.getWidget(index + 1);
-        setSelectionStyle(selectedTab, true);
+        updateSelectionStyle(false);
+        selectedTab = index;
+        updateSelectionStyle(true);
 
         selectionHandler.accept(index);
-
-        return true;
     }
 
-    /**
-     * Enable or disable a tab. When disabled, users cannot select the tab.
-     * @param index   the index of the tab to enable or disable
-     * @param enabled true to enable, false to disable
-     */
-    public void setTabEnabled(int index, boolean enabled) {
+    private Item getTabItem(int index) {
         assert (index >= 0) && (index < getTabCount()) : "Tab index out of bounds";
 
-        // Style the wrapper
-        ClickDelegatePanel delPanel = (ClickDelegatePanel) panel.getWidget(index + 1);
-        delPanel.setEnabled(enabled);
-        setStyleName(delPanel.getElement(), "gwt-TabBarItem-disabled", !enabled);
-    }
-
-    /**
-     * Sets a tab's contents via HTML.
-     * <p/>
-     * Use care when setting an object's HTML; it is an easy way to expose
-     * script-based security problems. Consider using
-     * {@link #setTabText(int, String)} or {@link #setTabHTML(int, SafeHtml)}
-     * whenever possible.
-     * @param index the index of the tab whose HTML is to be set
-     * @param html  the tab new HTML
-     */
-    public void setTabHTML(int index, String html) {
-        assert (index >= 0) && (index < getTabCount()) : "Tab index out of bounds";
-
-        ClickDelegatePanel delPanel = (ClickDelegatePanel) panel.getWidget(index + 1);
-        SimplePanel focusablePanel = delPanel.getFocusablePanel();
-        focusablePanel.setWidget(new HTML(html, false));
-    }
-
-    /**
-     * Sets a tab's contents via safe html.
-     * @param index the index of the tab whose HTML is to be set
-     * @param html  the tab new HTML
-     */
-    public void setTabHTML(int index, SafeHtml html) {
-        setTabHTML(index, html.asString());
-    }
-
-    /**
-     * Sets a tab's text contents.
-     * @param index the index of the tab whose text is to be set
-     * @param text  the object's new text
-     */
-    public void setTabText(int index, String text) {
-        assert (index >= 0) && (index < getTabCount()) : "Tab index out of bounds";
-
-        ClickDelegatePanel delPanel = (ClickDelegatePanel) panel.getWidget(index + 1);
-        SimplePanel focusablePanel = delPanel.getFocusablePanel();
-
-        // It is not safe to check if the current widget is an instanceof Label and
-        // reuse it here because HTML is an instanceof Label. Leaving an HTML would
-        // throw off the results of getTabHTML(int).
-        focusablePanel.setWidget(new Label(text, false));
+        return (Item) panel.getWidget(index + extraStartWidgets);
     }
 
     private void checkInsertBeforeTabIndex(int beforeIndex) {
@@ -209,85 +216,39 @@ public class FlexTabBar extends Composite implements TabBar {
      * @return true if the tab corresponding to the widget for the tab could
      *         located and selected, false otherwise
      */
-    private boolean selectTabByTabWidget(Widget tabWidget) {
-        int numTabs = panel.getWidgetCount() - 1;
+    private void selectTabByTabWidget(Widget tabWidget) {
+        int numTabs = getTabCount();
 
-        for (int i = 1; i < numTabs; ++i) {
-            if (panel.getWidget(i) == tabWidget) {
-                return selectTab(i - 1);
+        for (int i = 0; i < numTabs; i++) {
+            if (getTabItem(i) == tabWidget) {
+                selectTab(i);
             }
         }
-
-        return false;
     }
 
-    private void setSelectionStyle(Widget item, boolean selected) {
-        if (item != null) {
+    private void updateSelectionStyle(boolean selected) {
+        int index = selectedTab;
+        if(index >= 0) {
+            Widget widget = getTabItem(index);
             if (selected) {
-                item.addStyleName("gwt-TabBarItem-selected");
+                GwtClientUtils.removeClassName(widget, "link-secondary");
+                GwtClientUtils.addClassName(widget, "active");
             } else {
-                item.removeStyleName("gwt-TabBarItem-selected");
+                GwtClientUtils.addClassName(widget, "link-secondary");
+                GwtClientUtils.removeClassName(widget, "active");
             }
         }
     }
 
-    /**
-     * <code>ClickDelegatePanel</code> decorates any widget with the minimal
-     * amount of machinery to receive clicks for delegation to the parent.
-     * {@link SourcesClickEvents} is not implemented due to the fact that only a
-     * single observer is needed.
-     */
-    private class ClickDelegatePanel extends Composite implements Tab {
-        private SimplePanel focusablePanel;
-        private boolean enabled = true;
-
-        ClickDelegatePanel(Widget child) {
-            focusablePanel = new FocusablePanel();
-            focusablePanel.setWidget(child);
-
-            initWidget(focusablePanel);
+    private class Item extends Composite {
+        public Item(Widget widget) {
+            initWidget(widget);
 
             sinkEvents(Event.ONMOUSEDOWN | Event.ONKEYDOWN);
         }
 
         @Override
-        public HandlerRegistration addClickHandler(ClickHandler handler) {
-            return addHandler(handler, ClickEvent.getType());
-        }
-
-        @Override
-        public HandlerRegistration addKeyDownHandler(KeyDownHandler handler) {
-            return addHandler(handler, KeyDownEvent.getType());
-        }
-
-        @Override
-        public HandlerRegistration addKeyPressHandler(KeyPressHandler handler) {
-            return addDomHandler(handler, KeyPressEvent.getType());
-        }
-
-        @Override
-        public HandlerRegistration addKeyUpHandler(KeyUpHandler handler) {
-            return addDomHandler(handler, KeyUpEvent.getType());
-        }
-
-        public SimplePanel getFocusablePanel() {
-            return focusablePanel;
-        }
-
-        public void setEnabled(boolean enabled) {
-            this.enabled = enabled;
-        }
-
-        public boolean isEnabled() {
-            return enabled;
-        }
-
-        @Override
         public void onBrowserEvent(Event event) {
-            if (!enabled) {
-                return;
-            }
-
             // No need for call to super.
             switch (DOM.eventGetType(event)) {
                 case Event.ONMOUSEDOWN:
@@ -295,18 +256,13 @@ public class FlexTabBar extends Composite implements TabBar {
                     break;
 
                 case Event.ONKEYDOWN:
-                    if (((char) DOM.eventGetKeyCode(event)) == KeyCodes.KEY_ENTER) {
+                    if (GKeyStroke.isSpaceKeyEvent(event)) {
                         FlexTabBar.this.selectTabByTabWidget(this);
+                        GwtClientUtils.stopPropagation(event);
                     }
                     break;
             }
             super.onBrowserEvent(event);
-        }
-    }
-
-    private static class FocusablePanel extends SimplePanel {
-        public FocusablePanel() {
-            super(FocusImpl.getFocusImplForPanel().createFocusable());
         }
     }
 }

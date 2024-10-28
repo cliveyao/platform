@@ -6,8 +6,10 @@ title: 'Инструкция +='
 
 ### Синтаксис
 
-    propertyId (param1, ..., paramN) += implExpr;
-    propertyId (param1, ..., paramN) += WHEN whenExpr THEN implExpr;
+```
+propertyId (param1, ..., paramN) += implExpr;
+propertyId (param1, ..., paramN) += WHEN whenExpr THEN implExpr;
+```
 
 ### Описание
 
@@ -49,6 +51,8 @@ name(BClass b) = 'B' + innerName(b);
 name(CClass c) = 'C' + innerName(c);
 
 name[AClass](BClass b) += name(b);
-name(CClass c) += name(c); // Здесь слева будет найден name[AClass], потому что поиск идет только среди абстрактных свойств, справа же будет найден name[CClass]
+// Здесь слева будет найден name[AClass], потому что поиск идет только среди абстрактных свойств,
+// справа же будет найден name[CClass]
+name(CClass c) += name(c); 
 name(DClass d) += 'DClass' + innerName(d) IF d IS DClass;
 ```

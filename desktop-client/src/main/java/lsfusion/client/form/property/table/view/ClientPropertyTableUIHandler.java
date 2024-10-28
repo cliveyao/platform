@@ -1,13 +1,19 @@
 package lsfusion.client.form.property.table.view;
 
 import lsfusion.base.ReflectionUtils;
-import lsfusion.base.file.RawFileData;
+import lsfusion.base.file.AppFileDataImage;
 import lsfusion.client.base.SwingUtils;
 import lsfusion.client.classes.data.ClientImageClass;
+import lsfusion.client.classes.data.ClientPDFClass;
+import lsfusion.client.classes.data.ClientVideoClass;
 import lsfusion.client.classes.data.link.ClientImageLinkClass;
+import lsfusion.client.classes.data.link.ClientPDFLinkClass;
+import lsfusion.client.classes.data.link.ClientVideoLinkClass;
 import lsfusion.client.controller.remote.RmiQueue;
 import lsfusion.client.form.property.ClientPropertyDraw;
 import lsfusion.client.form.property.cell.classes.view.ImagePropertyRenderer;
+import lsfusion.client.form.property.cell.classes.view.PDFPropertyRenderer;
+import lsfusion.client.form.property.cell.classes.view.VideoPropertyRenderer;
 import lsfusion.client.form.property.cell.classes.view.link.ImageLinkPropertyRenderer;
 
 import javax.swing.*;
@@ -100,15 +106,32 @@ final class ClientPropertyTableUIHandler extends MouseAdapter {
                         table.prepareTextEditor();
                     } else {
                         if (property.baseType instanceof ClientImageClass) {
-                            ImagePropertyRenderer.expandImage(((RawFileData) table.getValueAt(pressedRow, pressedCol)));
+                            ImagePropertyRenderer.expandImage(((AppFileDataImage) table.getValueAt(pressedRow, pressedCol)));
                             e.consume();
                         } else if (property.baseType instanceof ClientImageLinkClass) {
-                            String value = (String) table.getValueAt(pressedRow, pressedCol);
-                            RawFileData imageBytes = ImageLinkPropertyRenderer.readImage(property, value);
-                            if (imageBytes != null) {
-                                ImagePropertyRenderer.expandImage(imageBytes);
+                            AppFileDataImage fileDataImage = ImageLinkPropertyRenderer.readImage(property, (String) table.getValueAt(pressedRow, pressedCol));
+                            if (fileDataImage != null) {
+                                ImagePropertyRenderer.expandImage(fileDataImage);
                                 e.consume();
                             }    
+                        } else if (property.baseType instanceof ClientPDFClass) {
+                            PDFPropertyRenderer.expandImage(((AppFileDataImage) table.getValueAt(pressedRow, pressedCol)));
+                            e.consume();
+                        } else if (property.baseType instanceof ClientPDFLinkClass) {
+                            AppFileDataImage fileDataImage = ImageLinkPropertyRenderer.readImage(property, (String) table.getValueAt(pressedRow, pressedCol));
+                            if (fileDataImage != null) {
+                                PDFPropertyRenderer.expandImage(fileDataImage);
+                                e.consume();
+                            }
+                        } else if (property.baseType instanceof ClientVideoClass) {
+                            VideoPropertyRenderer.expandImage(((AppFileDataImage) table.getValueAt(pressedRow, pressedCol)));
+                            e.consume();
+                        } else if (property.baseType instanceof ClientVideoLinkClass) {
+                            AppFileDataImage fileDataImage = ImageLinkPropertyRenderer.readImage(property, (String) table.getValueAt(pressedRow, pressedCol));
+                            if (fileDataImage != null) {
+                                VideoPropertyRenderer.expandImage(fileDataImage);
+                                e.consume();
+                            }
                         }
                     }
                 }

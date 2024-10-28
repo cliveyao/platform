@@ -5,9 +5,14 @@ import lsfusion.base.col.interfaces.immutable.ImMap;
 import lsfusion.base.col.interfaces.immutable.ImOrderSet;
 import lsfusion.base.col.interfaces.immutable.ImRevMap;
 import lsfusion.base.col.interfaces.mutable.add.MAddExclMap;
+import lsfusion.server.logics.form.interactive.controller.remote.serialization.FormInstanceContext;
+import lsfusion.server.logics.form.interactive.design.ComponentView;
 import lsfusion.server.logics.form.interactive.design.ContainerView;
 import lsfusion.server.logics.form.interactive.design.ContainerViewExtraType;
+import lsfusion.server.logics.form.interactive.design.object.GridPropertyView;
+import lsfusion.server.logics.form.interactive.instance.design.BaseComponentViewInstance;
 import lsfusion.server.logics.form.interactive.instance.design.ContainerViewInstance;
+import lsfusion.server.logics.form.interactive.instance.design.GridPropertyViewInstance;
 import lsfusion.server.logics.form.interactive.instance.filter.RegularFilterGroupInstance;
 import lsfusion.server.logics.form.interactive.instance.filter.RegularFilterInstance;
 import lsfusion.server.logics.form.interactive.instance.object.GroupObjectInstance;
@@ -34,7 +39,10 @@ import java.util.function.Function;
 
 public class InstanceFactory {
 
-    public InstanceFactory() {
+    private final FormInstanceContext context;
+
+    public InstanceFactory(FormInstanceContext context) {
+        this.context = context;
     }
 
     private final MAddExclMap<ObjectEntity, ObjectInstance> objectInstances = MapFact.mSmallStrongMap();
@@ -43,6 +51,7 @@ public class InstanceFactory {
     private final MAddExclMap<ActionOrPropertyObjectEntity, ActionOrPropertyObjectInstance> actionOrPropertyObjectInstances = MapFact.mSmallStrongMap();
     private final MAddExclMap<PropertyDrawEntity, PropertyDrawInstance> propertyDrawInstances = MapFact.mSmallStrongMap();
     private final MAddExclMap<ContainerView, ContainerViewInstance> containerViewInstances = MapFact.mSmallStrongMap();
+    private final MAddExclMap<ComponentView, BaseComponentViewInstance> baseComponentViewInstances = MapFact.mSmallStrongMap();
 
 
     public ObjectInstance getInstance(ObjectEntity entity) {
@@ -70,8 +79,9 @@ public class InstanceFactory {
             }
 
             groupInstance = new GroupObjectInstance(entity, objects, entity.propertyBackground != null ? getInstance(entity.propertyBackground) : null,
-                    entity.propertyForeground != null ? getInstance(entity.propertyForeground) : null, parentInstances,
-                    getInstance(entity.getProperties()));
+                    entity.propertyForeground != null ? getInstance(entity.propertyForeground) : null,
+                    entity.propertyCustomOptions != null ? getInstance(entity.propertyCustomOptions) : null,
+                    parentInstances, getInstance(entity.getProperties()));
             groupInstances.exclAdd(entity, groupInstance);
         }
 
@@ -95,15 +105,15 @@ public class InstanceFactory {
         return treeInstance;
     }
 
-    private <P extends PropertyInterface> ImMap<P, ObjectInstance> getInstanceMap(ActionOrPropertyObjectEntity<P, ?> entity) {
-        return entity.mapping.mapValues(value -> value.getInstance(InstanceFactory.this));
+    public <P extends PropertyInterface> ImRevMap<P, ObjectInstance> getInstanceMap(ImRevMap<P, ObjectEntity> mapping) {
+        return mapping.mapRevValues((ObjectEntity value) -> value.getInstance(InstanceFactory.this));
     }
 
     public <P extends PropertyInterface> PropertyObjectInstance<P> getInstance(PropertyObjectEntity<P> entity) {
 
         PropertyObjectInstance<P> propertyInstance = (PropertyObjectInstance<P>) actionOrPropertyObjectInstances.get(entity);
         if (propertyInstance == null) {
-            propertyInstance = new PropertyObjectInstance<>(entity.property, getInstanceMap(entity));
+            propertyInstance = new PropertyObjectInstance<>(entity.property, getInstanceMap(entity.mapping));
             actionOrPropertyObjectInstances.exclAdd(entity, propertyInstance);
         }
         return propertyInstance;
@@ -129,7 +139,7 @@ public class InstanceFactory {
 
         ActionObjectInstance<P> actionInstance = (ActionObjectInstance<P>) actionOrPropertyObjectInstances.get(entity);
         if (actionInstance == null) {
-            actionInstance = new ActionObjectInstance<>(entity.property, getInstanceMap(entity));
+            actionInstance = new ActionObjectInstance<>(entity.property, getInstanceMap(entity.mapping));
             actionOrPropertyObjectInstances.exclAdd(entity, actionInstance);
         }
         return actionInstance;
@@ -143,12 +153,12 @@ public class InstanceFactory {
 
             propertyDrawInstance = new PropertyDrawInstance<>(
                     entity,
-                    getInstance(entity.getValueActionOrProperty()),
-                    getInstance(entity.getDrawProperty()),
+                    getInstance(entity.actionOrProperty),
+                    getInstance(entity.getCellProperty(context)),
                     getInstance(entity.toDraw),
                     columnGroupObjects,
                     PropertyDrawExtraType.extras.mapValues((PropertyDrawExtraType type) -> entity.hasPropertyExtra(type) ? getInstance(entity.getPropertyExtra(type)) : null),
-                    entity.lastAggrColumns.mapListValues((Function<PropertyObjectEntity, PropertyObjectInstance<?>>) this::getInstance)
+                    entity.lastAggrColumns.mapListValues(this::getInstance)
             );
             propertyDrawInstances.exclAdd(entity, propertyDrawInstance);
         }
@@ -159,16 +169,33 @@ public class InstanceFactory {
     public ContainerViewInstance getInstance(ContainerView entity) {
         ContainerViewInstance containerViewInstance = containerViewInstances.get(entity);
         if (containerViewInstance == null) {
+            PropertyObjectEntity propertyElementClass = entity.propertyElementClass;
             containerViewInstance = new ContainerViewInstance(
                     entity,
                     ContainerViewExtraType.extras.mapValues((ContainerViewExtraType type) -> {
                         PropertyObjectEntity<?> extra = entity.getExtra(type);
                         return extra != null ? getInstance(extra) : null;
-                    })
+                    }),
+                    propertyElementClass != null ? getInstance(propertyElementClass) : null
             );
             containerViewInstances.exclAdd(entity, containerViewInstance);
         }
         return containerViewInstance;
+    }
+
+    public BaseComponentViewInstance getInstance(ComponentView entity) {
+        BaseComponentViewInstance baseComponentViewInstance = baseComponentViewInstances.get(entity);
+        if (baseComponentViewInstance == null) {
+            PropertyObjectEntity propertyElementClass = entity.propertyElementClass;
+            PropertyObjectInstance propertyElementClassInstance = propertyElementClass != null ? getInstance(propertyElementClass) : null;
+            if(entity instanceof GridPropertyView) {
+                PropertyObjectEntity propertyValueClass = ((GridPropertyView) entity).propertyValueClass;
+                baseComponentViewInstance = new GridPropertyViewInstance(entity, propertyElementClassInstance, propertyValueClass != null ? getInstance(propertyValueClass) : null);
+            } else
+                baseComponentViewInstance = new BaseComponentViewInstance(entity, propertyElementClassInstance);
+            baseComponentViewInstances.exclAdd(entity, baseComponentViewInstance);
+        }
+        return baseComponentViewInstance;
     }
 
     public RegularFilterGroupInstance getInstance(RegularFilterGroupEntity entity) {

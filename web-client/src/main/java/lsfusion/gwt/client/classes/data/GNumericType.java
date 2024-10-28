@@ -4,13 +4,16 @@ import com.google.gwt.i18n.client.LocaleInfo;
 import lsfusion.gwt.client.ClientMessages;
 import lsfusion.gwt.client.form.property.GExtInt;
 import lsfusion.gwt.client.form.property.GPropertyDraw;
+import lsfusion.gwt.client.form.property.PValue;
+import lsfusion.gwt.client.form.property.async.GInputList;
+import lsfusion.gwt.client.form.property.async.GInputListAction;
 import lsfusion.gwt.client.form.property.cell.classes.controller.NumericCellEditor;
-import lsfusion.gwt.client.form.property.cell.classes.view.NumberCellRenderer;
+import lsfusion.gwt.client.form.property.cell.classes.controller.RequestValueCellEditor;
+import lsfusion.gwt.client.form.property.cell.classes.view.IntegralCellRenderer;
+import lsfusion.gwt.client.form.property.cell.controller.EditContext;
 import lsfusion.gwt.client.form.property.cell.controller.EditManager;
-import lsfusion.gwt.client.form.property.cell.controller.CellEditor;
 import lsfusion.gwt.client.form.property.cell.view.CellRenderer;
 
-import java.math.BigDecimal;
 import java.text.ParseException;
 
 import static lsfusion.gwt.client.base.GwtSharedUtils.countMatches;
@@ -29,8 +32,8 @@ public class GNumericType extends GDoubleType {
     }
 
     @Override
-    public CellRenderer createGridCellRenderer(GPropertyDraw property) {
-        return new NumberCellRenderer(property);
+    public CellRenderer createCellRenderer(GPropertyDraw property) {
+        return new IntegralCellRenderer(property);
     }
 
     @Override
@@ -57,21 +60,27 @@ public class GNumericType extends GDoubleType {
     }
 
     @Override
-    public CellEditor createGridCellEditor(EditManager editManager, GPropertyDraw editProperty) {
-        return new NumericCellEditor(this, editManager, editProperty, getEditFormat(editProperty));
+    public RequestValueCellEditor createCellEditor(EditManager editManager, GPropertyDraw editProperty, GInputList inputList, GInputListAction[] inputListActions, EditContext editContext) {
+        return new NumericCellEditor(this, editManager, editProperty);
     }
 
     @Override
-    public Object parseString(String s, String pattern) throws ParseException {
-        Double toDouble = parseToDouble(s, pattern); // сперва проверим, конвертится ли строка в число вообще
+    public PValue parseString(String s, String pattern) throws ParseException {
+        PValue parsed = super.parseString(s, pattern);
+        if(parsed != null)
+            checkParse(s);
 
+        return parsed;
+    }
+
+    private void checkParse(String s) throws ParseException {
         String decimalSeparator = LocaleInfo.getCurrentLocale().getNumberConstants().decimalSeparator(); // а затем посчитаем цифры
 
         if (!precision.isUnlimited() && ((scale.value == 0 && s.contains(decimalSeparator)) ||
                 (s.contains(decimalSeparator) && s.length() - s.indexOf(decimalSeparator) > scale.value + 1))) {
             throwParseException(s);
         }
-        
+
         String groupingSeparator = LocaleInfo.getCurrentLocale().getNumberConstants().groupingSeparator();
         if (UNBREAKABLE_SPACE.equals(groupingSeparator)) {
             groupingSeparator = " ";
@@ -81,10 +90,8 @@ public class GNumericType extends GDoubleType {
         if (separatorPosition > allowedSeparatorPosition) {
             throwParseException(s);
         }
-        
-        return toDouble;
     }
-    
+
     private void throwParseException(String s) throws ParseException {
         throw new ParseException("String " + s + "can not be converted to numeric" + (precision.isUnlimited() ? "" : ("[" + precision + "," + scale + "]")), 0);
     } 

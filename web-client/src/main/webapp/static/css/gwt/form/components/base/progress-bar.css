@@ -1,0 +1,23 @@
+.progress {
+    background-color: var(--progress-background-color);
+    height: 12pt;
+    overflow-x: hidden;
+}
+
+.progress-bar {
+    background-color: var(--focus-color);
+}
+
+.progress .progress-text {
+    padding: 0 var(--border-comp-horz-padding);
+    margin: 0;
+    color: var(--text-color);
+    white-space: nowrap;
+    cursor: default;
+}
+
+.progress .progress-text-firstHalf {
+}
+
+.progress .progress-text-secondHalf {
+}

@@ -1,17 +1,24 @@
 package lsfusion.client.base.log;
 
 import lsfusion.client.base.SwingUtils;
+import lsfusion.client.controller.MainController;
 
 import javax.swing.*;
 import java.awt.*;
-import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
+import java.util.function.Consumer;
+
+import static lsfusion.client.base.view.SwingDefaults.getPanelBackground;
 
 class LogPanel extends JPanel {
+    private static final int HIDE_DELAY = 3500;
+    
     private final LogTextArea logArea;
     private final JLabel info;
+    private final Consumer<Boolean> visibilityConsumer;
 
-    public LogPanel() {
+    public LogPanel(Consumer<Boolean> visibilityConsumer) {
+        this.visibilityConsumer = visibilityConsumer;
+        
         setLayout(new BorderLayout());
 
         logArea = new LogTextArea();
@@ -30,20 +37,26 @@ class LogPanel extends JPanel {
         logArea.setText(newText);
         if (!newText.isEmpty()) {
             logArea.setCaretPosition(newText.length() - 1);
+
+            if (MainController.enableShowingRecentlyLogMessages) {
+                visibilityConsumer.accept(true);
+                SwingUtils.stopSingleAction("logSetInvisible", false);
+
+                SwingUtils.invokeLaterSingleAction("logSetInvisible",
+                        e -> visibilityConsumer.accept(false),
+                        HIDE_DELAY);
+            }
         }
     }
 
     public void setTemporaryBackground(Color color) {
         SwingUtils.stopSingleAction("logSetOldBackground", true);
 
-        final Color oldBackground = logArea.getBackground();
         logArea.setBackground(color);
 
-        SwingUtils.invokeLaterSingleAction("logSetOldBackground", new ActionListener() {
-            public void actionPerformed(ActionEvent e) {
-                logArea.setBackground(oldBackground);
-            }
-        }, 10000);
+        SwingUtils.invokeLaterSingleAction("logSetOldBackground",
+                e -> logArea.setBackground(getPanelBackground()),
+                HIDE_DELAY);
     }
 
     public void provideErrorFeedback() {
@@ -62,6 +75,7 @@ class LogPanel extends JPanel {
 
             JTextField fontGetter = new JTextField();
             setFont(fontGetter.getFont());
+            setBackground(getPanelBackground());
         }
     }
 }

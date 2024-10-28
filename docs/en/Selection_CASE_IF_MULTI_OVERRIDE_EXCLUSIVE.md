@@ -8,7 +8,7 @@ All conditions and results are defined as some properties and/or parameters. Acc
 
 ### Polymorphic form {#poly}
 
-The platform also allows you to define a condition and the corresponding result with one property. In this case, the condition may be either matching the property's [signature](Property_signature_CLASS.md), or the property itself. We will call this the *polymorphic* form of the operator.
+The platform also allows you to define a condition and the corresponding result with one property. In this case, the condition may be either matching the property's [signature](Property_signature_ISCLASS.md), or the property itself. We will call this the *polymorphic* form of the operator.
 
 
 :::info
@@ -116,7 +116,8 @@ price1 = DATA NUMERIC[10,2] (Book);
 price2 = DATA NUMERIC[10,2] (Book);
 maxPrice (Book b) = IF price1(b) > price2(b) THEN price1(b) ELSE price2(b);
 
-sex (Human h) = IF h IS Male THEN 'Male' ELSE ('Female' IF h IS Female); // if h is of another class, it will be NULL
+// if h is of another class, it will be NULL
+sex (Human h) = IF h IS Male THEN 'Male' ELSE ('Female' IF h IS Female); 
 
 isDifferent(a, b) = IF a != b THEN TRUE;
 ```

@@ -14,6 +14,7 @@ import lsfusion.server.logics.action.flow.ChangeFlowType;
 import lsfusion.server.logics.action.flow.FlowResult;
 import lsfusion.server.logics.action.session.changed.OldProperty;
 import lsfusion.server.logics.event.Event;
+import lsfusion.server.logics.form.interactive.action.async.map.AsyncMapEventExec;
 import lsfusion.server.logics.form.interactive.instance.FormInstance;
 import lsfusion.server.logics.form.interactive.instance.property.PropertyObjectInterfaceInstance;
 import lsfusion.server.logics.form.struct.action.ActionObjectEntity;
@@ -27,6 +28,7 @@ import lsfusion.server.logics.property.implement.PropertyMapImplement;
 import lsfusion.server.logics.property.oraction.ActionOrPropertyInterfaceImplement;
 import lsfusion.server.logics.property.oraction.PropertyInterface;
 import lsfusion.server.physics.dev.debug.DebugInfo;
+import lsfusion.server.physics.dev.i18n.LocalizedString;
 
 import java.sql.SQLException;
 
@@ -49,16 +51,15 @@ public class ActionMapImplement<P extends PropertyInterface, T extends PropertyI
         return new ActionMapImplement<>(action, mapping.join(remap));
     }
 
-    public <L extends PropertyInterface> void mapEventAction(LogicsModule lm, PropertyMapImplement<L, T> where, Event event, boolean resolve, DebugInfo.DebugPoint debugInfo) {
-        lm.addEventAction(action, where.map(mapping.reverse()), MapFact.<PropertyInterfaceImplement<P>, Boolean>EMPTYORDER(), false, event, resolve, debugInfo);
-    }
-
     public ActionObjectEntity<P> mapObjects(ImRevMap<T, ObjectEntity> mapObjects) {
         return new ActionObjectEntity<>(action, mapping.join(mapObjects));
     }
 
     public PropertyMapImplement<?, T> mapWhereProperty() {
-        return action.getWhereProperty().map(mapping);
+        PropertyMapImplement<?, P> whereProperty = action.getWhereProperty();
+        if(whereProperty != null)
+            return whereProperty.map(mapping);
+        return null;
     }
 
     public PropertyMapImplement<?, T> mapCalcWhereProperty() {
@@ -73,13 +74,6 @@ public class ActionMapImplement<P extends PropertyInterface, T extends PropertyI
         return action.execute(context.map(mapping));
     }
 
-    public T mapSimpleDelete() {
-        P simpleDelete = action.getSimpleDelete();
-        if(simpleDelete!=null)
-            return mapping.get(simpleDelete);
-        return null;
-    }
-    
     public ActionMapImplement<?, T> mapReplaceExtend(Action.ActionReplacer replacer) {
         ActionMapImplement<?, P> replaced = action.replace(replacer);
         if(replaced != null)
@@ -144,5 +138,19 @@ public class ActionMapImplement<P extends PropertyInterface, T extends PropertyI
     
     public <X> ActionImplement<P, X> map(ImMap<T, X> map) {
         return new ActionImplement<>(action, mapping.join(map));
+    }
+
+    public AsyncMapEventExec<T> mapAsyncEventExec(boolean optimistic, boolean recursive) {
+        AsyncMapEventExec<P> asyncMapInputExec = action.getAsyncEventExec(optimistic, recursive);
+        if(asyncMapInputExec != null)
+            return asyncMapInputExec.map(mapping);
+        return null;
+    }
+
+    public PropertyMapImplement<?, T> mapClassProperty() {
+        PropertyMapImplement<?, T> whereProperty = mapWhereProperty();
+        if(whereProperty != null)
+            return whereProperty.mapClassProperty();
+        return null;
     }
 }

@@ -1,5 +1,7 @@
 package lsfusion.client.form.property.cell.classes.controller;
 
+import com.toedter.calendar.IDateEditor;
+import com.toedter.calendar.JCalendar;
 import com.toedter.calendar.JDateChooser;
 import com.toedter.calendar.JTextFieldDateEditor;
 import lsfusion.base.BaseUtils;
@@ -7,7 +9,6 @@ import lsfusion.client.base.SwingUtils;
 import lsfusion.client.base.view.ClientColorUtils;
 import lsfusion.client.base.view.SwingDefaults;
 import lsfusion.client.form.property.ClientPropertyDraw;
-import lsfusion.client.form.property.cell.controller.ClientAbstractCellEditor;
 import lsfusion.client.form.property.cell.controller.PropertyTableCellEditor;
 import lsfusion.client.form.property.table.view.ClientPropertyTableEditorComponent;
 
@@ -36,6 +37,8 @@ public class DatePropertyEditor extends JDateChooser implements PropertyEditor, 
     public DatePropertyEditor(Object value, SimpleDateFormat format, ClientPropertyDraw property) {
         super(null, null, format.toPattern(), new DatePropertyEditorComponent(property, format));
         this.format = format;
+        
+        jcalendar.setWeekOfYearVisible(false);
 
         if (value != null) {
             setDate(valueToDate(value));
@@ -62,33 +65,38 @@ public class DatePropertyEditor extends JDateChooser implements PropertyEditor, 
 
     @Override
     public boolean processKeyBinding(KeyStroke ks, KeyEvent ke, int condition, boolean pressed) {
+        //hack to start editing on F2
+        if (ke.getKeyCode() == KeyEvent.VK_F2 && ke.getID() == KeyEvent.KEY_RELEASED) {
+            requestFocusInWindow();
+        }
 
         // передаем вниз нажатую клавишу, чтобы по нажатию кнопки она уже начинала вводить в объект
         if (condition == WHEN_FOCUSED) {
             return ((DatePropertyEditorComponent) dateEditor).publicProcessKeyBinding(ks, ke, condition, pressed);
-        } else if (ke.getKeyCode() == KeyEvent.VK_ENTER && tableEditor instanceof ClientAbstractCellEditor)  {
+        } else if (ke.getKeyCode() == KeyEvent.VK_ENTER && tableEditor != null /*&& tableEditor instanceof ClientAbstractCellEditor*/) {
+            // removed instanceof check as it prevents editing to be stopped in filters
             //stop editing and prevent executing 'forward-traversal' from SwingUtils.setupSingleCellTable (it will stop editing + go to next cell)
-            return tableEditor.stopCellEditing();
+            tableEditor.preCommit(true);
+            boolean stopped = tableEditor.stopCellEditing();
+            tableEditor.postCommit();
+            return stopped;
+        } else if (ke.getKeyCode() == KeyEvent.VK_ESCAPE) {
+            tableEditor.cancelCellEditing();
+            return true;
         } else {
             return super.processKeyBinding(ks, ke, condition, pressed);
         }
     }
 
-    @Override
-    public void setNextFocusableComponent(Component comp) {
-        super.setNextFocusableComponent(comp);
+    @SuppressWarnings("deprecation")
+    public static void setNextFocusableComponent(Component comp, IDateEditor dateEditor, JPopupMenu popup, JCalendar jcalendar) {
         ((JComponent) dateEditor).setNextFocusableComponent(comp);
 
-        // вот эту хрень приходится добавлять по той причине, что иначе так как popup вообще говоря не child таблицы,
-        // то при нажатии на что угодно - она тут же делает stopEditing...
+        // This has to be added for the reason that popup is not a child table, and when you click on anything - it immediately does stopEditing...
         if (comp instanceof JTable) {
-
             final JTable table = (JTable) comp;
-
             popup.addPopupMenuListener(new PopupMenuListener() {
-
                 Boolean oldValue;
-
                 public void popupMenuWillBecomeVisible(PopupMenuEvent e) {
                     oldValue = (Boolean) table.getClientProperty("terminateEditOnFocusLost");
                     table.putClientProperty("terminateEditOnFocusLost", Boolean.FALSE);
@@ -101,14 +109,17 @@ public class DatePropertyEditor extends JDateChooser implements PropertyEditor, 
                 public void popupMenuCanceled(PopupMenuEvent e) {
                 }
             });
-
         }
-
-        // а вот эту хрень приходится добавлять потому что popupMenuWillBecomeInvisible срабатывает раньше чем
-        // проверяется на изменение фокуса
+        // This has to be added because popupMenuWillBecomeInvisible is triggered before it checks for focus changes
         SwingUtils.removeFocusable(jcalendar);
+        // It all works very badly anyway because of the popups
+    }
 
-        // к слову все равно это все дело очень хриво работает и все из-за долбанных popup'ов
+    @SuppressWarnings("deprecation")
+    @Override
+    public void setNextFocusableComponent(Component comp) {
+        super.setNextFocusableComponent(comp);
+        setNextFocusableComponent(comp, dateEditor, popup, jcalendar);
     }
 
     public void setTableEditor(PropertyTableCellEditor tableEditor) {
@@ -172,7 +183,7 @@ public class DatePropertyEditor extends JDateChooser implements PropertyEditor, 
             this.dateFormatter = format;
 
             if (property != null) {
-                Integer valueAlignment = property.getSwingValueAlignment();
+                Integer valueAlignment = property.getSwingValueAlignmentHorz();
                 if (valueAlignment != null) {
                     setHorizontalAlignment(valueAlignment);
                 }

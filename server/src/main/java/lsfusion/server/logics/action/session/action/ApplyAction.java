@@ -14,6 +14,7 @@ import lsfusion.server.logics.action.Action;
 import lsfusion.server.logics.action.controller.context.ExecutionContext;
 import lsfusion.server.logics.action.flow.ChangeFlowType;
 import lsfusion.server.logics.action.flow.FlowResult;
+import lsfusion.server.logics.action.flow.FormChangeFlowType;
 import lsfusion.server.logics.action.flow.KeepContextAction;
 import lsfusion.server.logics.action.implement.ActionMapImplement;
 import lsfusion.server.logics.property.Property;
@@ -26,7 +27,6 @@ import lsfusion.server.physics.dev.debug.ActionDelegationType;
 import lsfusion.server.physics.dev.i18n.LocalizedString;
 import lsfusion.server.physics.exec.db.controller.manager.DBManager;
 
-import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.function.Function;
 
@@ -55,8 +55,8 @@ public class ApplyAction extends KeepContextAction {
     }
 
     @Override
-    public ImMap<Property, Boolean> aspectUsedExtProps() {
-        return super.aspectUsedExtProps().replaceValues(true);
+    public ImMap<Property, Boolean> calculateUsedExtProps() {
+        return super.calculateUsedExtProps().replaceValues(true);
     }
 
     @Override
@@ -75,19 +75,10 @@ public class ApplyAction extends KeepContextAction {
 
     @Override
     public FlowResult aspectExecute(ExecutionContext<PropertyInterface> context) throws SQLException, SQLHandledException {
-        
-        try {
-            if (serializable)
-                DBManager.pushTIL(Connection.TRANSACTION_REPEATABLE_READ);
-
-            Result<String> rApplyMessage = new Result<>();
-            boolean applied = context.apply(action == null ? SetFact.EMPTYORDER() : SetFact.singletonOrder(action.getValueImplement(context.getKeys(), context.getObjectInstances(), context.getFormAspectInstance())), keepSessionProperties, rApplyMessage);
-            canceled.change(context, !applied ? true : null);
-            applyMessage.change(context, rApplyMessage.result);
-        } finally {
-            if (serializable)
-                DBManager.popTIL();
-        }
+        Result<String> rApplyMessage = new Result<>();
+        boolean applied = context.apply(action == null ? SetFact.EMPTYORDER() : SetFact.singletonOrder(action.getValueImplement(context.getKeys(), context.getObjectInstances(), context.getFormAspectInstance())), serializable, keepSessionProperties, rApplyMessage);
+        canceled.change(context, !applied ? true : null);
+        applyMessage.change(context, rApplyMessage.result);
         return FlowResult.FINISH;
     }
 
@@ -105,12 +96,14 @@ public class ApplyAction extends KeepContextAction {
     }
 
     @Override
-    public boolean endsWithApplyAndNoChangesAfterBreaksBefore() {
+    public boolean endsWithApplyAndNoChangesAfterBreaksBefore(FormChangeFlowType type) {
         return true;
     }
 
     @Override
     public boolean hasFlow(ChangeFlowType type) {
+        if (type == ChangeFlowType.ANYEFFECT)
+            return true;
         if (type == ChangeFlowType.APPLY)
             return true;
         if (type == ChangeFlowType.READONLYCHANGE)

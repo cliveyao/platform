@@ -9,10 +9,10 @@ import lsfusion.base.col.SetFact;
 import lsfusion.base.col.implementations.simple.EmptyOrderMap;
 import lsfusion.base.col.implementations.simple.EmptyRevMap;
 import lsfusion.base.col.interfaces.immutable.*;
-import lsfusion.base.col.interfaces.mutable.*;
-import lsfusion.base.col.interfaces.mutable.add.MAddCol;
-import lsfusion.base.col.lru.LRUSVSMap;
-import lsfusion.base.col.lru.LRUUtil;
+import lsfusion.base.col.interfaces.mutable.LongMutable;
+import lsfusion.base.col.interfaces.mutable.MList;
+import lsfusion.base.col.interfaces.mutable.MMap;
+import lsfusion.base.col.interfaces.mutable.MOrderMap;
 import lsfusion.base.comb.ListPermutations;
 import lsfusion.interop.action.ServerResponse;
 import lsfusion.interop.form.event.BindingMode;
@@ -21,23 +21,27 @@ import lsfusion.interop.form.event.MouseInputEvent;
 import lsfusion.interop.form.property.ClassViewType;
 import lsfusion.interop.form.property.Compare;
 import lsfusion.interop.form.property.PivotOptions;
+import lsfusion.server.base.AppServerImage;
+import lsfusion.server.base.ResourceUtils;
 import lsfusion.server.base.caches.ManualLazy;
 import lsfusion.server.base.controller.thread.ThreadLocalContext;
 import lsfusion.server.base.version.NFLazy;
 import lsfusion.server.base.version.Version;
 import lsfusion.server.data.type.Type;
 import lsfusion.server.logics.BaseLogicsModule;
+import lsfusion.server.logics.BusinessLogics;
 import lsfusion.server.logics.action.implement.ActionMapImplement;
 import lsfusion.server.logics.action.session.changed.OldProperty;
 import lsfusion.server.logics.action.session.changed.SessionProperty;
 import lsfusion.server.logics.classes.ValueClass;
-import lsfusion.server.logics.classes.data.LogicalClass;
 import lsfusion.server.logics.classes.user.CustomClass;
 import lsfusion.server.logics.classes.user.set.AndClassSet;
 import lsfusion.server.logics.classes.user.set.ResolveClassSet;
 import lsfusion.server.logics.event.ApplyGlobalEvent;
 import lsfusion.server.logics.event.Link;
 import lsfusion.server.logics.event.LinkType;
+import lsfusion.server.logics.form.interactive.action.edit.FormSessionScope;
+import lsfusion.server.logics.form.interactive.controller.remote.serialization.ConnectionContext;
 import lsfusion.server.logics.form.interactive.design.property.PropertyDrawView;
 import lsfusion.server.logics.form.struct.FormEntity;
 import lsfusion.server.logics.form.struct.ValueClassWrapper;
@@ -48,21 +52,22 @@ import lsfusion.server.logics.property.Property;
 import lsfusion.server.logics.property.classes.infer.AlgType;
 import lsfusion.server.logics.property.classes.infer.ClassType;
 import lsfusion.server.logics.property.implement.PropertyInterfaceImplement;
-import lsfusion.server.physics.admin.Settings;
 import lsfusion.server.physics.dev.debug.DebugInfo;
 import lsfusion.server.physics.dev.i18n.LocalizedString;
 import lsfusion.server.physics.dev.id.name.PropertyCanonicalNameParser;
 import lsfusion.server.physics.dev.id.name.PropertyCanonicalNameUtils;
 
 import javax.swing.*;
-import java.awt.*;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
+import java.util.function.Function;
 import java.util.function.IntFunction;
 
 import static lsfusion.interop.action.ServerResponse.*;
-import static lsfusion.server.logics.BusinessLogics.linkComparator;
+import static lsfusion.server.logics.form.struct.property.PropertyDrawEntity.NOSELECT;
+import static lsfusion.server.logics.form.struct.property.PropertyDrawEntity.SELECT;
+import static lsfusion.server.physics.admin.log.ServerLoggers.startLog;
 
 public abstract class ActionOrProperty<T extends PropertyInterface> extends AbstractNode {
     public static final IntFunction<PropertyInterface> genInterface = PropertyInterface::new;
@@ -70,11 +75,32 @@ public abstract class ActionOrProperty<T extends PropertyInterface> extends Abst
     private int ID = 0;
     protected String canonicalName;
     public String annotation;
+    public ImRevMap<T, String> paramNames;
 
     private boolean local = false;
     
     // вот отсюда идут свойства, которые отвечают за логику представлений и подставляются автоматически для PropertyDrawEntity и PropertyDrawView
-    public LocalizedString caption;
+    public LocalizedString caption; // assert not null
+
+    public AppServerImage.Reader image;
+
+    public void setImage(String imagePath) {
+        this.image = AppServerImage.createPropertyImage(imagePath, AppServerImage.getAutoName(() -> caption, this::getName));
+    }
+
+    private String customRenderFunction;
+
+    public String getCustomRenderFunction() {
+        return customRenderFunction;
+    }
+
+    public void setCustomRenderFunction(String customRenderFunction) {
+        this.customRenderFunction = customRenderFunction;
+    }
+
+    public void setSelect(String select) {
+        setCustomRenderFunction(select == null ? null : select.equals("No") ? NOSELECT : (SELECT + select));
+    }
 
     public LocalizedString localizedToString() {
         LocalizedString result = LocalizedString.create(getSID());
@@ -86,7 +112,56 @@ public abstract class ActionOrProperty<T extends PropertyInterface> extends Abst
         }
         return result;
     } 
-    
+
+
+    private static String collapsibleFormattedText = null;
+    private static String getCollapsibleFormattedText() {
+        if(collapsibleFormattedText == null)
+            collapsibleFormattedText = ResourceUtils.findResourceAsString("collapsible-text.html", false, false, null, "web");
+        return collapsibleFormattedText;
+    }
+
+    public static LocalizedString getCollapsibleFormattedText(String text) {
+        return LocalizedString.create(getCollapsibleFormattedText().replace("${text}", text));
+    }
+
+    private static String collapsibleTextHeader = null;
+    private static String getCollapsibleTextHeader() {
+        if(collapsibleTextHeader == null)
+            collapsibleTextHeader = ResourceUtils.findResourceAsString("collapsible-text-header.html", false, false, null, "web");
+        return collapsibleTextHeader;
+    }
+
+    public static LocalizedString getCollapsibleTextHeader(String text) {
+        return LocalizedString.create(getCollapsibleTextHeader().replace("${text}", text));
+    }
+
+    private static String highlightText = null;
+    private static String getHighlightText() {
+        if(highlightText == null)
+            highlightText = ResourceUtils.findResourceAsString("highlight-text.html", false, false, null, "web");
+        return highlightText;
+    }
+
+    public static LocalizedString getHighlightText(LocalizedString text) {
+        return LocalizedString.createFormatted(getHighlightText().replace("${text}","{0}"), text);
+    }
+
+    public LocalizedString exToString(Function<String, LocalizedString> debugInfoFormatter) {
+        LocalizedString result = caption;
+
+        if(debugInfoFormatter != null) {
+            String systemInfo = getCanonicalName();
+            if (debugInfo != null)
+                systemInfo = (systemInfo != null ? systemInfo + " " : "") + "[" + debugInfo + "]";
+
+            if (systemInfo != null)
+                result = LocalizedString.concatList(result, debugInfoFormatter.apply(systemInfo));
+        }
+
+        return result;
+    }
+
     private String fullString;
     @ManualLazy
     public String toString() {
@@ -139,10 +214,14 @@ public abstract class ActionOrProperty<T extends PropertyInterface> extends Abst
         return listInterfaces.mapList(getInterfaceClasses(classType)).toArray(new ValueClass[listInterfaces.size()]);
     }
     public abstract ImMap<T, ValueClass> getInterfaceClasses(ClassType type);
+    public String[] getInterfaceNames(ImOrderSet<T> listInterfaces) { // notification, load, lazy, dc, obsolete, в конструкторах при определении классов действий в основном
+        return listInterfaces.mapList(paramNames).toArray(new String[listInterfaces.size()]);
+    }
 
     public abstract boolean isInInterface(ImMap<T, ? extends AndClassSet> interfaceClasses, boolean isAny);
 
     public ActionOrProperty(LocalizedString caption, ImOrderSet<T> interfaces) {
+        assert caption != null;
         this.ID = BaseLogicsModule.generateStaticNewID();
         this.caption = caption;
         this.interfaces = interfaces.getSet();
@@ -185,13 +264,18 @@ public abstract class ActionOrProperty<T extends PropertyInterface> extends Abst
         return valueClass != null ? valueClass.getType() : null;
     }
 
-    public abstract boolean isNotNull();
+    public abstract boolean isDrawNotNull();
     
     public String getName() {
         if (isNamed()) {
             return PropertyCanonicalNameParser.getName(canonicalName);
         }
         return null;
+    }
+
+    public static AppServerImage getDefaultImage(String name, AppServerImage.AutoName autoName, float rankingThreshold, boolean useDefaultIcon, ConnectionContext context) {
+        return AppServerImage.createDefaultImage(rankingThreshold, name, AppServerImage.Style.PROPERTY, autoName,
+                defaultContext -> useDefaultIcon ? AppServerImage.createPropertyImage(AppServerImage.ACTION, autoName).get(defaultContext) : null, context);
     }
 
     public String getNamespace() {
@@ -261,6 +345,11 @@ public abstract class ActionOrProperty<T extends PropertyInterface> extends Abst
 
     @NFLazy
     public void setEventAction(String eventActionSID, ActionMapImplement<?, T> eventActionImplement) {
+        if(eventActionSID.equals(CHANGE_WYS)) { // CHANGE_WYS, temp check
+            startLog("WARNING! CHANGE_WYS is deprecated, use LIST clause in INPUT / DIALOG operator instead " + this);
+            return;
+        }
+
         if (eventActions == null || eventActions instanceof EmptyRevMap) {
             eventActions = MapFact.mMap(MapFact.override());
         }
@@ -272,29 +361,21 @@ public abstract class ActionOrProperty<T extends PropertyInterface> extends Abst
         return (ImMap<String, ActionMapImplement<?, T>>)(eventActions == null ? MapFact.EMPTY() : eventActions);
     }
 
-    public ActionMapImplement<?, T> getEventAction(String eventActionSID) {
-        return getEventAction(eventActionSID, ListFact.EMPTY());
-    }
-
-    public ActionMapImplement<?, T> getEventAction(String eventActionSID, ImList<Property> viewProperties) {
-        ActionMapImplement<?, T> eventAction = getEventActions().get(eventActionSID);
-        if (eventAction != null) {
+    // actually protected (friend of PropertyMapImplement)
+    public ActionMapImplement<?, T> getEventAction(String eventActionSID, FormSessionScope defaultChangeEventScope, ImList<Property> viewProperties, String customChangeFunction) {
+        ActionMapImplement<?, T> eventAction = getExplicitEventAction(eventActionSID);
+        if (eventAction != null)
             return eventAction;
-        }
 
-        if(GROUP_CHANGE.equals(eventActionSID))
-            return null;
-
-        assert CHANGE.equals(eventActionSID) || CHANGE_WYS.equals(eventActionSID) || EDIT_OBJECT.equals(eventActionSID);
-
-        return getDefaultEventAction(eventActionSID, viewProperties);
+        assert CHANGE.equals(eventActionSID) || EDIT_OBJECT.equals(eventActionSID); // explicit event actions can be also CONTEXTMENU
+        return getDefaultEventAction(eventActionSID, defaultChangeEventScope, viewProperties, customChangeFunction);
     }
 
-    public abstract ActionMapImplement<?, T> getDefaultEventAction(String eventActionSID, ImList<Property> viewProperties);
-
-    public ActionMapImplement<?, T> getDefaultWYSAction() {
-        return null;
+    public ActionMapImplement<?, T> getExplicitEventAction(String eventActionSID) {
+        return getEventActions().get(eventActionSID);
     }
+
+    public abstract ActionMapImplement<?, T> getDefaultEventAction(String eventActionSID, FormSessionScope defaultChangeEventScope, ImList<Property> viewProperties, String customChangeFunction);
 
     public boolean checkEquals() {
         return this instanceof Property;
@@ -315,90 +396,30 @@ public abstract class ActionOrProperty<T extends PropertyInterface> extends Abst
     public ImOrderSet<ActionOrProperty> getActionOrProperties() {
         return SetFact.singletonOrder(this);
     }
-    
-    public static void cleanPropCaches() {
-        hashProps.clear();
-    }
 
-    private static class CacheEntry {
-        private final ActionOrProperty property;
-        private final ImMap<ValueClass, ImSet<ValueClassWrapper>> mapClasses;
-
-        private ImList<ActionOrPropertyClassImplement> result;
-        
-        public CacheEntry(ActionOrProperty property, ImMap<ValueClass, ImSet<ValueClassWrapper>> mapClasses) {
-            this.property = property;
-            this.mapClasses = mapClasses;
-        }
-
-        public ImRevMap<ValueClassWrapper, ValueClassWrapper> map(CacheEntry entry) {
-            if(!(mapClasses.size() == entry.mapClasses.size() && BaseUtils.hashEquals(property, entry.property)))
-                return null;
-
-            MRevMap<ValueClassWrapper, ValueClassWrapper> mResult = MapFact.mRevMap();
-            for(int i=0,size=mapClasses.size();i<size;i++) {
-                ImSet<ValueClassWrapper> wrappers = mapClasses.getValue(i);
-                ImSet<ValueClassWrapper> entryWrappers = entry.mapClasses.get(mapClasses.getKey(i));
-                if(entryWrappers == null || wrappers.size() != entryWrappers.size())
-                    return null;
-                for(int j=0,sizeJ=wrappers.size();j<sizeJ;j++)
-                    mResult.revAdd(wrappers.get(j), entryWrappers.get(j));
-            }
-            return mResult.immutableRev();
-        }
-        
-        public int hash() {
-            int result = 0;
-            for(int i=0,size=mapClasses.size();i<size;i++) {
-                result += mapClasses.getKey(i).hashCode() ^ mapClasses.getValue(i).size();
-            }
-            
-            return 31 * result + property.hashCode();
-        }
-    }    
-    final static LRUSVSMap<Integer, MAddCol<CacheEntry>> hashProps = new LRUSVSMap<>(LRUUtil.G2);
-
-    protected ImList<ActionOrPropertyClassImplement> getActionOrProperties(ImSet<ValueClassWrapper> valueClasses, ImMap<ValueClass, ImSet<ValueClassWrapper>> mapClasses, Version version) {
+    @Override
+    public ImList<ActionOrPropertyClassImplement> getActionOrProperties(ImSet<ValueClassWrapper> valueClasses, ImMap<ValueClass, ImSet<ValueClassWrapper>> mapClasses, boolean isNoAny) {
         if(valueClasses.size() == 1) { // optimization primarily for DrillDown
-            if(interfaces.size() == 1 && isInValueClassInterface(getOrderInterfaces(), valueClasses.toOrderSet()))
+            if(interfaces.size() == 1 && isInValueClassInterface(getOrderInterfaces(), valueClasses.toOrderSet(), isNoAny))
                 return ListFact.singleton(createClassImplement(valueClasses.toOrderSet(), SetFact.singletonOrder(interfaces.single())));
             return ListFact.EMPTY();
         }
 
-        CacheEntry entry = new CacheEntry(this, mapClasses); // кэширование
-        int hash = entry.hash();
-        MAddCol<CacheEntry> col = hashProps.get(hash);
-        if(col == null) {
-            col = ListFact.mAddCol();
-            hashProps.put(hash, col);                    
-        } else {
-            synchronized (col) {
-                for (CacheEntry cachedEntry : col.it()) {
-                    final ImRevMap<ValueClassWrapper, ValueClassWrapper> map = cachedEntry.map(entry);
-                    if (map != null) {
-                        return cachedEntry.result.mapListValues((ActionOrPropertyClassImplement value) -> value.map(map));
-                    }
-                }
-            }
-        }
-        
-        ImList<ActionOrPropertyClassImplement> result = getActionOrProperties(FormEntity.getSubsets(valueClasses));
-        
-        entry.result = result;
-        synchronized (col) {
-            col.add(entry);
-        }
-        
-        return result;
+        return super.getActionOrProperties(valueClasses, mapClasses, isNoAny);
     }
-    
-    private ImList<ActionOrPropertyClassImplement> getActionOrProperties(ImCol<ImSet<ValueClassWrapper>> classLists) {
+
+    @Override
+    public ImList<ActionOrPropertyClassImplement> calcActionOrProperties(ImSet<ValueClassWrapper> valueClasses, ImMap<ValueClass, ImSet<ValueClassWrapper>> mapClasses, boolean isNoAny) {
+        return getActionOrProperties(FormEntity.getSubsets(valueClasses), isNoAny);
+    }
+
+    private ImList<ActionOrPropertyClassImplement> getActionOrProperties(ImCol<ImSet<ValueClassWrapper>> classLists, boolean isNoAny) {
         MList<ActionOrPropertyClassImplement> mResultList = ListFact.mList();
         for (ImSet<ValueClassWrapper> classes : classLists) {
             if (interfaces.size() == classes.size()) {
                 final ImOrderSet<ValueClassWrapper> orderClasses = classes.toOrderSet();
                 for (ImOrderSet<T> mapping : new ListPermutations<>(getOrderInterfaces())) {
-                    if (isInValueClassInterface(mapping, orderClasses)) {
+                    if (isInValueClassInterface(mapping, orderClasses, isNoAny)) {
                         mResultList.add(createClassImplement(orderClasses, mapping));
                     }
                 }
@@ -407,7 +428,7 @@ public abstract class ActionOrProperty<T extends PropertyInterface> extends Abst
         return mResultList.immutableList();
     }
 
-    private boolean isInValueClassInterface(ImOrderSet<T> mapping, ImOrderSet<ValueClassWrapper> orderClasses) {
+    private boolean isInValueClassInterface(ImOrderSet<T> mapping, ImOrderSet<ValueClassWrapper> orderClasses, boolean isNoAny) {
         // if isAny true for very abstract classes (for example Object) there are too many props added, which has a really bad performance
         int classCount = 0;
         for(ValueClassWrapper orderClass : orderClasses) {
@@ -415,7 +436,8 @@ public abstract class ActionOrProperty<T extends PropertyInterface> extends Abst
             if(valueClass instanceof CustomClass)
                 classCount += ((CustomClass) valueClass).getAllChildren().size();
         }
-        return isInInterface(mapping.mapOrderValues((i, value) -> orderClasses.get(i).valueClass.getUpSet()), classCount < 100);
+        boolean isAny = !isNoAny && classCount < 100;
+        return isInInterface(mapping.mapOrderValues((i, value) -> orderClasses.get(i).valueClass.getUpSet()), isAny);
     }
 
     protected abstract ActionOrPropertyClassImplement<T, ?> createClassImplement(ImOrderSet<ValueClassWrapper> classes, ImOrderSet<T> mapping);
@@ -451,6 +473,7 @@ public abstract class ActionOrProperty<T extends PropertyInterface> extends Abst
 
 //        notFinalized.remove(this);
         // we need this synchronization since property finalization first marks modules, and only then reads all properties (so property can be finalized twice)
+        // the same approach is used in FormEntity
         if(!finalizedChanges) {
             synchronized (this) { // in theory there can be separate lock, but for now there is no need for this
                 if(!finalizedChanges) {
@@ -471,9 +494,8 @@ public abstract class ActionOrProperty<T extends PropertyInterface> extends Abst
     public ImOrderSet<Link> links; // public for preread multithread optimization
     @ManualLazy
     public ImOrderSet<Link> getSortedLinks(boolean events) { // чисто для лексикографики
-        if(links==null) {
-            links = calculateLinks(events).mapMergeSetValues(value -> new Link(ActionOrProperty.this, value.first, value.second)).sortSet(linkComparator); // sorting for determenism, no need to cache because it's called once for each property
-        }
+        if(links==null)
+            links = calculateLinks(events).mapMergeSetValues(value -> new Link(ActionOrProperty.this, value.first, value.second)).sortSet(BusinessLogics.linkToComparator); // sorting for determenism, no need to cache because it's called once for each property
         return links;
     }
     public void dropLinks() {
@@ -501,8 +523,6 @@ public abstract class ActionOrProperty<T extends PropertyInterface> extends Abst
     public boolean drillDownInNewSession() {
         return false;
     }
-
-    public ActionOrProperty showDep; // assert что не null когда events не isEmpty
 
     protected static <T extends PropertyInterface> ImMap<T, ResolveClassSet> getPackedSignature(ImOrderSet<T> interfaces, List<ResolveClassSet> signature) {
         return interfaces.mapList(ListFact.fromJavaList(signature)).removeNulls();
@@ -555,7 +575,7 @@ public abstract class ActionOrProperty<T extends PropertyInterface> extends Abst
     }
 
     protected BaseLogicsModule getBaseLM() {
-        return ThreadLocalContext.getBusinessLogics().LM;
+        return ThreadLocalContext.getBaseLM();
     }
 
     //
@@ -601,13 +621,9 @@ public abstract class ActionOrProperty<T extends PropertyInterface> extends Abst
         return null;
     }
 
-    public void inheritCaption(ActionOrProperty property) {
-        caption = property.caption;         
-    }
-    
     public interface DefaultProcessor {
         // из-за inherit entity и view могут быть другого свойства
-        void proceedDefaultDraw(PropertyDrawEntity entity, FormEntity form);
+        void proceedDefaultDraw(PropertyDrawEntity entity, FormEntity form, Version version);
         void proceedDefaultDesign(PropertyDrawView propertyView);
     }
 
@@ -615,13 +631,17 @@ public abstract class ActionOrProperty<T extends PropertyInterface> extends Abst
     public static class DrawOptions {
         
         // свойства, но пока реализовано как для всех
-        private int charWidth;
-        private Dimension valueSize;
+        private Integer charWidth;
+        private Integer valueWidth;
+        private Integer valueHeight;
+        private Integer captionWidth;
+        private Integer captionHeight;
         private Boolean valueFlex;
 
         // свойства, но пока реализовано как для всех
-        private String regexp;
-        private String regexpMessage;
+        private LocalizedString pattern;
+        private LocalizedString regexp;
+        private LocalizedString regexpMessage;
         private Boolean echoSymbols;
 
         // действия, но пока реализовано как для всех
@@ -630,9 +650,6 @@ public abstract class ActionOrProperty<T extends PropertyInterface> extends Abst
 
         // свойства, но пока реализовано как для всех
         private String eventID;
-
-        // для всех
-        private String imagePath;
 
         // для всех
         private Compare defaultCompare;
@@ -645,52 +662,43 @@ public abstract class ActionOrProperty<T extends PropertyInterface> extends Abst
         private String changeMouse;
         private Map<String, BindingMode> mouseBindingsModes;
         private Integer changeMousePriority;
-
-        // для всех
-        private Boolean shouldBeLast;
+        private Boolean showChangeMouse;
 
         // для всех
         private ClassViewType viewType;
-        private String customRenderFunctions;
-        private String customEditorFunctions;
-        private boolean customTextEdit;
-        private boolean customReplaceEdit;
+        private String customEditorFunction;
         private PivotOptions pivotOptions;
+
+        private Boolean sticky;
+        private Boolean sync;
 
         // для всех 
         private ImList<DefaultProcessor> processors = ListFact.EMPTY();
         
-        public void proceedDefaultDraw(PropertyDrawEntity<?> entity, FormEntity form) {
-            entity.shouldBeLast = BaseUtils.nvl(shouldBeLast, false);
+        public void proceedDefaultDraw(PropertyDrawEntity<?> entity, FormEntity form, Version version) {
             entity.viewType = viewType;
-            entity.customRenderFunctions = customRenderFunctions;
-            entity.customEditorFunctions = customEditorFunctions;
-            entity.customTextEdit = customTextEdit;
-            entity.customReplaceEdit = customReplaceEdit;
+            entity.customChangeFunction = customEditorFunction;
             entity.askConfirm = BaseUtils.nvl(askConfirm, false);
             entity.askConfirmMessage = askConfirmMessage;
             entity.eventID = eventID;
 
             for(DefaultProcessor processor : processors)
-                processor.proceedDefaultDraw(entity, form);
+                processor.proceedDefaultDraw(entity, form, version);
         }
 
         public void proceedDefaultDesign(PropertyDrawView propertyView) {
-            if(propertyView.isProperty()) {
-                if (propertyView.getType() instanceof LogicalClass) 
-                    propertyView.changeOnSingleClick = Settings.get().getEditBooleanOnSingleClick();
-            } else
-                propertyView.changeOnSingleClick = Settings.get().getEditActionOnSingleClick();
-
-            if(propertyView.getCharWidth() == 0)
+            if(propertyView.charWidth == null)
                 propertyView.setCharWidth(charWidth);
             if(propertyView.getValueFlex() == null)
                 propertyView.setValueFlex(valueFlex);
-            if(propertyView.getValueSize() == null)
-                propertyView.setValueSize(valueSize);
-            if (propertyView.design.getImage() == null && imagePath != null) {
-                propertyView.design.setImage(imagePath);
-            }
+            if(propertyView.valueWidth == null)
+                propertyView.setValueWidth(valueWidth);
+            if(propertyView.valueHeight == null)
+                propertyView.setValueHeight(valueHeight);
+            if(propertyView.captionWidth == null)
+                propertyView.setCaptionWidth(captionWidth);
+            if(propertyView.captionHeight == null)
+                propertyView.setCaptionHeight(captionHeight);
             if (propertyView.changeKey == null)
                 propertyView.changeKey = changeKey != null ? new KeyInputEvent(changeKey, keyBindingsModes) : null;
             if (propertyView.changeKeyPriority == null)
@@ -701,32 +709,40 @@ public abstract class ActionOrProperty<T extends PropertyInterface> extends Abst
                 propertyView.changeMouse = changeMouse != null ? new MouseInputEvent(changeMouse, mouseBindingsModes) : null;
             if (propertyView.changeMousePriority == null)
                 propertyView.changeMousePriority = changeMousePriority;
+            if (propertyView.showChangeMouse == null)
+                propertyView.showChangeMouse = BaseUtils.nvl(showChangeMouse, true);
 
-            if (propertyView.regexp == null)
+            if(propertyView.pattern == null)
+                propertyView.pattern = pattern;
+            if(propertyView.regexp == null)
                 propertyView.regexp = regexp;
-            if (propertyView.regexpMessage == null)
+            if(propertyView.regexpMessage == null)
                 propertyView.regexpMessage = regexpMessage;
+
             if (propertyView.echoSymbols == null)
                 propertyView.echoSymbols = BaseUtils.nvl(echoSymbols, false);
             
             if(propertyView.defaultCompare == null)
                 propertyView.defaultCompare = defaultCompare;
 
+            if(propertyView.sticky == null)
+                propertyView.sticky = sticky;
+            if(propertyView.sync == null)
+                propertyView.sync = sync;
+
             for(DefaultProcessor processor : processors)
                 processor.proceedDefaultDesign(propertyView);
         }
         
         public void inheritDrawOptions(DrawOptions options) {
-            if(charWidth == 0)
+            if(charWidth == null)
                 setCharWidth(options.charWidth);
-
-            if (imagePath == null) {
-                setImagePath(options.imagePath);
-            }
 
             if(defaultCompare == null)
                 setDefaultCompare(options.defaultCompare);
 
+            if(pattern == null)
+                setPattern(options.pattern);
             if(regexp == null)
                 setRegexp(options.regexp);
             if(regexpMessage == null)
@@ -752,20 +768,17 @@ public abstract class ActionOrProperty<T extends PropertyInterface> extends Abst
                 setChangeMouse(options.changeMouse, options.mouseBindingsModes);
             if(changeMousePriority == null)
                 setChangeMousePriority(options.changeMousePriority);
-            
-            if(shouldBeLast == null)
-                setShouldBeLast(options.shouldBeLast);
-            
+            if(showChangeMouse == null)
+                setShowChangeMouse(options.showChangeMouse);
+
             if(viewType == null)
                 setViewType(options.viewType);
-            if (customRenderFunctions == null)
-                setCustomRenderFunctions(options.customRenderFunctions);
-            if (customEditorFunctions == null)
-                setCustomEditorFunctions(options.customEditorFunctions);
-            setCustomTextEdit(options.customTextEdit);
-            setCustomReplaceEdit(options.customReplaceEdit);
             if(pivotOptions == null)
                 setPivotOptions(options.pivotOptions);
+            if(sticky == null)
+                setSticky(options.sticky);
+            if(sync == null)
+                setSync(options.sync);
             
             processors = options.processors.addList(processors);
         }
@@ -781,10 +794,6 @@ public abstract class ActionOrProperty<T extends PropertyInterface> extends Abst
             setValueFlex(flex);
         }
 
-        public void setImage(String imagePath) {
-            this.setImagePath(imagePath);
-        }
-
         public Compare getDefaultCompare() {
             return defaultCompare;
         }
@@ -798,18 +807,22 @@ public abstract class ActionOrProperty<T extends PropertyInterface> extends Abst
         }
 
 
-        public void setCharWidth(int charWidth) {
+        public void setCharWidth(Integer charWidth) {
             this.charWidth = charWidth;
         }
         public void setValueFlex(Boolean flex) {
             this.valueFlex = flex;
         }
 
-        public void setRegexp(String regexp) {
+        public void setPattern(LocalizedString pattern) {
+            this.pattern = pattern;
+        }
+
+        public void setRegexp(LocalizedString regexp) {
             this.regexp = regexp;
         }
 
-        public void setRegexpMessage(String regexpMessage) {
+        public void setRegexpMessage(LocalizedString regexpMessage) {
             this.regexpMessage = regexpMessage;
         }
 
@@ -827,10 +840,6 @@ public abstract class ActionOrProperty<T extends PropertyInterface> extends Abst
 
         public void setEventID(String eventID) {
             this.eventID = eventID;
-        }
-
-        public void setImagePath(String imagePath) {
-            this.imagePath = imagePath;
         }
 
         public void setChangeKey(KeyStroke changeKey) {
@@ -863,32 +872,28 @@ public abstract class ActionOrProperty<T extends PropertyInterface> extends Abst
             this.changeMousePriority = changeMousePriority;
         }
 
-        public void setShouldBeLast(Boolean shouldBeLast) {
-            this.shouldBeLast = shouldBeLast;
+        public void setShowChangeMouse(Boolean showChangeMouse) {
+            this.showChangeMouse = showChangeMouse;
         }
 
         public void setViewType(ClassViewType viewType) {
             this.viewType = viewType;
         }
-        
-        public void setCustomRenderFunctions(String customRenderFunctions) {
-            this.customRenderFunctions = customRenderFunctions;
-        }
 
-        public void setCustomEditorFunctions(String customEditorFunctions) {
-            this.customEditorFunctions = customEditorFunctions;
-        }
-
-        public void setCustomTextEdit(boolean customTextEdit) {
-            this.customTextEdit = customTextEdit;
-        }
-
-        public void setCustomReplaceEdit(boolean customReplaceEdit) {
-            this.customReplaceEdit = customReplaceEdit;
+        public void setCustomEditorFunction(String customEditorFunction) {
+            this.customEditorFunction = customEditorFunction;
         }
 
         public void setPivotOptions(PivotOptions pivotOptions) {
             this.pivotOptions = pivotOptions;
+        }
+
+        public void setSticky(Boolean sticky) {
+            this.sticky = sticky;
+        }
+
+        public void setSync(Boolean sync) {
+            this.sync = sync;
         }
     }
 
@@ -901,7 +906,7 @@ public abstract class ActionOrProperty<T extends PropertyInterface> extends Abst
     }
 
     protected boolean checkProps(ImCol<? extends PropertyInterfaceImplement<T>> col) {
-        return col.filterCol(element -> !interfaces.containsAll(element.getInterfaces().toSet())).isEmpty();
+        return col.filterCol(element -> !interfaces.containsAll(element.getInterfaces())).isEmpty();
     }
     protected boolean checkActions(ImCol<ActionMapImplement<?, T>> col) {
         return col.filterCol(element -> !interfaces.containsAll(element.mapping.valuesSet())).isEmpty();

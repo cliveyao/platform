@@ -1,33 +1,28 @@
 package lsfusion.gwt.client.form.object.table.view;
 
-import lsfusion.gwt.client.base.jsni.NativeHashMap;
+import lsfusion.gwt.client.base.AppBaseImage;
 import lsfusion.gwt.client.base.jsni.NativeStringMap;
+import lsfusion.gwt.client.base.view.grid.RowIndexHolder;
+import lsfusion.gwt.client.form.design.GFont;
 import lsfusion.gwt.client.form.object.GGroupObjectValue;
+import lsfusion.gwt.client.form.property.PValue;
 
-import java.util.HashMap;
-import java.util.Optional;
-
-public class GridDataRecord {
-    public final int rowIndex;
+public class GridDataRecord implements RowIndexHolder {
+    public int rowIndex;
 
     private GGroupObjectValue key;
     private String rowBackground;
     private String rowForeground;
 
     private NativeStringMap<Object> values;
-    private NativeStringMap<Boolean> readOnlys;
-    private NativeStringMap<String> backgrounds;
-    private NativeStringMap<String> foregrounds;
 
-    private NativeStringMap<Optional<Object>> images;
-
-    public GridDataRecord(GGroupObjectValue key) {
-        this(-1, key);
+    public GridDataRecord(int rowIndex) {
+        this.rowIndex = rowIndex;
     }
 
-    public GridDataRecord(int rowIndex, GGroupObjectValue key) {
-        this.rowIndex = rowIndex;
-        this.key = key;
+    @Override
+    public int getRowIndex() {
+        return rowIndex;
     }
 
     public void setAttribute(String key, Object value) {
@@ -42,70 +37,135 @@ public class GridDataRecord {
         return values == null ? null : values.get(key);
     }
 
-    public void setValue(String column, Object value) {
+    public void setValue(String column, PValue value) {
         setAttribute(column, value);
     }
 
-    public Object getValue(String column) {
-        return getAttribute(column);
+    public PValue getValue(String column) {
+        return (PValue) getAttribute(column);
     }
 
-    public void setBackground(String column, Object color) {
-        if (color != null) {
-            createBackgrounds().put(column, color.toString());
-        } else if (backgrounds != null) {
-            backgrounds.remove(column);
-        }
+    public void setLoading(String column, boolean loading) {
+        setAttribute(column + "_loading", loading ? true : null);
+    }
+
+    public boolean isLoading(String column) {
+        return getAttribute(column + "_loading") != null;
+    }
+
+    public AppBaseImage getImage(String column) {
+        return (AppBaseImage) getAttribute(column + "_image");
+    }
+
+    public void setImage(String column, AppBaseImage image) {
+        setAttribute(column + "_image", image);
+    }
+
+    public void setValueElementClass(String column, String elementClass) {
+        setAttribute(column + "_elementClass", elementClass);
+    }
+
+    public String getValueElementClass(String column) {
+        return (String) getAttribute(column + "_elementClass");
+    }
+
+    public void setFont(String column, GFont font) {
+        setAttribute(column + "_font", font);
+    }
+
+    public GFont getFont(String column) {
+        return (GFont) getAttribute(column + "_font");
+    }
+
+    public void setBackground(String column, String color) {
+        setAttribute(column + "_background", color);
     }
 
     public String getBackground(String column) {
-        String background = backgrounds != null ? backgrounds.get(column) : null;
+        String background = (String) getAttribute(column + "_background");
         return background != null ? background : rowBackground;
     }
 
-    public void setForeground(String column, Object color) {
-        if (color != null) {
-            createForegrounds().put(column, color.toString());
-        } else if (foregrounds != null) {
-            foregrounds.remove(column);
-        }
+    public void setPlaceholder(String column, String placeholder) {
+        setAttribute(column + "_placeholder", placeholder);
+    }
+
+    public String getPlaceholder(String column) {
+        return (String) getAttribute(column + "_placeholder");
+    }
+
+    public void setPattern(String column, String pattern) {
+        setAttribute(column + "_pattern", pattern);
+    }
+
+    public String getPattern(String column) {
+        return (String) getAttribute(column + "_pattern");
+    }
+
+    public void setRegexp(String column, String regexp) {
+        setAttribute(column + "_regexp", regexp);
+    }
+
+    public String getRegexp(String column) {
+        return (String) getAttribute(column + "_regexp");
+    }
+
+    public void setRegexpMessage(String column, String regexpMessage) {
+        setAttribute(column + "_regexpmessage", regexpMessage);
+    }
+
+    public String getRegexpMessage(String column) {
+        return (String) getAttribute(column + "_regexpmessage");
+    }
+
+    public void setValueTooltip(String column, String valueTooltip) {
+        setAttribute(column + "_valueTooltip", valueTooltip);
+    }
+
+    public String getValueTooltip(String column) {
+        return (String) getAttribute(column + "_valueTooltip");
+    }
+
+    public void setForeground(String column, String color) {
+        setAttribute(column + "_foreground", color);
     }
 
     public String getForeground(String column) {
-        String foreground = foregrounds != null ? foregrounds.get(column) : null;
+        String foreground = (String) getAttribute(column + "_foreground");
         return foreground != null ? foreground : rowForeground;
     }
 
-    public void setReadOnly(String column, Object readOnly) {
-        if (readOnly != null) {
-            createReadOnlys().put(column, Boolean.TRUE);
-        } else if (readOnlys != null) {
-            readOnlys.remove(column);
-        }
+    public void setReadOnly(String column, Boolean readOnly) {
+        setAttribute(column + "_readonly", readOnly);
     }
 
-    public Optional<Object> getImage(String column) {
-        return images == null ? null : images.get(column);
+    public Boolean isReadonly(String column) {
+        return (Boolean) getAttribute(column + "_readonly");
     }
 
-    public void setImage(String column, Object image) {
-        createImages().put(column, Optional.ofNullable(image));
+    public void setRowBackground(PValue newRowBackground) {
+        rowBackground = PValue.getColorStringValue(newRowBackground);
     }
 
-    public boolean isReadonly(String column) {
-        return readOnlys != null && readOnlys.get(column) != null;
+    public String getRowBackground() {
+        return rowBackground;
     }
 
-    public void setRowBackground(Object newRowBackground) {
-        rowBackground = newRowBackground == null ? null : newRowBackground.toString();
+    public void setRowForeground(PValue newRowForeground) {
+        rowForeground = PValue.getColorStringValue(newRowForeground);
     }
 
-    public void setRowForeground(Object newRowForeground) {
-        rowForeground = newRowForeground == null ? null : newRowForeground.toString();
+    public String getRowForeground() {
+        return rowForeground;
     }
 
     public GGroupObjectValue getKey() {
         return key;
+    }
+
+    public static final int objectExpandingIndex = -1;
+    public int getExpandingIndex() {
+        return objectExpandingIndex;
     }
 
     private NativeStringMap<Object> createValues() {
@@ -115,37 +175,7 @@ public class GridDataRecord {
         return values;
     }
 
-    private NativeStringMap<String> createBackgrounds() {
-        if (backgrounds == null) {
-            backgrounds = new NativeStringMap<>();
-        }
-        return backgrounds;
-    }
-
-    private NativeStringMap<String> createForegrounds() {
-        if (foregrounds == null) {
-            foregrounds = new NativeStringMap<>();
-        }
-        return foregrounds;
-    }
-
-    private NativeStringMap<Boolean> createReadOnlys() {
-        if (readOnlys == null) {
-            readOnlys = new NativeStringMap<>();
-        }
-        return readOnlys;
-    }
-
-    private NativeStringMap<Optional<Object>> createImages() {
-        if (images == null) {
-            images = new NativeStringMap<>();
-        }
-        return images;
-    }
-
-    public void reinit(GGroupObjectValue newKey, Object newRowBackground, Object newRowForeground) {
+    public void setKey(GGroupObjectValue newKey) {
         key = newKey;
-        setRowBackground(newRowBackground);
-        setRowForeground(newRowForeground);
     }
 }

@@ -1,0 +1,462 @@
+.navbar.navbar-vert {
+    /* should look on drawScrollbars? */
+    overflow-y: auto;
+}
+
+.navbar.navbar-horz {
+    /* should look on drawScrollbars? */
+    overflow-x: auto;
+}
+
+.navbar-nav.navbar-nav-horz,
+.navbar-nav.navbar-nav-vert
+{
+    display: flex;
+
+    flex-wrap: nowrap;
+
+    /* the trick is that we're using navbar / navbar-nav to get proper design, for example active / nonactive / hover links */
+    /* but navbar classes also define some "responsive layout", which we don't want*/
+    /* in particular navbar sets align-items: center, and justify-content:space-between (flex-start that is set by navbar-expand), which we usually don't want, since navbar is just a wrapper for the navbar-nav */
+    /* basically there are to approaches, depending on whether we want to align items in nav, or the whole nav */
+    /* this approach assumes that items are aligned, so GToolbarNavigatorView sets the alignment for the nav */
+    flex: 1 1 auto;
+    align-self: stretch;
+    /* in the other approach we should override align-items and justify-content to the default flex-start (align-self won't do since the important won't work), and set the alignment for the navbar */
+}
+
+.navbar-nav.navbar-nav-horz > *,
+.navbar-nav.navbar-nav-vert > * {
+    /* we don't want navbar items to be shrinked by default */
+    flex-shrink: 0;
+}
+
+.navbar-nav.navbar-nav-horz
+{
+    flex-direction: row;
+
+    /* in horizontal navbar it makes sense to center the text */
+    text-align: center;
+}
+
+.navbar-nav.navbar-nav-vert,
+.navbar-expand .navbar-nav.navbar-nav-vert /* navbar-expand navbar-nav somewhy sets flex-direction: row */
+{
+    flex-direction: column;
+
+    /*align-items: flex-start;*/
+}
+
+/*.nav-link.nav-link-vert {*/
+/*    display: inline-grid;*/
+/*    justify-items: center;*/
+/*    align-self: center;*/
+/*    text-align: center;*/
+/*}*/
+/*.nav-link-vert > i {*/
+/*    font-size: 1.5rem;*/
+/*}*/
+
+/* used to align icons (important for hover for example), because font awesome icons for example have different width */
+/* could be refactored to the explicit .navbar-icon-fixed-width */
+.navbar-nav.navbar-nav-vert .nav-link > i {
+    width: 1.25em;
+    text-align: center;
+}
+
+/* to have "more aligned" elements */
+.navbar-icon-fixed-width-large .nav-link > i {
+    width: 3em;
+}
+
+.navbar-icon-large .nav-link > i,
+.navbar-icon-large.nav-link > i {
+    font-size: 1.5em;
+}
+
+.navbar-icon-xlarge .nav-link > i,
+.navbar-icon-xlarge.nav-link > i {
+    font-size: 2.5em
+}
+
+.navbar-icon-large .nav-link > img,
+.navbar-icon-large.nav-link > img {
+    font-size: 1.5em;
+    height: 1.5em;
+    object-fit: scale-down;
+}
+
+.navbar-icon-xlarge .nav-link > img,
+.navbar-icon-xlarge.nav-link > img {
+    font-size: 2.5em;
+    height: 2.5em;
+    object-fit: scale-down;
+}
+
+.navbar-hidden .nav-link,
+.navbar-hidden.nav-link {
+    display: none;
+}
+
+.navbar-text-hidden .nav-link > .wrap-text-div,
+.navbar-text-hidden.nav-link > .wrap-text-div {
+    font-size: 0;
+}
+/* removing margins, since text is actually hidden */
+.navbar-text-hidden .nav-link > i.wrap-text-img,
+.navbar-text-hidden.nav-link > i.wrap-text-img {
+    margin-bottom: 0;
+    margin-right: 0;
+}
+
+.nav-link.nav-link-horz-1 {
+    margin-left: 1rem;
+}
+.nav-link.nav-link-horz-2 {
+    margin-left: 2rem;
+}
+.nav-link.nav-link-horz-3 {
+    margin-left: 3rem;
+}
+
+/*.nav-link-horz .btn-image-img {*/
+/*    height: 1rem;*/
+/*}*/
+
+/* we propagate navbar-text-on-hover to the parent flex panel of the same direction if it has all children with navbar-text-on-hover */
+/* so to make it work for the whole panel we need to add :not(.navbar-text-on-hover) */
+
+.navbar-text-on-hover {
+    --text-hover-duration: 300ms;
+    --text-hover-show-delay: 250ms;
+    --text-hover-curve-horz: ease-out;
+    --text-hover-curve-vert: linear;
+}
+
+/* converting margins to "inner paddings" (to include margins into the transition) with the pseudo before element*/
+
+.navbar-text-on-hover .wrap-text-not-empty.wrap-img-horz > .wrap-text-img,
+.navbar-text-hidden .wrap-text-not-empty.wrap-img-horz > .wrap-text-img
+{
+    margin-right: 0;
+}
+.navbar-text-on-hover .wrap-text-not-empty.wrap-img-vert > .wrap-text-img,
+.navbar-text-hidden .wrap-text-not-empty.wrap-img-vert > .wrap-text-img
+{
+    margin-bottom: 0;
+}
+.navbar-text-on-hover .wrap-img-horz > .wrap-text-div {
+    display: inline-flex;
+    align-items: center; /* needed to transit opposite direction width (when it's not auto) */
+    flex-direction: row;
+}
+.navbar-text-on-hover .wrap-img-horz > .wrap-text-div::before {
+    content: '';
+
+    min-width: var(--wrap-img-horz-margin);
+}
+.navbar-text-on-hover .wrap-img-vert > .wrap-text-div {
+    display: inline-flex;
+    align-items: center; /* needed to transit opposite direction width (when it's not auto) */
+    flex-direction: column;
+}
+.navbar-text-on-hover .wrap-img-vert > .wrap-text-div::before {
+    content: '';
+
+    min-height: var(--wrap-img-vert-margin);
+}
+
+/* to have "more aligned" elements */
+.navbar-text-on-hover .wrap-img-vert .wrap-text-img {
+    width: 3em;
+}
+
+/* hovering */
+
+.navbar-text-on-hover .wrap-text-not-empty {
+    overflow: hidden; /* we need to set overflow: hidden, since we're using width / height */
+}
+
+.forms-container-not-empty .navbar-text-on-hover:not(:hover:not(.was-selected-recently)) .wrap-text-div,
+.navbar-always-hide-unpinned.navbar-text-on-hover:not(:hover:not(.was-selected-recently)) .wrap-text-div {
+    max-height: 0;
+    max-width: 0;
+
+    color: transparent; /* color hack */
+
+    transition: max-height var(--text-hover-duration) var(--text-hover-curve-vert),
+                max-width var(--text-hover-duration) var(--text-hover-curve-horz),
+                color 0s linear var(--text-hover-duration); /* color hack */
+}
+
+.navbar-text-on-hover .wrap-text-div {
+    /* we need to set inline-block or inline-flex (not inline) might be enough, since we're using width / height */
+    display: inline-block; /* actually it is changed to inline-flex, when "moving margins" */
+
+    max-height: 3em;
+    max-width: 10em;
+    transition: max-height var(--text-hover-duration) var(--text-hover-curve-vert) var(--text-hover-show-delay),
+                max-width var(--text-hover-duration) var(--text-hover-curve-horz) var(--text-hover-show-delay),
+                color 0s; /* color hack, in theory var(--text-hover-show-delay) should be used but there is some bug with it (when the text of the current element blinks)  */
+
+    /* we can't use overflow: clip for the text main direction the text will be cut but parent's padding (so the text is cut by nothing) */
+    /* also the problem is that overflow can not be transitioned */
+    /* so for now we use the following color hack: */
+    /* we leave the overflow: visible (this way we fix paddings), and set color to transparent with some transition */
+    /* also in this hack we need to change parent overflow to hidden / clip (otherwise container scroll will appear) */
+    /*overflow-x/y: clip;*/
+
+    white-space: nowrap; /* to avoid changing height while transitioning*/
+}
+
+/* popup selected hover */
+/* actually all this popup should refer more to parent window direction */
+
+.navbar.navbar-popup-selected-hover,
+.navbar.navbar-popup-over-selected-hover > .navbar-nav {
+    --popup-hover-duration: 400ms;
+    --popup-hover-curve: ease-out;
+}
+.navbar.navbar-popup-over-selected-hover > .navbar-nav {
+    --popup-hover-show-delay: 250ms;
+}
+.navbar.navbar-popup-selected-hover,
+.navbar.navbar-popup-over-selected-hover.parent-was-selected-recently > .navbar-nav {
+    --popup-hover-show-delay: 0s;
+}
+
+.forms-container-not-empty .flex-dir-horz > .navbar.navbar-popup-selected-hover:not(:hover):not(.parent-was-selected-recently),
+.flex-dir-horz > .navbar-always-hide-unpinned.navbar.navbar-popup-selected-hover:not(:hover):not(.parent-was-selected-recently),
+.forms-container-not-empty .flex-dir-horz > .navbar.navbar-popup-over-selected-hover:not(:hover):not(.parent-was-selected-recently) > .navbar-nav,
+.flex-dir-horz > .navbar-always-hide-unpinned.navbar.navbar-popup-over-selected-hover:not(:hover):not(.parent-was-selected-recently) > .navbar-nav {
+    max-width: 0;
+
+    /* the problem is that size 0 doesn't "zero" paddings and borders */
+    padding-left: 0;
+    padding-right: 0;
+    border-left-width: 0;
+    border-right-width: 0;
+    /*background-color: transparent;*/
+
+    transition: max-width var(--popup-hover-duration) var(--popup-hover-curve),
+                padding-left 0s linear var(--popup-hover-duration),
+                padding-right 0s linear var(--popup-hover-duration),
+                border-left-width 0s linear var(--popup-hover-duration),
+                border-right-width 0s linear var(--popup-hover-duration);
+                /*background-color 0s linear var(--popup-hover-duration);*/
+}
+
+.flex-dir-horz > .navbar.navbar-popup-selected-hover,
+.flex-dir-horz > .navbar.navbar-popup-over-selected-hover > .navbar-nav {
+    max-width: 30em;
+
+    transition: max-width var(--popup-hover-duration) var(--popup-hover-curve) var(--popup-hover-show-delay),
+                padding-left 0s var(--popup-hover-show-delay),
+                padding-right 0s var(--popup-hover-show-delay),
+                border-left-width 0s var(--popup-hover-show-delay),
+                border-right-width 0s var(--popup-hover-show-delay);
+                /*background-color 0s var(--popup-hover-show-delay);*/
+}
+
+.forms-container-not-empty .flex-dir-vert > .navbar.navbar-popup-selected-hover:not(:hover):not(.parent-was-selected-recently),
+.flex-dir-vert > .navbar-always-hide-unpinned.navbar.navbar-popup-selected-hover:not(:hover):not(.parent-was-selected-recently),
+.forms-container-not-empty .flex-dir-vert > .navbar.navbar-popup-over-selected-hover:not(:hover):not(.parent-was-selected-recently) > .navbar-nav,
+.flex-dir-vert > .navbar-always-hide-unpinned.navbar.navbar-popup-over-selected-hover:not(:hover):not(.parent-was-selected-recently) > .navbar-nav {
+    max-height: 0;
+
+    /* the problem is that size 0 doesn't "zero" paddings and borders */
+    padding-top: 0;
+    padding-bottom: 0;
+    border-top-width: 0;
+    border-bottom-width: 0;
+    /*background-color: transparent;*/
+
+    transition: max-height var(--popup-hover-duration) var(--popup-hover-curve),
+                padding-top 0s linear var(--popup-hover-duration),
+                padding-bottom 0s linear var(--popup-hover-duration),
+                border-top-width 0s linear var(--popup-hover-duration),
+                border-bottom-width 0s linear var(--popup-hover-duration);
+                /*background-color 0s linear var(--popup-hover-duration);*/
+}
+
+.flex-dir-vert > .navbar.navbar-popup-selected-hover,
+.flex-dir-vert > .navbar.navbar-popup-over-selected-hover > .navbar-nav {
+    --popup-hover-duration: 400ms;
+    --popup-hover-curve: ease-out;
+
+    max-height: 30em;
+
+    transition: max-height var(--popup-hover-duration) var(--popup-hover-curve) var(--popup-hover-show-delay),
+                padding-top 0s var(--popup-hover-show-delay),
+                padding-bottom 0s var(--popup-hover-show-delay),
+                border-top-width 0s var(--popup-hover-show-delay),
+                border-bottom-width 0s var(--popup-hover-show-delay);
+                /*background-color 0s;*/
+}
+
+/* popup over selected hover */
+.flex-dir-horz > .navbar.navbar-popup-over-selected-hover {
+    flex-direction: column;
+}
+.flex-dir-vert > .navbar.navbar-popup-over-selected-hover {
+    flex-direction: row;
+}
+
+/* flex-wrap breaks align-self */
+.navbar.navbar-popup-over-selected-hover {
+    flex-wrap: nowrap;
+}
+.navbar-popup-over-selected-hover .wrap-text-not-empty {
+    white-space: nowrap; /* wrapping text looks really odd on hover */
+}
+
+/* popping to the right / bottom */
+.navbar.navbar-popup-over-selected-hover:not(:last-child) > .navbar-nav.navbar-nav-horz,
+.navbar.navbar-popup-over-selected-hover:not(:last-child) > .navbar-nav.navbar-nav-vert {
+    align-self: flex-start;
+}
+.flex-dir-horz > .navbar.navbar-popup-over-selected-hover:not(.nav-has-bg):not(:last-child) > .navbar-nav {
+    padding-right: var(--border-cont-horz-padding);
+    border-right: var(--border-width) solid var(--panel-border-color);
+}
+.flex-dir-vert > .navbar.navbar-popup-over-selected-hover:not(.nav-has-bg):not(:last-child) > .navbar-nav {
+    padding-bottom: var(--border-cont-vert-padding);
+    border-bottom: var(--border-width) solid var(--panel-border-color);
+}
+
+/* popping to the left / top */
+.navbar.navbar-popup-over-selected-hover:last-child > .navbar-nav.navbar-nav-horz,
+.navbar.navbar-popup-over-selected-hover:last-child > .navbar-nav.navbar-nav-vert {
+    align-self: flex-end;
+}
+.flex-dir-horz > .navbar.navbar-popup-over-selected-hover:not(.nav-has-bg):last-child > .navbar-nav {
+    padding-left: var(--border-cont-horz-padding);
+    border-left: var(--border-width) solid var(--panel-border-color);
+}
+.flex-dir-vert > .navbar.navbar-popup-over-selected-hover:not(.nav-has-bg):last-child > .navbar-nav {
+    padding-top: var(--border-cont-vert-padding);
+    border-top: var(--border-width) solid var(--panel-border-color);
+}
+
+.flex-dir-horz > .navbar.navbar-popup-over-selected-hover > .navbar-nav {
+    overflow-x: hidden; /* we need since we set width for navbar-nav */
+}
+.flex-dir-vert > .navbar.navbar-popup-over-selected-hover > .navbar-nav {
+    overflow-y: hidden; /* we need since we set width for navbar-nav */
+}
+
+.navbar.navbar-popup-over-selected-hover.nav-has-bg > .navbar-nav.background-inherit {
+    background: inherit;
+}
+
+/* the problem is that such approach intercepts all mouse events - cursors, clicks, etc. */
+/* so "paddings" should be not more than container + component paddings */
+.navbar.navbar-popup-over-selected-hover::before {
+    content: '';
+    position: absolute;
+
+    --hover-horz-padding: calc(var(--border-cont-horz-padding) / 2 + var(--border-comp-horz-padding));
+    --hover-vert-padding: calc(var(--border-cont-vert-padding) / 2 + var(--border-comp-vert-padding));
+    /*--hover-horz-padding: var(--border-comp-horz-padding);*/
+    /*--hover-vert-padding: var(--border-comp-vert-padding);*/
+}
+.navbar.navbar-popup-over-selected-hover:hover::before {
+    background-color: black;
+    opacity: 0.1;
+    z-index: -1;
+}
+.flex-dir-horz > .navbar.navbar-popup-over-selected-hover::before {
+    top: 0;
+    bottom: 0;
+    width: var(--hover-horz-padding);
+
+    left: calc(-1 * var(--hover-horz-padding));
+    right: var(--hover-horz-padding);
+}
+
+.flex-dir-horz > .navbar.navbar-popup-over-selected-hover:not(:last-child)::before {
+    left: 0;
+    right: var(--hover-horz-padding);
+}
+.flex-dir-horz > .navbar.navbar-popup-over-selected-hover:last-child::before {
+    left: calc(-1 * var(--hover-horz-padding));
+    right: 0;
+}
+
+.flex-dir-vert > .navbar.navbar-popup-over-selected-hover::before {
+    left: 0;
+    right: 0;
+    height: calc(2 * var(--hover-vert-padding));
+}
+.flex-dir-vert > .navbar.navbar-popup-over-selected-hover:not(:last-child)::before {
+    top: 0;
+    bottom: var(--hover-vert-padding);
+}
+.flex-dir-vert > .navbar.navbar-popup-over-selected-hover:not(:last-child)::before {
+    top: calc(-1 * var(--hover-vert-padding));
+    bottom: 0;
+}
+
+.navbar.navbar-popup-over-selected-hover {
+    /*needed to add extra hover space, it works because navbar-popup-over-selected-hover has overflow: visible*/
+    /* plus to make z-index work */
+    position: relative;
+    z-index: 1;
+}
+/* needed to make navbar overlap forms-container*/
+.forms-container-window {
+    /* plus to make z-index work */
+    position: relative;
+    z-index: 0;
+}
+
+.navbar.navbar-popup-over-selected-hover {
+    overflow: visible;
+    flex-grow: 0 !important;
+    flex-basis: 0 !important;
+}
+
+/* Chromium + Safari */
+@supports (not (-moz-appearance: none)) {
+    .navbar.navbar-auto-icon-font-size {
+        overflow: hidden; /*  */
+    }
+
+    .navbar.navbar-auto-icon-font-size .navbar-nav {
+        align-items: stretch !important; /* overrides BS !important */
+
+        /*fixes possible bug in chrome 117 with size of logo icon*/
+        height: 100%;
+    }
+
+    .navbar.navbar-auto-icon-font-size .nav-link,
+    .navbar.navbar-auto-icon-font-size.nav-link {
+        container-type: inline-size;
+        writing-mode: vertical-lr;
+    }
+
+    .navbar.navbar-auto-icon-font-size .nav-link > i,
+    .navbar.navbar-auto-icon-font-size.nav-link > i{
+        font-size: 100cqh;
+    }
+}
+
+.navbar-force-align-start .navbar-nav {
+    align-items: start !important; /* overrides BS !important */
+}
+
+.panelNavigatorView {
+    display: block;
+}
+
+/* cursors - links and dropdown items are not <a with href> or <button> (and can have <label> inside for example) so we'll change the cursor explicitly */
+.nav-link:not(.active),
+.nav-link:not(.active) *,
+.nav-link:not(.active) .wrap-text-not-empty,
+/* we want even not active nav-links in the navbar to have pointer cursor because of was-selected-recently mechanisms */
+.navbar .nav-link,
+.navbar .nav-link *,
+.navbar .nav-link * .wrap-text-not-empty
+{
+    cursor: pointer;
+}

@@ -1,0 +1,87 @@
+
+/* PADDINGS */
+
+.tab-bar {
+    --tab-bar-horz-padding: var(--border-cont-horz-padding);
+    --tab-bar-vert-padding: var(--border-cont-vert-padding);
+}
+
+/* main direction */
+
+.nav-tabs-horz.nav-tabs-start {
+    padding-left: var(--tab-bar-horz-padding);
+}
+.nav-tabs-horz.nav-tabs-end {
+    padding-right: var(--tab-bar-horz-padding);
+}
+.nav-tabs-vert.nav-tabs-start {
+    padding-top: var(--tab-bar-vert-padding);
+}
+.nav-tabs-vert.nav-tabs-end {
+    padding-bottom: var(--tab-bar-vert-padding);
+}
+
+/* opposite direction */
+
+.forms-container > .tab-bar .nav-tabs-bar-wrap-horz > .nav-tabs {
+    padding-top: var(--tab-bar-vert-padding);
+}
+.forms-container > .tab-bar .nav-extra-toolbar.nav-tabs-horz {
+    padding-bottom: var(--tab-bar-vert-padding);
+}
+.forms-container > .tab-bar .nav-tabs-bar-wrap-vert > .nav-tabs {
+    padding-left: var(--tab-bar-horz-padding);
+}
+.forms-container > .tab-bar .nav-extra-toolbar.nav-tabs-vert {
+    padding-right: var(--tab-bar-horz-padding);
+}
+
+/* reducing tab paddings in the mobile navigator to look more compact / authentic */
+
+.nav-mobile .forms-container > .tab-bar {
+    --tab-bar-horz-padding: var(--border-comp-horz-padding);
+    --tab-bar-vert-padding: var(--border-comp-vert-padding);
+}
+
+/* ??? not sure that this is needed ??? */
+/*.tab-panel-horz > .tab-pane {*/
+/*    padding-left: var(--border-cont-horz-padding);*/
+/*}*/
+
+.tab-panel {
+}
+/* if there are no tabs, we want the bar to be at the start / end */
+.tab-panel-start {
+    justify-content: flex-start;
+}
+.tab-panel-end {
+    justify-content: flex-end;
+}
+
+.tab-close-button {
+}
+
+.nav-tabs-bar-wrap-vert {
+    overflow-x: auto;
+    overflow-y: hidden; /* need this to avoid redundant vertical scrolls because of some roundings */
+}
+.nav-tabs-bar-wrap-horz {
+    overflow-x: hidden; /* need this to avoid redundant vertical scrolls because of some roundings */
+    overflow-y: auto;
+}
+
+/* making mobile friendly */
+
+.nav-mobile .forms-container .nav-tabs-bar-wrap-vert,
+.nav-mobile .forms-container .nav-tabs-bar-wrap-horz {
+    scrollbar-width: none; /* hide scrollbars in Firefox */
+}
+
+.nav-mobile .forms-container .nav-tabs-bar-wrap-vert::-webkit-scrollbar,
+.nav-mobile .forms-container .nav-tabs-bar-wrap-horz::-webkit-scrollbar {
+    display: none; /* hide scrollbars in Safari and Chrome */
+}
+
+.dont-show-close-button .nav-link:not(.active) .tab-close-button {
+    display: none;
+}

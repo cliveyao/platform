@@ -15,16 +15,18 @@ public class NavigatorData {
     public final ClientNavigatorElement root;
     public final Map<String, ClientNavigatorWindow> windows;
 
+    public final ClientNavigatorChanges navigatorChanges;
+
     public final ClientAbstractWindow logs;
-    public final ClientAbstractWindow status;
     public final ClientAbstractWindow forms;
 
     public NavigatorData(ClientNavigatorElement root, Map<String, ClientNavigatorWindow> windows,
-                         ClientAbstractWindow logs, ClientAbstractWindow status, ClientAbstractWindow forms) {
+                         ClientNavigatorChanges navigatorChanges,
+                         ClientAbstractWindow logs, ClientAbstractWindow forms) {
         this.root = root;
         this.windows = windows;
+        this.navigatorChanges = navigatorChanges;
         this.logs = logs;
-        this.status = status;
         this.forms = forms;
     }
 
@@ -32,9 +34,15 @@ public class NavigatorData {
         DataInputStream inStream = new DataInputStream(new ByteArrayInputStream(state));
 
         Map<String, ClientNavigatorWindow> windows = new HashMap<>();
+        int windowsCount = inStream.readInt();
+        for (int i = 0; i < windowsCount; i++) {
+            ClientNavigatorWindow window = new ClientNavigatorWindow(inStream);
+            windows.put(window.canonicalName, window);
+        }
+
         List<ClientNavigatorElement> elements = new ArrayList<>();
         int elementsCount = inStream.readInt();
-        for (int i1 = 0; i1 < elementsCount; i1++) {
+        for (int i = 0; i < elementsCount; i++) {
             elements.add(ClientNavigatorElement.deserialize(inStream, windows));
         }
 
@@ -52,14 +60,16 @@ public class NavigatorData {
                 ClientNavigatorElement child = elementsMap.get(inStream.readUTF());
 
                 element.children.add(child);
-                child.parents.add(element);
+                child.parent = element;
             }
         }
 
+        //deserialize and add to navigatordata
+        ClientNavigatorChanges clientNavigatorChanges = new ClientNavigatorChanges(inStream);
+
         ClientAbstractWindow logs =new ClientAbstractWindow(inStream);
-        ClientAbstractWindow status = new ClientAbstractWindow(inStream);
         ClientAbstractWindow forms = new ClientAbstractWindow(inStream);
 
-        return new NavigatorData(elements.isEmpty() ? null : elements.get(0), windows, logs, status, forms);
+        return new NavigatorData(elements.isEmpty() ? null : elements.get(0), windows, clientNavigatorChanges, logs, forms);
     }
 }

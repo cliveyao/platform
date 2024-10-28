@@ -13,11 +13,11 @@ public interface GActionDispatcher {
 
     Object execute(GConfirmAction action);
 
-    void execute(GLogMessageAction action);
-
     void execute(GHideFormAction action);
 
     void execute(GProcessFormChangesAction action);
+
+    void execute(GProcessNavigatorChangesAction action);
 
     Object execute(GRequestUserInputAction action);
 
@@ -33,6 +33,8 @@ public interface GActionDispatcher {
 
     void execute(GOpenFileAction action);
 
+    void execute(GWriteAction action);
+
     String execute(GLoadLinkAction action);
 
     void execute(GBeepAction action);
@@ -40,10 +42,20 @@ public interface GActionDispatcher {
     void execute(GActivateFormAction action);
 
     void execute(GMaximizeFormAction action);
+
+    void execute(GCloseFormAction action);
     
     void execute(GChangeColorThemeAction action);
 
     void execute(GResetWindowsLayoutAction action);
 
+    Object execute(GClientWebAction action);
+
     Object execute(GHttpClientAction action) throws RequestException;
+    
+    void execute(GOrderAction action);
+    
+    void execute(GFilterAction action);
+
+    void execute(GFilterGroupAction action);
 }

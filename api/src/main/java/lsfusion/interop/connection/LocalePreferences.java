@@ -9,6 +9,7 @@ public class LocalePreferences implements Serializable {
     public Integer twoDigitYearStart;
     public String dateFormat;
     public String timeFormat;
+    public String dateTimeFormat;
 
     public LocalePreferences(Locale locale, String timeZone, Integer twoDigitYearStart, String dateFormat, String timeFormat) {
         this.locale = locale;
@@ -16,6 +17,7 @@ public class LocalePreferences implements Serializable {
         this.twoDigitYearStart = twoDigitYearStart;
         this.dateFormat = dateFormat;
         this.timeFormat = timeFormat;
+        this.dateTimeFormat = dateFormat + " " + timeFormat; //correspond to TFormats dateTimePattern
     }
 
     public static Locale getLocale(String language, String country) {
@@ -24,19 +26,4 @@ public class LocalePreferences implements Serializable {
         }
         return null; // default
     }
-
-    //    public static LocalePreferences overrideDefaultWithUser(LocalePreferences defaultPreferences, LocalePreferences userPreferences) {
-//        assert defaultPreferences != null;
-//        if (userPreferences == null) {
-//            return defaultPreferences;
-//        }
-//
-//        String language = nvl(userPreferences.language, defaultPreferences.language);
-//        // country и language идут вместе парой, поэтому проверка на language, как на основной параметр 
-//        String country = userPreferences.language == null ? defaultPreferences.country : userPreferences.country;
-//        String timeZone = nvl(userPreferences.timeZone, defaultPreferences.timeZone);
-//        Integer twoDigitYearStart = nvl(userPreferences.twoDigitYearStart, defaultPreferences.twoDigitYearStart);
-//        
-//        return new LocalePreferences(language, country, timeZone, twoDigitYearStart);    
-//    }
 }

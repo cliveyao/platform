@@ -101,6 +101,21 @@ public abstract class AList<K> extends AColObject implements ImList<K> {
         return -1;
     }
 
+    public boolean containsNull() {
+        for(int i=0,size=size();i<size;i++)
+            if(get(i) == null)
+                return true;
+        return false;
+    }
+
+    @Override
+    public boolean containsFn(FunctionSet<K> filter) {
+        for(int i=0,size=size();i<size;i++)
+            if(filter.contains(get(i)))
+                return true;
+        return false;
+    }
+
     public ImMap<Integer, K> toIndexedMap() {
         return mapListMapValues(i -> i);
     }
@@ -129,6 +144,13 @@ public abstract class AList<K> extends AColObject implements ImList<K> {
         for(int j=0,size=size();j<size;j++)
             if(j != i)
                 mResult.add(get(j));
+        return mResult.immutableList();
+    }
+
+    public ImList<K> replace(int i, K element) {
+        MList<K> mResult = ListFact.mList(size());
+        for(int j=0,size=size();j<size;j++)
+            mResult.add(j == i ? element : get(j));
         return mResult.immutableList();
     }
 
@@ -174,13 +196,6 @@ public abstract class AList<K> extends AColObject implements ImList<K> {
         MList<M> mResult = ListFact.mList(size());
         for(int i=0,size=size();i<size;i++)
             mResult.add(getter.apply(get(i)));
-        return mResult.immutableList();
-    }
-
-    public <M> ImList<M> mapListValues(IntFunction<M> getter) {
-        MList<M> mResult = ListFact.mList(size());
-        for(int i=0,size=size();i<size;i++)
-            mResult.add(getter.apply(i));
         return mResult.immutableList();
     }
 
@@ -272,7 +287,7 @@ public abstract class AList<K> extends AColObject implements ImList<K> {
             if(group!=null) {
                 MList<K> groupList = mResult.get(group);
                 if (groupList == null) {
-                    groupList = ListFact.mListMax(size);
+                    groupList = ListFact.mList();
                     mResult.exclAdd(group, groupList);
                 }
                 groupList.add(key);

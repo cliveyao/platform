@@ -17,12 +17,13 @@ import bibliothek.gui.dock.control.ControllerSetupCollection;
 import bibliothek.gui.dock.control.DefaultDockControllerFactory;
 import bibliothek.gui.dock.control.DockRelocator;
 import bibliothek.gui.dock.control.relocator.DefaultDockRelocator;
+import bibliothek.gui.dock.facile.mode.Location;
+import bibliothek.gui.dock.support.mode.ModeSettings;
 import bibliothek.gui.dock.title.DockTitle;
 import bibliothek.gui.dock.util.color.ColorManager;
 import com.google.common.base.Throwables;
 import lsfusion.base.ReflectionUtils;
 import lsfusion.base.lambda.EProvider;
-import lsfusion.base.lambda.ERunnable;
 import lsfusion.client.base.SwingUtils;
 import lsfusion.client.base.TableManager;
 import lsfusion.client.base.log.Log;
@@ -38,16 +39,20 @@ import lsfusion.client.form.controller.FormsController;
 import lsfusion.client.form.print.view.EditReportInvoker;
 import lsfusion.client.form.print.view.ReportDialog;
 import lsfusion.client.form.property.async.ClientAsyncOpenForm;
-import lsfusion.client.form.property.cell.classes.controller.EditorEventQueue;
 import lsfusion.client.form.view.ClientFormDockable;
 import lsfusion.client.navigator.ClientNavigator;
 import lsfusion.client.navigator.ClientNavigatorAction;
 import lsfusion.client.navigator.NavigatorData;
+import lsfusion.client.navigator.controller.AsyncFormController;
 import lsfusion.client.navigator.controller.NavigatorController;
 import lsfusion.client.navigator.controller.dispatch.ClientNavigatorActionDispatcher;
 import lsfusion.client.navigator.window.ClientAbstractWindow;
 import lsfusion.client.navigator.window.view.ClientWindowDockable;
-import lsfusion.interop.action.*;
+import lsfusion.interop.action.ClientAction;
+import lsfusion.interop.action.ExceptionClientAction;
+import lsfusion.interop.action.FormClientAction;
+import lsfusion.interop.action.ServerResponse;
+import lsfusion.interop.form.FormClientData;
 import lsfusion.interop.form.print.ReportGenerationData;
 import lsfusion.interop.form.remote.RemoteFormInterface;
 import lsfusion.interop.navigator.remote.RemoteNavigatorInterface;
@@ -58,7 +63,10 @@ import org.jboss.netty.util.internal.NonReentrantLock;
 import javax.swing.*;
 import javax.swing.border.Border;
 import java.awt.*;
-import java.awt.event.*;
+import java.awt.event.InputEvent;
+import java.awt.event.MouseEvent;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 import java.io.*;
 import java.rmi.RemoteException;
 import java.util.LinkedHashMap;
@@ -83,6 +91,8 @@ public class DockableMainFrame extends MainFrame implements AsyncListener {
     private NonReentrantLock lock = new NonReentrantLock();
 
     private final TableManager tableManager = new TableManager();
+    
+    private ClientWindowDockable logsDockable;
 
     private final EProvider<String> serverMessageProvider = new EProvider<String>() {
         @Override
@@ -129,12 +139,12 @@ public class DockableMainFrame extends MainFrame implements AsyncListener {
 
         mainNavigator = new ClientNavigator(remoteNavigator, navigatorData.root, navigatorData.windows) {
             @Override
-            public void openAction(ClientNavigatorAction action, int modifiers) {
-                executeNavigatorAction(action, (modifiers & InputEvent.CTRL_MASK) != 0);
+            public long openAction(ClientNavigatorAction action, int modifiers, boolean sync) {
+                return executeNavigatorAction(action, (modifiers & InputEvent.CTRL_MASK) != 0, sync);
             }
         };
 
-        rmiQueue = new RmiQueue(tableManager, serverMessageProvider, serverMessageListProvider, this);
+        rmiQueue = new RmiQueue(tableManager, serverMessageProvider, serverMessageListProvider, this, false);
 
         actionDispatcher = new ClientNavigatorActionDispatcher(rmiQueue, mainNavigator);
 
@@ -199,50 +209,45 @@ public class DockableMainFrame extends MainFrame implements AsyncListener {
 
         initDockStations(navigatorData);
 
-        navigatorController.update();
+        mainNavigator.applyNavigatorChanges(navigatorData.navigatorChanges, navigatorController);
 
         bindUIHandlers();
-
-        Toolkit.getDefaultToolkit().getSystemEventQueue().push(new EditorEventQueue());
     }
 
-    private void executeNavigatorAction(ClientNavigatorAction action, boolean suppressForbidDuplicate) {
-        executeNavigatorAction(action.getCanonicalName(), 1, null, suppressForbidDuplicate, action.asyncExec == null);
+    private long executeNavigatorAction(ClientNavigatorAction action, boolean suppressForbidDuplicate, boolean sync) {
+        return executeNavigatorAction(action.getCanonicalName(), 1, null, suppressForbidDuplicate, sync);
     }
 
     public void executeNavigatorAction(final String actionSID, final int type, final Runnable action, Boolean suppressForbidDuplicate) {
         executeNavigatorAction(actionSID, type, action, suppressForbidDuplicate, true);
     }
 
-    private void executeNavigatorAction(final String actionSID, final int type, final Runnable action, Boolean suppressForbidDuplicate, boolean sync) {
+    private long executeNavigatorAction(final String actionSID, final int type, final Runnable action, Boolean suppressForbidDuplicate, boolean sync) {
         if (action != null) {
             if (lock.tryLock()) {
-                tryExecuteNavigatorAction(actionSID, type, suppressForbidDuplicate, sync);
+                return tryExecuteNavigatorAction(actionSID, type, suppressForbidDuplicate, sync);
             } else {
-                SwingUtils.invokeLater(new ERunnable() {
-                    @Override
-                    public void run() throws Exception {
-                        Timer timer = new Timer(1000, new ActionListener() {
-                            @Override
-                            public void actionPerformed(ActionEvent e) {
-                                action.run();
-                            }
-                        });
-                        timer.setRepeats(false);
-                        timer.start();
-                    }
+                SwingUtils.invokeLater(() -> {
+                    Timer timer = new Timer(1000, e -> action.run());
+                    timer.setRepeats(false);
+                    timer.start();
                 });
+                return -1;
             }
         } else {
             lock.lock();
-            tryExecuteNavigatorAction(actionSID, type, suppressForbidDuplicate, sync);
+            return tryExecuteNavigatorAction(actionSID, type, suppressForbidDuplicate, sync);
         }
+    }
+
+    public AsyncFormController getAsyncFormController(long requestIndex) {
+        return actionDispatcher.getAsyncFormController(requestIndex);
     }
 
     private void processServerResponse(ServerResponse serverResponse) throws IOException {
         //ХАК: serverResponse == null теоретически может быть при реконнекте, когда RMI-поток убивается и remote-method возвращает null
         if (serverResponse != null) {
-            actionDispatcher.dispatchResponse(serverResponse);
+            actionDispatcher.dispatchServerResponse(serverResponse);
         }
     }
 
@@ -254,7 +259,7 @@ public class DockableMainFrame extends MainFrame implements AsyncListener {
         });
     }
 
-    private void tryExecuteNavigatorAction(final String actionSID, final int type, final Boolean suppressForbidDuplicate, boolean sync) {
+    private long tryExecuteNavigatorAction(final String actionSID, final int type, final Boolean suppressForbidDuplicate, boolean sync) {
         try {
             RmiRequest<ServerResponse> request = new RmiRequest<ServerResponse>("executeNavigatorAction") {
                 @Override
@@ -283,8 +288,9 @@ public class DockableMainFrame extends MainFrame implements AsyncListener {
             if(sync) {
                 rmiQueue.syncRequest(request);
             } else {
-                rmiQueue.asyncRequest(request);
+                rmiQueue.adaptiveSyncRequest(request);
             }
+            return request.getRequestIndex();
         } finally {
             lock.unlock();
         }
@@ -318,16 +324,12 @@ public class DockableMainFrame extends MainFrame implements AsyncListener {
         formsController.getForms().clear();
     }
 
-    public void asyncOpenForm(ClientAsyncOpenForm asyncOpenForm) {
-        asyncOpenForm(rmiQueue.getNextRmiRequestIndex(), asyncOpenForm);
+    public void asyncOpenForm(ClientAsyncOpenForm asyncOpenForm, long requestIndex) {
+        asyncOpenForm(getAsyncFormController(requestIndex), asyncOpenForm);
     }
 
-    public void asyncOpenForm(Long requestIndex, ClientAsyncOpenForm asyncOpenForm) {
-        formsController.asyncOpenForm(requestIndex, asyncOpenForm);
-    }
-
-    public void removeOpenForm(Long requestIndex) {
-        formsController.getForms().removeAsyncForm(requestIndex);
+    public void asyncOpenForm(AsyncFormController asyncFormController, ClientAsyncOpenForm asyncOpenForm) {
+        formsController.asyncOpenForm(asyncFormController, asyncOpenForm);
     }
 
     @Override
@@ -426,29 +428,37 @@ public class DockableMainFrame extends MainFrame implements AsyncListener {
 
         setDefaultVisible();
 
+        // Unlike web-client desktop-client restores layout from layout.data, where all windows - 
+        // visible and invisible - are stored. As it seems impossible to check whether the window remained (in-)visible
+        // or changed its state, we store in windowDockables only visible windows.
         for (String s : mainControl.layouts()) {
             if (s.equals("default")) {
                 try {
                     //проверяем, бы ли созданы новые Dockable
-                    boolean hasNewDockables = false;
+                    boolean dockablesChanged = false;
                     CSetting setting = (CSetting) mainControl.intern().getSetting(s);
                     if (setting != null) {
-                        for (SingleCDockable dockable : windowDockables.keySet()) {
-                            boolean isNewDockable = true;
-                            for (int i = 0; i < setting.getModes().size(); i++) {
-                                if (setting.getModes().getId(i).equals("single " + dockable.getUniqueId())) {
-                                    isNewDockable = false;
+                        ModeSettings<Location, Location> modes = setting.getModes();
+                        if (windowDockables.size() != modes.size()) {
+                            dockablesChanged = true;
+                        } else {
+                            for (SingleCDockable dockable : windowDockables.keySet()) {
+                                boolean isNewDockable = true;
+                                for (int i = 0; i < modes.size(); i++) {
+                                    if (modes.getId(i).equals("single " + dockable.getUniqueId())) {
+                                        isNewDockable = false;
+                                        break;
+                                    }
+                                }
+                                if (isNewDockable) {
+                                    dockablesChanged = true;
                                     break;
                                 }
-                            }
-                            if (isNewDockable) {
-                                hasNewDockables = true;
-                                break;
                             }
                         }
                     }
                     //если новые Dockable созданы не были, грузим сохранённое расположение
-                    if (!hasNewDockables) {
+                    if (!dockablesChanged) {
                         mainControl.load("default");
                     }
                 } catch (Exception e) {
@@ -483,7 +493,7 @@ public class DockableMainFrame extends MainFrame implements AsyncListener {
     }
 
     @Override
-    public Integer runReport(final List<ReportPath> customReportPathList, final String formCaption, final String formSID, boolean isModal, ReportGenerationData generationData, String printerName) throws IOException, ClassNotFoundException {
+    public Integer runReport(final List<String> customReportPathList, final String formCaption, final java.lang.String formSID, boolean isModal, ReportGenerationData generationData, java.lang.String printerName) throws IOException, ClassNotFoundException {
         return runReport(isModal, formCaption, generationData, printerName, new EditReportInvoker() {
             @Override
             public boolean hasCustomReports() throws RemoteException {
@@ -538,9 +548,9 @@ public class DockableMainFrame extends MainFrame implements AsyncListener {
     }
 
     @Override
-    public ClientFormDockable runForm(Long requestIndex, String canonicalName, String formSID, boolean forbidDuplicate, RemoteFormInterface remoteForm, byte[] firstChanges, FormCloseListener closeListener) {
+    public ClientFormDockable runForm(AsyncFormController asyncFormController, boolean forbidDuplicate, RemoteFormInterface remoteForm, FormClientData clientData, FormCloseListener closeListener, String formId) {
         try {
-            return formsController.openForm(requestIndex, mainNavigator, canonicalName, formSID, forbidDuplicate, remoteForm, firstChanges, closeListener);
+            return formsController.openForm(asyncFormController, mainNavigator, forbidDuplicate, remoteForm, clientData, closeListener, formId);
         } catch (Exception e) {
             if(closeListener != null)
                 closeListener.formClosed(true);
@@ -555,8 +565,16 @@ public class DockableMainFrame extends MainFrame implements AsyncListener {
         LinkedHashMap<ClientAbstractWindow, JComponent> windows = new LinkedHashMap<>();
 
         try {
-            windows.put(navigatorData.logs, Log.recreateLogPanel());
-            windows.put(navigatorData.status, status);
+            windows.put(navigatorData.logs, Log.recreateLogPanel(visible -> {
+                // if forms dockable is in maximized mode showing logs dockable switches mode to normalized 
+                if (!isMaximized() && visible != null) {
+                    setLogsDockableVisible(visible);
+                    if (!visible) {
+                        //logs dockable lost focus, need to restore focus for currentForm
+                        ((DockableMainFrame) MainFrame.instance).focusCurrentForm();
+                    }
+                }
+            }));
 
             formsWindow = navigatorData.forms;
         } catch (Exception e) {
@@ -571,17 +589,26 @@ public class DockableMainFrame extends MainFrame implements AsyncListener {
         for (Map.Entry<ClientAbstractWindow, JComponent> entry : windows.entrySet()) {
             ClientAbstractWindow window = entry.getKey();
             JComponent component = entry.getValue();
-            if (window.position == WindowType.DOCKING_POSITION) {
-                ClientWindowDockable dockable = new ClientWindowDockable(window, entry.getValue());
-                dockable.setMinimizable(false);
-                navigatorController.recordDockable(component, dockable);
-                windowDockables.put(dockable, window);
-            } else {
-                add(component, window.borderConstraint);
+            if (window.visible) {
+                if (window.position == WindowType.DOCKING_POSITION) {
+                    ClientWindowDockable dockable = new ClientWindowDockable(window, entry.getValue());
+                    
+                    if (window == navigatorData.logs) {
+                        logsDockable = dockable;
+                    }
+                    
+                    dockable.setMinimizable(false);
+                    navigatorController.recordDockable(component, dockable);
+                    windowDockables.put(dockable, window);
+                } else {
+                    add(component, window.borderConstraint);
+                }
             }
         }
 
-        windowDockables.put(formsController.getFormArea(), formsWindow);
+        if (formsWindow.visible) {
+            windowDockables.put(formsController.getFormArea(), formsWindow);
+        }
     }
 
     private CGrid createGrid() {
@@ -598,6 +625,23 @@ public class DockableMainFrame extends MainFrame implements AsyncListener {
             entry.getKey().setVisible(entry.getValue().visible);
         }
     }
+    
+    public void setLogsDockableVisible(boolean visible) {
+        if (logsDockable != null) {
+            logsDockable.setVisible(visible);
+        }
+    }
+
+    public void focusCurrentForm() {
+        if(currentForm != null) {
+            for (ClientDockable openedForm : formsController.openedForms) {
+                if (openedForm.getCanonicalName() != null && openedForm.getCanonicalName().equals(currentForm.form.canonicalName)) {
+                    openedForm.requestFocusInWindow();
+                    break;
+                }
+            }
+        }
+    }
 
     public void activateForm(String formCanonicalName) {
         for (ClientDockable openedForm : formsController.openedForms) {
@@ -610,10 +654,27 @@ public class DockableMainFrame extends MainFrame implements AsyncListener {
         }
     }
 
+    public void closeForm(String formId) {
+        for (ClientDockable openedForm : formsController.openedForms) {
+            if (formId.equals(openedForm.formId)) {
+                openedForm.onClosing();
+                break;
+            }
+        }
+    }
+
     public void maximizeForm() {
         //setExtendedMode вызывается для одной формы, но влияет на все
         if(!formsController.openedForms.isEmpty()) {
             formsController.openedForms.get(0).setExtendedMode(ExtendedMode.MAXIMIZED);
         }
+    }
+    
+    public boolean isMaximized() {
+        return !formsController.openedForms.isEmpty() && formsController.openedForms.get(0).getExtendedMode() == ExtendedMode.MAXIMIZED;
+    }
+
+    public NavigatorController getNavigatorController() {
+        return navigatorController;
     }
 }

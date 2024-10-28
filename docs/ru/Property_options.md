@@ -8,23 +8,27 @@ title: 'Опции свойства'
 
 Опции перечесляются друг за другом в произвольном порядке через пробел или переводы строк:
 
-    propertyOption1 ... propertyOptionN
+```
+propertyOption1 ... propertyOptionN
+```
 
 Поддерживается следующий набор опций (синтаксис каждой опции указывается в отдельной строке):
 
-    IN groupName
-    viewType
-    ON eventType { actionOperator }
-    CHANGEKEY key [SHOW | HIDE]
-    MATERIALIZED
-    TABLE tableName
-    INDEXED
-    NONULL [DELETE] eventClause
-    AUTOSET
-    CHARWIDTH width [FLEX | NOFLEX]
-    REGEXP rexpr [message] 
-    ECHO
-    DEFAULTCOMPARE [compare]
+```
+IN groupName
+viewType
+ON eventType { actionOperator }
+CHANGEKEY key [SHOW | HIDE]
+MATERIALIZED
+TABLE tableName
+INDEXED [LIKE | MATCH]
+NONULL [DELETE] eventClause
+AUTOSET
+CHARWIDTH width [FLEX | NOFLEX]
+REGEXP rexpr [message] 
+ECHO
+DEFAULTCOMPARE [compare]
+```
 
 ## Описание и параметры
 
@@ -50,9 +54,20 @@ title: 'Опции свойства'
     
         Имя таблицы. Составной идентификатор. 
 
+<a className="lsdoc-anchor" id="indexed"/>
+
 - `INDEXED`
 
     Ключевое слово, указание которого создает [индекс](Indexes.md) по этому свойству. Аналогично использованию [инструкции `INDEX`](INDEX_statement.md). 
+
+    - `LIKE`
+
+        Ключевое слово, указание которого создает вместо обычного индекса GIN индекс.
+
+    - `MATCH`
+
+        Ключевое слово, указание которого создает вместо обычного индекса два: GIN индекс и GIN индекс с to_tsvector.
+
 
 - `NONULL [DELETE] eventClause`
 
@@ -152,14 +167,20 @@ title: 'Опции свойства'
 
     - `compare`
 
-        Тип фильтра по умолчанию. [Строковый литерал](Literals.md#strliteral). Может принимать следующие значения: `=`, `>`, `<`, `>=`, `<=`, `!=`, `START_WITH`, `CONTAINS`, `ENDS_WITH`, `LIKE`. По умолчанию принимает значение `=` для всех типов данных кроме строковых регистронезависимых, для которых принимает значение `CONTAINS`. При включенной настройке `System.defaultCompareForStringContains` по умолчанию принимает значение `CONTAINS` для всех строковых данных независимо от регистрозависимости. Может быть переопределено в инструкции `DESIGN`.
+        Тип фильтра по умолчанию. [Строковый литерал](Literals.md#strliteral). Может принимать следующие значения: `=`, `>`, `<`, `>=`, `<=`, `!=`, `CONTAINS`, `LIKE`. По умолчанию принимает значение `=` для всех типов данных кроме строковых регистронезависимых, для которых принимает значение `CONTAINS`. При включенной настройке `System.defaultCompareForStringContains` по умолчанию принимает значение `CONTAINS` для всех строковых данных независимо от регистрозависимости. Может быть переопределено в инструкции `DESIGN`.
 
 ## Примеры
 
 ```lsf
-cost 'Стоимость' (i) = DATA NUMERIC[12,3] (Item);		// cвойство задано контекстно-независимым оператором-свойством DATA
-weightedSum 'Взвешенная сумма' (a, b) = 2*a + 3*b; 		// cвойство задано выражением
-diff = a - b; 											// заголовком этого свойства будет 'diff', а параметрами - (a, b)
+// cвойство задано контекстно-независимым оператором-свойством DATA
+cost 'Стоимость' (i) = DATA NUMERIC[12,3] (Item);
 
-teamName 'Название команды' = DATA BPSTRING[30](Team) IN baseGroup TABLE team; // свойство задано оператором DATA с указанием дополнительных опций свойства
+// cвойство задано выражением
+weightedSum 'Взвешенная сумма' (a, b) = 2*a + 3*b;
+
+// заголовком этого свойства будет 'diff', а параметрами - (a, b)
+diff = a - b;
+
+// свойство задано оператором DATA с указанием дополнительных опций свойства
+teamName 'Название команды' = DATA BPSTRING[30](Team) IN baseGroup TABLE team; 
 ```

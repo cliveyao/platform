@@ -2,92 +2,94 @@ package lsfusion.server.logics.form.struct.action;
 
 import lsfusion.base.col.MapFact;
 import lsfusion.base.col.interfaces.immutable.ImRevMap;
-import lsfusion.server.base.caches.IdentityInstanceLazy;
-import lsfusion.server.base.caches.IdentityLazy;
-import lsfusion.server.data.type.Type;
+import lsfusion.base.col.interfaces.immutable.ImSet;
+import lsfusion.server.language.action.LA;
 import lsfusion.server.logics.action.Action;
-import lsfusion.server.logics.classes.user.CustomClass;
+import lsfusion.server.logics.form.interactive.action.async.map.AsyncMapEventExec;
+import lsfusion.server.logics.form.interactive.action.async.map.AsyncMapInput;
+import lsfusion.server.logics.form.interactive.action.change.ActionObjectSelector;
+import lsfusion.server.logics.form.interactive.action.input.InputContextPropertyListEntity;
 import lsfusion.server.logics.form.interactive.controller.init.InstanceFactory;
 import lsfusion.server.logics.form.interactive.controller.init.Instantiable;
+import lsfusion.server.logics.form.interactive.controller.remote.serialization.FormInstanceContext;
 import lsfusion.server.logics.form.interactive.instance.property.ActionObjectInstance;
-import lsfusion.server.logics.form.struct.FormEntity;
 import lsfusion.server.logics.form.struct.object.GroupObjectEntity;
 import lsfusion.server.logics.form.struct.object.ObjectEntity;
+import lsfusion.server.logics.form.struct.property.PropertyDrawEntity;
 import lsfusion.server.logics.form.struct.property.PropertyObjectEntity;
-import lsfusion.server.logics.form.struct.property.PropertyObjectInterfaceEntity;
-import lsfusion.server.logics.form.struct.property.async.*;
+import lsfusion.server.logics.form.interactive.action.async.*;
 import lsfusion.server.logics.form.struct.property.oraction.ActionOrPropertyObjectEntity;
+import lsfusion.server.logics.property.Property;
 import lsfusion.server.logics.property.PropertyFact;
+import lsfusion.server.logics.property.implement.PropertyInterfaceImplement;
+import lsfusion.server.logics.property.oraction.ActionOrProperty;
 import lsfusion.server.logics.property.oraction.PropertyInterface;
 
-public class ActionObjectEntity<P extends PropertyInterface> extends ActionOrPropertyObjectEntity<P, Action<P>> implements Instantiable<ActionObjectInstance<P>> {
+import java.util.function.Supplier;
+
+public class ActionObjectEntity<P extends PropertyInterface> extends ActionOrPropertyObjectEntity<P, Action<P>> implements Instantiable<ActionObjectInstance<P>>, ActionObjectSelector {
 
     public ActionObjectEntity() {
         //нужен для десериализации
     }
 
+    public ActionObjectEntity(LA<P> property) {
+        this(property.action, MapFact.EMPTYREV());
+    }
     public ActionObjectEntity(Action<P> property, ImRevMap<P, ObjectEntity> mapping) {
-        this(property, mapping, null, null);
+        this(property, mapping, null, null, null);
     }
 
-    public ActionObjectEntity(Action<P> property, ImRevMap<P, ObjectEntity> mapping, String creationScript, String creationPath) {
-        super(property, mapping, creationScript, creationPath);
+    public ActionObjectEntity(Action<P> property, ImRevMap<P, ObjectEntity> mapping, String creationScript, String creationPath, String path) {
+        super(property, mapping, creationScript, creationPath, path);
     }
 
     public ActionObjectInstance<P> getInstance(InstanceFactory instanceFactory) {
         return instanceFactory.getInstance(this);
     }
 
-    public ActionObjectEntity<?> getGroupChange(GroupObjectEntity entity) {
+    public ActionObjectEntity<?> getGroupChange(GroupObjectEntity entity, PropertyObjectEntity<?> readOnly) {
         if(entity == null || !entity.viewType.isList())
             return null;
         
-        // [FILTER group]
-        return this.property.getGroupChange(entity, mapping);
+        return this.property.getGroupChange(entity, mapping, readOnly);
     }
 
-    @IdentityLazy
-    public AsyncAddRemove getAddRemove(FormEntity form) {
-        CustomClass simpleAdd = property.getSimpleAdd();
-        if(simpleAdd!=null) {
-            for(ObjectEntity object : form.getObjects())
-                if (object.baseClass instanceof CustomClass && simpleAdd.isChild((CustomClass) object.baseClass) && object.isSimpleList()) {
-                    return new AsyncAddRemove(object, true);
+    public <X extends PropertyInterface> PropertyObjectEntity.Select getSelectProperty(FormInstanceContext context, boolean forceSelect, Boolean forceFilterSelected, PropertyObjectEntity<X> drawProperty) { // false - filter selected,
+        AsyncMapEventExec<P> asyncExec = property.getAsyncEventExec(true);
+        if(asyncExec instanceof AsyncMapInput) {
+            AsyncMapInput<P> asyncMapInput = (AsyncMapInput<P>) asyncExec;
+
+            if(asyncMapInput.list instanceof InputContextPropertyListEntity && asyncMapInput.strict) {
+                // setting oldValue
+                PropertyInterfaceImplement<P> oldValue = asyncMapInput.oldValue;
+                boolean drawnValue = false;
+                if (oldValue == null) {
+                    drawnValue = true;
+                    ImSet<ObjectEntity> allObjects = mapping.valuesSet().merge(drawProperty.mapping.valuesSet());
+                    if (allObjects.size() > mapping.size()) { // optimization, when we don't have extra objects, just use existing
+                        ImRevMap<ObjectEntity, PropertyInterface> objectInterfaces = allObjects.mapRevValues((Supplier<PropertyInterface>) PropertyInterface::new);
+                        return getSelectProperty(context, forceSelect, forceFilterSelected, objectInterfaces.reverse(), asyncMapInput.map(mapping.join(objectInterfaces)), drawProperty.getImplement(objectInterfaces), drawnValue);
+                    } else
+                        oldValue = drawProperty.property.getIdentityImplement(drawProperty.mapping.crossValuesRev(mapping));
                 }
-        }
 
-        P simpleDelete = property.getSimpleDelete();
-        PropertyObjectInterfaceEntity object;
-        if(simpleDelete!=null && (object = mapping.get(simpleDelete)) instanceof ObjectEntity && ((ObjectEntity)object).isSimpleList()) {
-            return new AsyncAddRemove((ObjectEntity) object, false);
-        }
-
-        return null;
-    }
-
-    @IdentityLazy
-    public AsyncChange getChange(boolean optimistic) {
-        Type changeType = property.getSimpleRequestInputType(optimistic);
-        if(changeType!=null) {
-            return new AsyncChange(changeType);
+                return getSelectProperty(context, forceSelect, forceFilterSelected, mapping, asyncMapInput, oldValue, drawnValue);
+            }
         }
         return null;
     }
 
-    @IdentityLazy
-    public AsyncExec getAsyncExec() {
-        return property.getAsyncExec();
+    private static <X extends PropertyInterface, Z extends PropertyInterface, Y extends PropertyInterface> PropertyObjectEntity.Select getSelectProperty(FormInstanceContext context, boolean forceSelect, Boolean forceFilterSelected, ImRevMap<X, ObjectEntity> mapping, AsyncMapInput<X> input, PropertyInterfaceImplement<X> value, boolean drawnValue) { // false - filter selected,
+        InputContextPropertyListEntity<Z, X> list = (InputContextPropertyListEntity<Z, X>) input.list;
+        return getSelectProperty(context, forceFilterSelected, Property.getSelectProperty(forceSelect, mapping.keys(), list.getSelectViewEntity(), list.getSelectFilterEntity(), list.getSelectOrderEntities(), value, drawnValue), mapping);
     }
 
-    public AsyncEventExec getAsyncEventExec(FormEntity form, boolean optimistic) {
-        AsyncEventExec asyncEventExec = getAddRemove(form);
-        if (asyncEventExec == null) {
-            asyncEventExec = getChange(optimistic);
-        }
-        if (asyncEventExec == null) {
-            asyncEventExec = getAsyncExec();
-        }
-        return asyncEventExec;
+    public AsyncEventExec getAsyncEventExec(FormInstanceContext context, ActionOrProperty securityProperty, PropertyDrawEntity drawProperty, GroupObjectEntity toDraw, boolean optimistic) {
+        AsyncMapEventExec<P> asyncExec = property.getAsyncEventExec(optimistic);
+        if(asyncExec != null)
+            return asyncExec.map(mapping, context, securityProperty, drawProperty, toDraw);
+        return null;
     }
 
 //    @IdentityInstanceLazy
@@ -102,11 +104,16 @@ public class ActionObjectEntity<P extends PropertyInterface> extends ActionOrPro
 //    }
 //
 
-    @IdentityInstanceLazy
-    public <X extends PropertyInterface> PropertyObjectEntity<?> getDrawProperty(PropertyObjectEntity<X> readOnly) {
-        //        return PropertyFact.createTrue().mapObjects(MapFact.<PropertyInterface, PropertyObjectInterfaceInstance>EMPTY());
-        if(readOnly == null) // optimization
-            return PropertyFact.createTrue().mapEntityObjects(MapFact.EMPTYREV());
-        return PropertyFact.createNot(readOnly.property.getImplement()).mapEntityObjects(readOnly.mapping);
+    private static PropertyObjectEntity TRUE;
+    public static <X extends PropertyInterface> PropertyObjectEntity<X> TRUE() {
+        if(TRUE == null) {
+            TRUE = PropertyFact.createTrue().mapEntityObjects(MapFact.EMPTYREV());
+        }
+        return TRUE;
+    }
+
+    @Override
+    public ActionObjectEntity<P> getAction(FormInstanceContext context) {
+        return this;
     }
 }

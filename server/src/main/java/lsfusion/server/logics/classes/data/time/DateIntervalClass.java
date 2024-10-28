@@ -1,16 +1,15 @@
 package lsfusion.server.logics.classes.data.time;
 
 import lsfusion.interop.classes.DataType;
-import lsfusion.server.data.sql.syntax.SQLSyntax;
 import lsfusion.server.logics.classes.data.DataClass;
+import lsfusion.server.logics.classes.data.ParseException;
 import lsfusion.server.physics.dev.i18n.LocalizedString;
 
-import java.math.BigDecimal;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
-import java.time.format.FormatStyle;
+import java.time.LocalDate;
 
-public class DateIntervalClass extends IntervalClass {
+import static lsfusion.base.DateConverter.*;
+
+public class DateIntervalClass extends IntervalClass<LocalDate> {
 
     public final static IntervalClass instance = new DateIntervalClass();
 
@@ -29,23 +28,27 @@ public class DateIntervalClass extends IntervalClass {
     }
 
     @Override
-    public String getString(Object value, SQLSyntax syntax) {
-        throw new RuntimeException("not supported");
-    }
-
-    @Override
-    public String formatString(BigDecimal value) {
-        return getLocalDateTime(value, true).format(DateTimeFormatter.ofLocalizedDate(FormatStyle.SHORT))
-                + " - " + getLocalDateTime(value, false).format(DateTimeFormatter.ofLocalizedDate(FormatStyle.SHORT));
-    }
-
-    @Override
     public byte getTypeID() {
         return DataType.DATEINTERVAL;
     }
 
     @Override
-    public Object extractValue(LocalDateTime localDateTime) {
-        return localDateTime.toLocalDate();
+    protected Long parse(String date) throws ParseException {
+        return localDateTimeToUTCEpoch(DateClass.instance.parseString(date).atStartOfDay());
+    }
+
+    @Override
+    protected String format(Long epoch) {
+        return DateClass.instance.formatString(epochToLocalDateTime(epoch).toLocalDate());
+    }
+
+    @Override
+    protected String getSQLFrom(String source) {
+        return "(to_timestamp((trunc (" + source + "::NUMERIC)) / 1000) AT TIME ZONE 'UTC')::date";
+    }
+
+    @Override
+    protected String getSQLTo(String source) {
+        return "(to_timestamp((SPLIT_PART(" + source + "::TEXT, '.', 2)::NUMERIC) / 1000) AT TIME ZONE 'UTC')::date";
     }
 }

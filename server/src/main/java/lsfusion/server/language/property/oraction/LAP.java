@@ -4,26 +4,26 @@ import lsfusion.base.col.interfaces.immutable.ImList;
 import lsfusion.base.col.interfaces.immutable.ImMap;
 import lsfusion.base.col.interfaces.immutable.ImOrderSet;
 import lsfusion.base.col.interfaces.immutable.ImRevMap;
-import lsfusion.interop.form.event.BindingMode;
-import lsfusion.interop.form.property.ClassViewType;
 import lsfusion.interop.form.property.PivotOptions;
 import lsfusion.server.data.value.DataObject;
 import lsfusion.server.data.value.ObjectValue;
+import lsfusion.server.logics.classes.ValueClass;
 import lsfusion.server.logics.classes.user.set.ResolveClassSet;
 import lsfusion.server.logics.form.struct.object.ObjectEntity;
 import lsfusion.server.logics.form.struct.property.oraction.ActionOrPropertyObjectEntity;
+import lsfusion.server.logics.property.classes.infer.ClassType;
 import lsfusion.server.logics.property.oraction.ActionOrProperty;
 import lsfusion.server.logics.property.oraction.PropertyInterface;
+import lsfusion.server.physics.dev.i18n.LocalizedString;
 
-import javax.swing.*;
 import java.util.List;
-import java.util.Map;
 
 public abstract class LAP<T extends PropertyInterface, P extends ActionOrProperty<T>> {
 
     public ImOrderSet<T> listInterfaces;
     private String creationScript = null;
     private String creationPath = null;
+    private String path = null;
 
     public LAP(P property) {
         listInterfaces = property.getFriendlyOrderInterfaces();
@@ -87,51 +87,23 @@ public abstract class LAP<T extends PropertyInterface, P extends ActionOrPropert
         getActionOrProperty().drawOptions.setFlexCharWidth(charWidth, flex);
     }
 
-    public void setImage(String name) {
-        getActionOrProperty().drawOptions.setImage(name);
-    }
-
     public void setDefaultCompare(String defaultCompare) {
         getActionOrProperty().drawOptions.setDefaultCompare(defaultCompare);
-    }
-
-    public void setChangeKey(KeyStroke changeKey) {
-        getActionOrProperty().drawOptions.setChangeKey(changeKey);
-    }
-
-    public void setChangeKey(KeyStroke changeKey, Map<String, BindingMode> bindingModes) {
-        getActionOrProperty().drawOptions.setChangeKey(changeKey, bindingModes);
-    }
-
-    public void setChangeKeyPriority(Integer changeKeyPriority) {
-        getActionOrProperty().drawOptions.setChangeKeyPriority(changeKeyPriority);
-    }
-
-    public void setShowChangeKey(boolean showChangeKey) {
-        getActionOrProperty().drawOptions.setShowChangeKey(showChangeKey);
     }
 
     public void setChangeMouse(String changeMouse) {
         getActionOrProperty().drawOptions.setChangeMouse(changeMouse);
     }
 
-    public void setChangeMouse(String changeMouse, Map<String, BindingMode> bindingModes) {
-        getActionOrProperty().drawOptions.setChangeMouse(changeMouse, bindingModes);
+    public void setPattern(LocalizedString pattern) {
+        getActionOrProperty().drawOptions.setPattern(pattern);
     }
 
-    public void setChangeMousePriority(Integer changeMousePriority) {
-        getActionOrProperty().drawOptions.setChangeMousePriority(changeMousePriority);
-    }
-    
-    public void addProcessor(ActionOrProperty.DefaultProcessor processor) {
-        getActionOrProperty().drawOptions.addProcessor(processor);
-    }
-
-    public void setRegexp(String regexp) {
+    public void setRegexp(LocalizedString regexp) {
         getActionOrProperty().drawOptions.setRegexp(regexp);
     }
 
-    public void setRegexpMessage(String regexpMessage) {
+    public void setRegexpMessage(LocalizedString regexpMessage) {
         getActionOrProperty().drawOptions.setRegexpMessage(regexpMessage);
     }
 
@@ -139,28 +111,8 @@ public abstract class LAP<T extends PropertyInterface, P extends ActionOrPropert
         getActionOrProperty().drawOptions.setEchoSymbols(echoSymbols);
     }
 
-    public void setShouldBeLast(boolean shouldBeLast) {
-        getActionOrProperty().drawOptions.setShouldBeLast(shouldBeLast);
-    }
-
-    public void setViewType(ClassViewType viewType) {
-        getActionOrProperty().drawOptions.setViewType(viewType);
-    }
-    
-    public void setCustomRenderFunctions(String customRenderFunctions) {
-        getActionOrProperty().drawOptions.setCustomRenderFunctions(customRenderFunctions);
-    }
-
-    public void setCustomEditorFunctions(String customEditorFunctions) {
-        getActionOrProperty().drawOptions.setCustomEditorFunctions(customEditorFunctions);
-    }
-
-    public void setCustomTextEdit(boolean customTextEdit) {
-        getActionOrProperty().drawOptions.setCustomTextEdit(customTextEdit);
-    }
-
-    public void setCustomReplaceEdit(boolean customReplaceEdit) {
-        getActionOrProperty().drawOptions.setCustomReplaceEdit(customReplaceEdit);
+    public void setCustomEditorFunction(String customEditorFunction) {
+        getActionOrProperty().drawOptions.setCustomEditorFunction(customEditorFunction);
     }
 
     public void setPivotOptions(PivotOptions pivotOptions) {
@@ -187,8 +139,16 @@ public abstract class LAP<T extends PropertyInterface, P extends ActionOrPropert
         this.creationPath = creationPath;
     }
 
+    public String getPath() {
+        return path;
+    }
+
+    public void setPath(String path) {
+        this.path = path;
+    }
+
     public ActionOrPropertyObjectEntity<T, ?> createObjectEntity(ImOrderSet<ObjectEntity> objects) {
-        return ActionOrPropertyObjectEntity.create(getActionOrProperty(), getRevMap(objects), creationScript, creationPath);
+        return ActionOrPropertyObjectEntity.create(getActionOrProperty(), getRevMap(objects), creationScript, creationPath, path);
     }
 
     public List<ResolveClassSet> getExplicitClasses() {
@@ -202,6 +162,14 @@ public abstract class LAP<T extends PropertyInterface, P extends ActionOrPropert
     @Override
     public String toString() {
         return getActionOrProperty().toString();
+    }
+
+    public ValueClass[] getInterfaceClasses(ClassType classType) {
+        return getActionOrProperty().getInterfaceClasses(listInterfaces, classType);
+    }
+
+    public String[] getInterfaceNames() {
+        return getActionOrProperty().getInterfaceNames(listInterfaces);
     }
 
     public abstract P getActionOrProperty();

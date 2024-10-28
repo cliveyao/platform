@@ -26,6 +26,8 @@ import lsfusion.server.logics.form.interactive.instance.property.PropertyDrawIns
 import lsfusion.server.logics.form.interactive.instance.property.PropertyObjectInstance;
 import lsfusion.server.logics.form.interactive.instance.property.PropertyObjectInterfaceInstance;
 import lsfusion.server.logics.property.Property;
+import lsfusion.server.logics.property.PropertyFact;
+import lsfusion.server.logics.property.implement.PropertyImplement;
 import lsfusion.server.logics.property.oraction.PropertyInterface;
 
 import java.io.DataInputStream;
@@ -34,16 +36,25 @@ import java.sql.SQLException;
 
 public class CompareFilterInstance<P extends PropertyInterface> extends PropertyFilterInstance<P> {
 
-    boolean negate;
+    public boolean negate;
     public Compare compare;
     public CompareInstance value;
+    public boolean wrappedContainsValue;
 
     public CompareFilterInstance(DataInputStream inStream, FormInstance form) throws IOException, SQLException, SQLHandledException {
         super(inStream,form);
         negate = inStream.readBoolean();
         compare = Compare.deserialize(inStream);
-        value = deserializeCompare(inStream, form, property.getValueClass());
+        value = deserializeCompare(inStream, form, property.getFilterValueClass(compare));
         junction = inStream.readBoolean();
+    }
+
+    public CompareFilterInstance(PropertyObjectInstance<P> property, boolean resolveAdd, GroupObjectInstance toDraw, PropertyDrawInstance<P> propertyDraw, boolean negate, Compare compare, CompareInstance value, boolean wrappedContainsValue) {
+        super(property, resolveAdd, toDraw, propertyDraw);
+        this.negate = negate;
+        this.compare = compare;
+        this.value = value;
+        this.wrappedContainsValue = wrappedContainsValue;
     }
 
     private static CompareInstance deserializeCompare(DataInputStream inStream, FormInstance form, ValueClass valueClass) throws IOException, SQLException, SQLHandledException {
@@ -54,7 +65,7 @@ public class CompareFilterInstance<P extends PropertyInterface> extends Property
             case 1:
                 return form.getObjectInstance(inStream.readInt());
             case 2:
-                return (PropertyObjectInstance)((PropertyDrawInstance<?>)form.getPropertyDraw(inStream.readInt())).getValueProperty();
+                return ((PropertyDrawInstance<?>)form.getPropertyDraw(inStream.readInt())).getFilterProperty();
         }
 
         throw new IOException();
@@ -121,5 +132,14 @@ public class CompareFilterInstance<P extends PropertyInterface> extends Property
     protected void fillObjects(MSet<ObjectInstance> objects) {
         super.fillObjects(objects);
         objects.addAll(value.getObjectInstances().toSet());
+    }
+
+    @Override
+    public NotNullFilterInstance notNullCached() {
+        PropertyImplement<?, PropertyObjectInterfaceInstance> implement = PropertyFact.createCompareCached(getPropertyImplement(property), compare,
+                value instanceof PropertyObjectInstance ? getPropertyImplement((PropertyObjectInstance) value) : PropertyFact.createValueCached((PropertyObjectInterfaceInstance) value));
+        if(negate)
+            implement = PropertyFact.createNotCached(implement);
+        return getFilterInstance(implement);
     }
 }

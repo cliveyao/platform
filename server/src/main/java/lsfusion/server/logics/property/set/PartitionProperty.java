@@ -27,8 +27,6 @@ import lsfusion.server.logics.property.implement.PropertyInterfaceImplement;
 import lsfusion.server.logics.property.oraction.PropertyInterface;
 import lsfusion.server.physics.dev.i18n.LocalizedString;
 
-import java.util.function.Function;
-
 public class PartitionProperty<T extends PropertyInterface> extends SimpleIncrementProperty<PartitionProperty.Interface<T>> {
 
     protected final PartitionType partitionType;
@@ -112,10 +110,10 @@ public class PartitionProperty<T extends PropertyInterface> extends SimpleIncrem
         return props.mapItListValues(value -> value.mapExpr(joinImplement, calcType, propChanges, changedWhere));
     }
 
-    private boolean checkPrereadNull(ImMap<T, ? extends Expr> joinImplement, final CalcType calcType, final PropertyChanges propChanges) {
-        return JoinProperty.checkPrereadNull(joinImplement, true, props.getCol(), calcType, propChanges) ||
-                JoinProperty.checkPrereadNull(joinImplement, true, partitions, calcType, propChanges) ||
-                JoinProperty.checkPrereadNull(joinImplement, ordersNotNull, orders.keys(), calcType, propChanges);
+    private boolean checkPrereadNull(ImMap<T, ? extends Expr> joinImplement, final CalcType calcType, final PropertyChanges propChanges, boolean checkChange) {
+        return JoinProperty.checkPrereadNull(joinImplement, true, props.getCol(), calcType, propChanges, checkChange) ||
+                JoinProperty.checkPrereadNull(joinImplement, true, partitions, calcType, propChanges, checkChange) ||
+                JoinProperty.checkPrereadNull(joinImplement, ordersNotNull, orders.keys(), calcType, propChanges, checkChange);
     }
     
     protected Expr calculateExpr(ImMap<Interface<T>, ? extends Expr> joinImplement, CalcType calcType, PropertyChanges propChanges, WhereBuilder changedWhere) {
@@ -123,7 +121,7 @@ public class PartitionProperty<T extends PropertyInterface> extends SimpleIncrem
         Result<ImMap<KeyExpr, Expr>> mapExprs = new Result<>();
         ImMap<T, ? extends Expr> mapKeys = getGroupKeys(joinImplement, mapExprs);
         
-        if(checkPrereadNull(mapKeys, calcType, propChanges))
+        if(checkPrereadNull(mapKeys, calcType, propChanges, changedWhere != null))
             return Expr.NULL();
 
         WhereBuilder orderWhere = cascadeWhere(changedWhere);
@@ -133,8 +131,9 @@ public class PartitionProperty<T extends PropertyInterface> extends SimpleIncrem
 
         if(changedWhere!=null) { // изменившиеся ряды (orderWhere) -> ряды с изменившимися partition'ами -> изменившиеся записи
             changedWhere.add(getPartitionWhere(orderWhere.toWhere(), partitionImplements, exprs, orderExprs, mapExprs.result));
-            changedWhere.add(getPartitionWhere(orderWhere.toWhere(), getPartitionImplements(mapKeys, calcType, PropertyChanges.EMPTY, null),
-                    getExprImplements(mapKeys, calcType, PropertyChanges.EMPTY, null), getOrderImplements(mapKeys, calcType, PropertyChanges.EMPTY, null), mapExprs.result));
+            PropertyChanges prevPropChanges = getPrevPropChanges(calcType, propChanges);
+            changedWhere.add(getPartitionWhere(orderWhere.toWhere(), getPartitionImplements(mapKeys, calcType, prevPropChanges, null),
+                    getExprImplements(mapKeys, calcType, prevPropChanges, null), getOrderImplements(mapKeys, calcType, prevPropChanges, null), mapExprs.result));
         }
 
         return PartitionExpr.create(partitionType, exprs, orderExprs, ordersNotNull, partitionImplements.values().toSet(), mapExprs.result, null, calcType instanceof CalcClassType);
@@ -156,6 +155,6 @@ public class PartitionProperty<T extends PropertyInterface> extends SimpleIncrem
         return inferInnerInterfaceClasses(props.addList(partitions.toList()), partitionType.isSelect(), commonValue, orders, ordersNotNull, -1, inferType);
     }
     public ExClassSet inferInnerValueClass(final ImMap<T, ExClassSet> commonClasses, InferType inferType) {
-        return inferInnerValueClass(props, commonClasses, partitionType, inferType);
+        return inferInnerValueClass(props, orders, commonClasses, partitionType, inferType);
     }
 }

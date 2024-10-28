@@ -6,22 +6,28 @@ The `IMPORT` operator creates an [action](Actions.md) that imports data from a s
 
 ## Syntax
 
-    IMPORT [importFormat] FROM fileExpr importDestination [DO actionOperator [ELSE elseActionOperator]]
-    IMPORT formName [importFormat] [FROM (fileExpr | (groupId1 = fileExpr1 [, ..., groupIdM = fileExprM])]
+```
+IMPORT [importFormat] FROM fileExpr importDestination [DO actionOperator [ELSE elseActionOperator]]
+IMPORT formName [importFormat] [FROM (fileExpr | (groupId1 = fileExpr1 [, ..., groupIdM = fileExprM])]
+```
 
 `importFormat` can be specified by one of the following options:
 
-    JSON [CHARSET charsetStr]
-    XML [ATTR] [CHARSET charsetStr]
-    CSV [separator] [HEADER | NOHEADER] [ESCAPE | NOESCAPE] [CHARSET charsetStr]
-    XLS [HEADER | NOHEADER] [SHEET (sheetExpr | ALL)]
-    DBF [CHARSET charsetStr]
-    TABLE
+```
+JSON [CHARSET charsetStr]
+XML [ATTR] [CHARSET charsetStr]
+CSV [separator] [HEADER | NOHEADER] [ESCAPE | NOESCAPE] [CHARSET charsetStr]
+XLS [HEADER | NOHEADER] [SHEET (sheetExpr | ALL)]
+DBF [CHARSET charsetStr]
+TABLE
+```
 
 `importDestination` can be specified by one of the following options:
 
-    TO [(objClassId1, objClassId2, ..., objClassIdK)] propertyId1 [= columnId1], ..., propertyIdN [= columnIdN] [WHERE whereId]
-    FIELDS [(objClassId1 objAlias1, objClassId2 objAlias1, ..., objClassIdK objAliasK)] propClassId1 [propAlias1 =] columnId1 [NULL], ..., propClassIdN [propAliasN =] columnIdN [NULL]
+```
+TO [(objClassId1, objClassId2, ..., objClassIdK)] propertyId1 [= columnId1], ..., propertyIdN [= columnIdN] [WHERE whereId]
+FIELDS [(objClassId1 objAlias1, objClassId2 objAlias1, ..., objClassIdK objAliasK)] propClassId1 [propAlias1 =] columnId1 [NULL], ..., propClassIdN [propAliasN =] columnIdN [NULL]
+```
 
 ## Description
 
@@ -177,12 +183,14 @@ import()  {
 
     LOCAL t = FILE ();
     EXTERNAL SQL 'jdbc:postgresql://localhost/test?user=postgres&password=12345' EXEC 'SELECT x.a,x.b,x.c,x.d FROM orders x WHERE x.id = $1;' PARAMS '4553' TO t;
-    IMPORT FROM t() FIELDS INTEGER a, DATE b, BPSTRING[50] c, BPSTRING[50] d DO        // import with FIELDS option
+    // import with FIELDS option
+    IMPORT FROM t() FIELDS INTEGER a, DATE b, BPSTRING[50] c, BPSTRING[50] d DO        
         NEW o = Order {
             number(o) <- a;
             date(o) <- b;
             customer(o) <- c;
-            currency(o) <- GROUP MAX Currency currency IF name(currency) = d; // finding currency with this name
+            // finding currency with this name
+            currency(o) <- GROUP MAX Currency currency IF name(currency) = d; 
         }
 
 

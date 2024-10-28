@@ -1,54 +1,72 @@
 package lsfusion.gwt.client.form.property.cell.classes.controller;
 
-import com.google.gwt.dom.client.Element;
-import com.google.gwt.i18n.client.NumberFormat;
+import com.google.gwt.core.client.JavaScriptObject;
+import com.google.gwt.i18n.client.LocaleInfo;
+import lsfusion.gwt.client.base.GwtClientUtils;
+import lsfusion.gwt.client.classes.data.GFormatType;
 import lsfusion.gwt.client.classes.data.GIntegralType;
 import lsfusion.gwt.client.form.property.GPropertyDraw;
+import lsfusion.gwt.client.form.property.IntegralPatternConverter;
+import lsfusion.gwt.client.form.property.PValue;
 import lsfusion.gwt.client.form.property.cell.controller.EditManager;
-import lsfusion.gwt.client.view.MainFrame;
 
 import java.text.ParseException;
 
-public class IntegralCellEditor extends TextBasedCellEditor {
-    protected final NumberFormat format;
-
+public class IntegralCellEditor extends TextBasedCellEditor implements FormatCellEditor {
     protected final GIntegralType type;
 
     public IntegralCellEditor(GIntegralType type, EditManager editManager, GPropertyDraw property) {
-        this(type, editManager, property, NumberFormat.getDecimalFormat());
-    }
-
-    public IntegralCellEditor(GIntegralType type, EditManager editManager, GPropertyDraw property, NumberFormat format) {
         super(editManager, property);
-        this.format = format;
         this.type = type;
     }
 
     @Override
-    public Element createInputElement() {
-        Element element = super.createInputElement();
-        if(MainFrame.mobile) {
-            element.setAttribute("type", "number");
-            element.setAttribute("step", "0.01");
-        }
-        return element;
+    public GFormatType getFormatType() {
+        return type;
+    }
+
+    protected boolean isNative() {
+        return inputElementType.isNumber();
     }
 
     @Override
-    protected Object tryParseInputText(String inputText, boolean onCommit) throws ParseException {
-        if (inputText.isEmpty() || (onCommit && "-".equals(inputText))) {
+    protected JavaScriptObject getMaskFromPattern() {
+        return IntegralPatternConverter.convert(pattern);
+    }
+
+    @Override
+    protected PValue tryParseInputText(String inputText, boolean onCommit) throws ParseException {
+        if(isNative()) {
+            if (inputText.isEmpty())
+                return null;
+
+            return type.parseISOString(inputText);
+        }
+
+        if (inputText.isEmpty() || (onCommit && "-".equals(inputText)))
             return null;
-        } else {
-            inputText = inputText.replace(" ", "").replace(GIntegralType.UNBREAKABLE_SPACE, "");
-            return (!onCommit && "-".equals(inputText)) ? true : type.parseString(inputText, property.pattern);
-        }
+
+        inputText = inputText.replace(" ", "").replace(GIntegralType.UNBREAKABLE_SPACE, "");
+        if (!onCommit && "-".equals(inputText))
+            return PValue.getPValue(0);
+
+        return super.tryParseInputText(inputText, onCommit);
     }
 
     @Override
-    protected String tryFormatInputText(Object value) {
-        if (value instanceof Number) {
-            return type.formatDouble(((Number) value).doubleValue(), property.pattern);
+    protected String tryFormatInputText(PValue value) {
+        if(isNative()) {
+            if (value == null)
+                return "";
+
+            return type.formatISOString(value);
         }
-        return "";
+
+        String result = super.tryFormatInputText(value);
+
+        String groupingSeparator = LocaleInfo.getCurrentLocale().getNumberConstants().groupingSeparator();
+        result = result.replace(groupingSeparator, "");
+
+        return result;
     }
 }

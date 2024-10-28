@@ -1,27 +1,35 @@
 package lsfusion.server.logics.form.stat.struct.hierarchy;
 
 import com.google.common.base.Throwables;
+import lsfusion.base.BaseUtils;
 import lsfusion.base.Pair;
 import lsfusion.base.col.ListFact;
-import lsfusion.base.col.interfaces.immutable.ImList;
-import lsfusion.base.col.interfaces.immutable.ImMap;
-import lsfusion.base.col.interfaces.immutable.ImOrderSet;
+import lsfusion.base.col.MapFact;
+import lsfusion.base.col.interfaces.immutable.*;
 import lsfusion.base.col.interfaces.mutable.MList;
+import lsfusion.server.data.expr.query.GroupType;
+import lsfusion.server.data.type.Type;
 import lsfusion.server.logics.classes.data.DataClass;
 import lsfusion.server.logics.classes.data.ParseException;
+import lsfusion.server.logics.form.stat.struct.export.hierarchy.json.FormPropertyDataInterface;
+import lsfusion.server.logics.form.stat.struct.imports.hierarchy.ImportHierarchicalIterator;
 import lsfusion.server.logics.form.struct.object.GroupObjectEntity;
 import lsfusion.server.logics.form.struct.object.ObjectEntity;
+import lsfusion.server.logics.property.PropertyFact;
+import lsfusion.server.logics.property.implement.PropertyInterfaceImplement;
+import lsfusion.server.logics.property.implement.PropertyMapImplement;
+import lsfusion.server.logics.property.oraction.PropertyInterface;
 
 import java.sql.SQLException;
 
-public class GroupObjectParseNode extends GroupParseNode {
+public class GroupObjectParseNode extends GroupParseNode implements ChildParseNode {
     private final GroupObjectEntity group;
 
-    protected String getKey() {
+    public String getKey() {
         return group.getIntegrationSID();
     }
 
-    public GroupObjectParseNode(ImOrderSet<ParseNode> children, GroupObjectEntity group) {
+    public GroupObjectParseNode(ImOrderSet<ChildParseNode> children, GroupObjectEntity group) {
         super(children);
         this.group = group;
     }
@@ -35,26 +43,28 @@ public class GroupObjectParseNode extends GroupParseNode {
     }
     
     @Override
-    public <T extends Node<T>> void importNode(T node, ImMap<ObjectEntity, Object> upValues, ImportData importData) {
+    public <T extends Node<T>> void importNode(T node, ImMap<ObjectEntity, Object> upValues, ImportData importData, ImportHierarchicalIterator iterator) {
         boolean isIndex = isIndex();
         ObjectEntity object = getSingleObject();
 
         for (Pair<Object, T> data : node.getMap(getKey(), isIndex)) {
-            // getting object value
-            Object objectValue;
-            try {
-                if (isIndex)
-                    objectValue = importData.genObject(object);
-                else
-                    objectValue = ((DataClass) object.baseClass).parseString((String) data.first);
-            } catch (SQLException | ParseException e) {
-                throw Throwables.propagate(e);
+            if(iterator == null || !iterator.ignoreRow(children, data.second)) {
+                // getting object value
+                Object objectValue;
+                try {
+                    if (isIndex)
+                        objectValue = importData.genObject(object);
+                    else
+                        objectValue = ((DataClass) object.baseClass).parseString((String) data.first);
+                } catch (SQLException | ParseException e) {
+                    throw Throwables.propagate(e);
+                }
+
+                ImMap<ObjectEntity, Object> newUpValues = upValues.addExcl(object, objectValue);
+
+                importData.addObject(group, newUpValues, isIndex);
+                importChildrenNodes(data.second, newUpValues, importData, null);
             }
-
-            ImMap<ObjectEntity, Object> newUpValues = upValues.addExcl(object, objectValue);
-
-            importData.addObject(group, newUpValues, isIndex);
-            importChildrenNodes(data.second, newUpValues, importData);
         }
     }
 
@@ -63,9 +73,9 @@ public class GroupObjectParseNode extends GroupParseNode {
         boolean isIndex = isIndex();
         boolean upDown = node.isUpDown();
 
-        MList<Pair<Object, T>> mMap = ListFact.mList();
         int i=0;
         ImList<ImMap<ObjectEntity, Object>> objects = exportData.getObjects(group, upValues);
+        MList<Pair<Pair<Object, DataClass>, T>> mMap = ListFact.mList(objects.size());
         for (ImMap<ObjectEntity, Object> data : objects) {
             T newNode = node.createNode();
             if(!upDown)
@@ -73,16 +83,19 @@ public class GroupObjectParseNode extends GroupParseNode {
 
             // getting object value
             Object objectValue;
-            if (isIndex)
+            DataClass objectClass;
+            if (isIndex) {
                 objectValue = i++;
-            else {
+                objectClass = null;
+            } else {
                 ObjectEntity object = getSingleObject();
-                objectValue = ((DataClass) object.baseClass).formatString(data.get(object));
+                objectValue = data.get(object);
+                objectClass = (DataClass) object.baseClass;
             }
 
-            mMap.add(new Pair<>(objectValue, newNode));
+            mMap.add(new Pair<>(new Pair<>(objectValue, objectClass), newNode));
         }
-        ImList<Pair<Object, T>> map = mMap.immutableList();
+        ImList<Pair<Pair<Object, DataClass>, T>> map = mMap.immutableList();
         boolean isNotEmpty = node.addMap(node, getKey(), isIndex, map);
 
         if(upDown) {
@@ -93,5 +106,24 @@ public class GroupObjectParseNode extends GroupParseNode {
         }
         
         return isNotEmpty;
+    }
+
+    @Override
+    public <X extends PropertyInterface, P extends PropertyInterface> PropertyMapImplement<?, X> getJSONProperty(FormPropertyDataInterface<P> form, ImRevMap<P, X> mapValues, ImRevMap<ObjectEntity, X> mapObjects, boolean returnString) {
+        ImRevMap<ObjectEntity, PropertyInterface> mapGroupObjects = group.getObjects().mapRevValues(() -> new PropertyInterface());
+
+        // we could generate new interfaces here, but not sure that it makes sense, so we'll use the existing ones
+        ImSet<PropertyInterface> outerInterfaces = (ImSet<PropertyInterface>) mapValues.valuesSet().addExcl(mapObjects.valuesSet());
+
+        ImRevMap<ObjectEntity, PropertyInterface> mapInnerObjects = MapFact.addRevExcl(mapObjects, mapGroupObjects);
+
+        PropertyMapImplement<?, PropertyInterface> group = PropertyFact.createAnd(getChildrenJSONProperties(form, BaseUtils.immutableCast(mapValues), mapInnerObjects, true, returnString), form.getWhere(this.group, BaseUtils.immutableCast(mapValues), mapInnerObjects));
+
+        ImOrderMap<PropertyInterfaceImplement<PropertyInterface>, Boolean> orders = form.getOrders(this.group, mapInnerObjects);
+
+        ImSet<PropertyInterface> usedInnerInterfaces = PropertyFact.getUsedInterfaces(group).merge(PropertyFact.getUsedInterfaces(orders.keys()));
+
+        // actually outerInterfaces are X interfaces, so in the end there will be only X interfaces
+        return (PropertyMapImplement<?, X>) PropertyFact.createGProp(GroupType.JSON_CONCAT, usedInnerInterfaces, outerInterfaces.filter(usedInnerInterfaces), ListFact.singleton(group), orders, false);
     }
 }

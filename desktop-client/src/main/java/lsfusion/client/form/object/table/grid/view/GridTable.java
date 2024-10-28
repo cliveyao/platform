@@ -7,8 +7,7 @@ import lsfusion.base.ReflectionUtils;
 import lsfusion.base.col.heavy.OrderedMap;
 import lsfusion.client.base.SwingUtils;
 import lsfusion.client.base.view.SwingDefaults;
-import lsfusion.client.classes.data.ClientLogicalClass;
-import lsfusion.client.classes.data.ClientTextClass;
+import lsfusion.client.classes.data.ClientRichTextClass;
 import lsfusion.client.controller.remote.RmiQueue;
 import lsfusion.client.form.ClientForm;
 import lsfusion.client.form.controller.ClientFormController;
@@ -25,12 +24,13 @@ import lsfusion.client.form.order.user.MultiLineHeaderRenderer;
 import lsfusion.client.form.order.user.TableSortableHeaderManager;
 import lsfusion.client.form.property.ClientPropertyDraw;
 import lsfusion.client.form.property.table.view.ClientPropertyTable;
+import lsfusion.client.form.view.Column;
+import lsfusion.client.tooltip.LSFTooltipManager;
 import lsfusion.client.view.MainFrame;
 import lsfusion.interop.action.ServerResponse;
 import lsfusion.interop.form.design.FontInfo;
 import lsfusion.interop.form.event.BindingMode;
 import lsfusion.interop.form.event.KeyStrokes;
-import lsfusion.interop.form.event.MouseInputEvent;
 import lsfusion.interop.form.object.table.grid.user.design.GroupObjectUserPreferences;
 import lsfusion.interop.form.order.Scroll;
 import lsfusion.interop.form.order.user.Order;
@@ -38,7 +38,6 @@ import lsfusion.interop.form.order.user.Order;
 import javax.swing.*;
 import javax.swing.event.ChangeEvent;
 import javax.swing.event.ListSelectionEvent;
-import javax.swing.event.ListSelectionListener;
 import javax.swing.plaf.TableHeaderUI;
 import javax.swing.plaf.basic.BasicTableHeaderUI;
 import javax.swing.table.*;
@@ -141,15 +140,30 @@ public class GridTable extends ClientPropertyTable implements ClientTableView {
     private ThreadLocal<Object> threadLocalUIAction = new ThreadLocal<>();
     private ThreadLocal<Boolean> threadLocalIsStopCellEditing = new ThreadLocal<>();
 
+    @Override
+    public void columnSelectionChanged(ListSelectionEvent e) {
+        super.columnSelectionChanged(e);
+        stopCellEditing();
+        if (!properties.isEmpty()) {
+            int selectedColumn = getSelectedColumn();
+            if (selectedColumn != -1) {
+                List<ClientGroupObject> columnGroupObjects = model.getColumnProperty(selectedColumn).columnGroupObjects;
+                ClientGroupObjectValue columnKey = getSelectedColumnKey();
+                columnGroupObjects.forEach(groupObject -> changeCurrentObjectLater(groupObject, columnKey, true));
+            }
+        }
+    }
+
     public GridTable(final GridView igridView, ClientFormController iform, GridUserPreferences[] iuserPreferences) {
         super(new GridTableModel(), iform, igridView.getGridController().getGroupObject());
 
-        setTableHeader(new GridTableHeader(columnModel) {
-            @Override
-            public Dimension getPreferredSize() {
-                return new Dimension(columnModel.getTotalColumnWidth(), getHeaderHeight());
-            }
-        });
+        if (hasHeader) {
+            GridTableHeader tableHeader = new GridTableHeader(columnModel);
+            setTableHeader(tableHeader);
+            LSFTooltipManager.initTooltip(tableHeader, columnModel, this);
+        } else {
+            setTableHeader(null);
+        }
 
         gridController = igridView.getGridController();
 
@@ -207,18 +221,20 @@ public class GridTable extends ClientPropertyTable implements ClientTableView {
 
         };
 
-        TableHeaderUI ui = getTableHeader().getUI();
-        if (ui instanceof BasicTableHeaderUI) {
-            // change default CellRendererPane to draw corner triangles
-            JTableHeader header = (JTableHeader) ReflectionUtils.getPrivateFieldValue(BasicTableHeaderUI.class, ui, "header");
-            CellRendererPane oldRendererPane = (CellRendererPane) ReflectionUtils.getPrivateFieldValue(BasicTableHeaderUI.class, ui, "rendererPane");
-            header.remove(oldRendererPane);
-            GridCellRendererPane newRendererPane = new GridCellRendererPane();
-            ReflectionUtils.setPrivateFieldValue(BasicTableHeaderUI.class, ui, "rendererPane", newRendererPane);
-            header.add(newRendererPane);
-        }
+        if (hasHeader) {
+            TableHeaderUI ui = getTableHeader().getUI();
+            if (ui instanceof BasicTableHeaderUI) {
+                // change default CellRendererPane to draw corner triangles
+                JTableHeader header = (JTableHeader) ReflectionUtils.getPrivateFieldValue(BasicTableHeaderUI.class, ui, "header");
+                CellRendererPane oldRendererPane = (CellRendererPane) ReflectionUtils.getPrivateFieldValue(BasicTableHeaderUI.class, ui, "rendererPane");
+                header.remove(oldRendererPane);
+                GridCellRendererPane newRendererPane = new GridCellRendererPane();
+                ReflectionUtils.setPrivateFieldValue(BasicTableHeaderUI.class, ui, "rendererPane", newRendererPane);
+                header.add(newRendererPane);
+            }
 
-        tableHeader.addMouseListener(sortableHeaderManager);
+            tableHeader.addMouseListener(sortableHeaderManager);
+        }
 
         addFocusListener(new FocusAdapter() {
             @Override
@@ -292,17 +308,6 @@ public class GridTable extends ClientPropertyTable implements ClientTableView {
             }
         });
 
-        addMouseListener(new MouseAdapter() {
-            public void mouseClicked(MouseEvent e) {
-                ClientPropertyDraw property = getSelectedProperty();
-                //игнорируем double click по editable boolean
-                boolean ignore = property != null && property.baseType instanceof ClientLogicalClass && !property.isReadOnly();
-                if (!ignore) {
-                    form.processBinding(new MouseInputEvent(e), null, () -> groupObject, false);
-                }
-            }
-        });
-
         //имитируем продвижение фокуса вперёд, если изначально попадаем на нефокусную ячейку
         addFocusListener(new FocusAdapter() {
             public void focusGained(FocusEvent e) {
@@ -310,21 +315,24 @@ public class GridTable extends ClientPropertyTable implements ClientTableView {
             }
         });
 
-        getSelectionModel().addListSelectionListener(new ListSelectionListener() {
-            public void valueChanged(ListSelectionEvent e) {
-                if (isEditing()) {
-                    TableCellEditor cellEditor = getCellEditor();
-                    if (cellEditor != null) {
-                        cellEditor.stopCellEditing();
-                    }
-                }
-
+        getSelectionModel().addListSelectionListener(e -> {
+            stopCellEditing();
+            if (!properties.isEmpty()) {
                 changeCurrentObjectLater();
-                moveToFocusableCellIfNeeded();
             }
+            moveToFocusableCellIfNeeded();
         });
 
         initializeActionMap();
+    }
+
+    private void stopCellEditing() {
+        if (isEditing()) {
+            TableCellEditor cellEditor = getCellEditor();
+            if (cellEditor != null) {
+                cellEditor.stopCellEditing();
+            }
+        }
     }
 
     @Override
@@ -351,20 +359,34 @@ public class GridTable extends ClientPropertyTable implements ClientTableView {
 
     @Override
     public Dimension getPreferredScrollableViewportSize() {
-        return gridController.getAutoSize() ? getPreferredSize() : SwingDefaults.getTablePreferredSize();
+        boolean autoWidth = gridController.isAutoWidth();
+        boolean autoHeight = gridController.isAutoHeight();
+
+        Dimension tablePreferredSize = SwingDefaults.getTablePreferredSize();
+        if(autoWidth || autoHeight) {
+            Dimension preferredSize = getPreferredSize();
+            if(autoWidth && autoHeight)
+                return preferredSize;
+
+            int preferredWidth = autoWidth ? preferredSize.width : tablePreferredSize.width;
+            int preferredHeight = autoHeight ? preferredSize.height : tablePreferredSize.height;
+            return new Dimension(preferredWidth, preferredHeight);
+        }
+
+        return tablePreferredSize;
     }
 
     private boolean isChangeOnSingleClick(int row, int col) {
         Boolean changeOnSingleClick = getProperty(row, col).changeOnSingleClick;
-        if(changeOnSingleClick != null)
-            return changeOnSingleClick;
-        return false;
+        return changeOnSingleClick != null && changeOnSingleClick;
     }
 
     private void orderChanged(Pair<ClientPropertyDraw, ClientGroupObjectValue> columnKey, Order modiType) {
         form.changePropertyOrder(columnKey.first, modiType, columnKey.second);
-        tableHeader.resizeAndRepaint();
-        tableHeader.repaint();
+        if (hasHeader) {
+            tableHeader.resizeAndRepaint();
+            tableHeader.repaint();
+        }
     }
 
     private void ordersSet(ClientGroupObject groupObject, LinkedHashMap<Pair<ClientPropertyDraw, ClientGroupObjectValue>, Boolean> orders) {
@@ -378,8 +400,10 @@ public class GridTable extends ClientPropertyTable implements ClientTableView {
         }
 
         form.setPropertyOrders(groupObject, propertyList, columnKeyList, orderList);
-        tableHeader.resizeAndRepaint();
-        tableHeader.repaint();
+        if (hasHeader) {
+            tableHeader.resizeAndRepaint();
+            tableHeader.repaint();
+        }
     }
 
     private Action tabAction = new GoToNextCellAction(true);
@@ -431,12 +455,14 @@ public class GridTable extends ClientPropertyTable implements ClientTableView {
 
         //quickSearch / quickFilter binding
         form.addKeySetBinding(getQuickSearchFilterBinding());
+
+        gridController.addFilterBindings(groupObject);
     }
 
     private ClientFormController.Binding getQuickSearchFilterBinding() {
         ClientFormController.Binding binding = new ClientFormController.Binding(groupObject, -200, KeyStrokes::isSuitableStartFilteringEvent) {
             @Override
-            public boolean pressed(KeyEvent ke) {
+            public boolean pressed(InputEvent ke) {
                 if(!editPerformed) {
                     if (groupObject.grid.quickSearch) {
                         quickSearch(ke);
@@ -451,6 +477,7 @@ public class GridTable extends ClientPropertyTable implements ClientTableView {
                 return true;
             }
         };
+        binding.bindPreview = BindingMode.NO;
         binding.bindEditing = BindingMode.ALL;
         binding.bindGroup = BindingMode.ONLY;
         return binding;
@@ -509,27 +536,25 @@ public class GridTable extends ClientPropertyTable implements ClientTableView {
         List<ClientPropertyDraw> result = new ArrayList<>();
 
         for (ClientPropertyDraw property : propertiesList) {
-            boolean add = !property.hide;
-            if (add && hasUserPreferences()) {
-                Boolean userHide = getUserHide(property);
-                if (userHide == null || !userHide) {
-                    if (getUserOrder(property) == null) {
-                        setUserHide(property, true);
-                        setUserOrder(property, Short.MAX_VALUE + propertiesList.indexOf(property));
-                        add = false;
+            if (!property.hide) {
+                if (hasUserPreferences()) {
+                    Boolean userHide = getUserHide(property);
+                    if (userHide == null || !userHide) {
+                        if (getUserOrder(property) == null) {
+                            setUserHide(property, true);
+                            setUserOrder(property, Short.MAX_VALUE + propertiesList.indexOf(property));
+                        } else {
+                            result.add(property);
+                        }
                     }
                 } else {
-                    add = false;
+                    result.add(property);
                 }
-            }
-
-            if (add) {
-                result.add(property);
             }
         }
 
         if (hasUserPreferences()) {
-            Collections.sort(result, getCurrentPreferences().getUserOrderComparator());
+            result.sort(getCurrentPreferences().getUserOrderComparator());
         }
         return result;
     }
@@ -538,18 +563,16 @@ public class GridTable extends ClientPropertyTable implements ClientTableView {
         final ClientGroupObjectValue selectedObject = getSelectedObject();
         if (!currentObject.equals(selectedObject) && selectedObject != null) {
             setCurrentObject(selectedObject);
-            SwingUtils.invokeLaterSingleAction(
-                    groupObject.getActionID(),
-                    new ActionListener() {
-                        public void actionPerformed(ActionEvent ae) {
-                            changeCurrentObject(selectedObject);
-                        }
-                    }, 50);
+            changeCurrentObjectLater(groupObject, selectedObject, false);
         }
     }
 
-    private void changeCurrentObject(ClientGroupObjectValue selectedObject) {
-        if (currentObject.equals(selectedObject)) {
+    private void changeCurrentObjectLater(ClientGroupObject groupObject, ClientGroupObjectValue selectedObject, boolean isColumn) {
+        SwingUtils.invokeLaterSingleAction(groupObject.getActionID(), ae -> changeCurrentObject(groupObject, selectedObject, isColumn), 50);
+    }
+
+    private void changeCurrentObject(ClientGroupObject groupObject, ClientGroupObjectValue selectedObject, boolean isColumn) {
+        if (currentObject.equals(selectedObject) || isColumn) {
             try {
                 //Коммит закомменчен, поскольку он приводит к неправильной работе SEEK
                 //calledChangeGroupObject = true;
@@ -584,7 +607,7 @@ public class GridTable extends ClientPropertyTable implements ClientTableView {
             column.setHeaderValue(getColumnCaption(i));
 
             // устанавливаем user pattern
-            property.setUserFormat(getColumnUserPattern(i));
+            property.setUserPattern(getColumnUserPattern(i));
 
             rowHeight = max(rowHeight, property.getValueHeight(this, currentGridPreferences.fontInfo != null ? currentGridPreferences.fontInfo.fontSize : null));
 
@@ -595,7 +618,7 @@ public class GridTable extends ClientPropertyTable implements ClientTableView {
             if (!samePropAsPrevious)
                 form.addPropertyBindings(property, () -> new ClientFormController.Binding(property.groupObject, 0) {
                     @Override
-                    public boolean pressed(KeyEvent ke) {
+                    public boolean pressed(InputEvent ke) {
                         int leadRow = getSelectionModel().getLeadSelectionIndex();
                         if (leadRow != -1 && !isEditing()) {
                             keyController.stopRecording();
@@ -623,7 +646,9 @@ public class GridTable extends ClientPropertyTable implements ClientTableView {
             }
 
             repaint();
-            tableHeader.resizeAndRepaint();
+            if (hasHeader) {
+                tableHeader.resizeAndRepaint();
+            }
             gridController.setForceHidden(false);
         } else {
             gridController.setForceHidden(true);
@@ -634,7 +659,7 @@ public class GridTable extends ClientPropertyTable implements ClientTableView {
         return (GridTableColumn) columnModel.getColumn(index);
     }
 
-    private String getColumnCaption(int column) {
+    public String getColumnCaption(int column) {
         ClientPropertyDraw cell = model.getColumnProperty(column);
         String userCaption = getUserCaption(cell);
         return userCaption != null ? userCaption : model.getColumnName(column);
@@ -688,6 +713,11 @@ public class GridTable extends ClientPropertyTable implements ClientTableView {
 
     private void selectRow(int rowNumber) {
         selectCell(rowNumber, getColumnModel().getSelectionModel().getLeadSelectionIndex());
+    }
+
+    private void stopCellEditingAndSelectRow(int rowNumber) {
+        stopCellEditing();
+        selectRow(rowNumber);
     }
 
     private void selectCell(int row, int col) {
@@ -774,7 +804,7 @@ public class GridTable extends ClientPropertyTable implements ClientTableView {
             }
             setRowKeysAndCurrentObject(irowKeys, rowKey);
         } else {
-            setRowKeysAndCurrentObject(removeList(rowKeys, rowKey), currentObject.equals(rowKey) ? getNearObject(singleValue(rowKey), rowKeys) : null);
+            setRowKeysAndCurrentObject(removeList(rowKeys, rowKey), currentObject.equals(rowKey) ? getNearObject(rowKey, rowKeys) : null);
         }
     }
 
@@ -786,13 +816,24 @@ public class GridTable extends ClientPropertyTable implements ClientTableView {
         return sortableHeaderManager.changeOrders(groupObject, setOrders, alreadySet);
     }
 
+    @Override
+    public void changePropertyOrders(LinkedHashMap<ClientPropertyDraw, Order> orders) {
+        for (Map.Entry<ClientPropertyDraw, Order> entry : orders.entrySet()) {
+            sortableHeaderManager.changeOrder(getMinColumnKey(entry.getKey()), entry.getValue());
+        }
+    }
+
     private Pair<ClientPropertyDraw, ClientGroupObjectValue> getMinColumnKey(ClientPropertyDraw property) {
-        return Pair.create(property, columnKeys.containsKey(property) ? columnKeys.get(property).get(0) : ClientGroupObjectValue.EMPTY);
+        return Pair.create(property, columnKeys.containsKey(property) && !columnKeys.get(property).isEmpty() ? columnKeys.get(property).get(0) : ClientGroupObjectValue.EMPTY);
     }
 
     private void setCurrentObject(ClientGroupObjectValue value) {
         assert value == null || rowKeys.isEmpty() || rowKeys.contains(value);
         currentObject = value;
+    }
+
+    public ClientGroupObjectValue getCurrentKey() {
+        return getSelectedObject();
     }
 
     public ClientGroupObjectValue getCurrentObject() {
@@ -864,7 +905,7 @@ public class GridTable extends ClientPropertyTable implements ClientTableView {
     @Override
     public boolean richTextSelected() {
         ClientPropertyDraw property = getCurrentProperty();
-        return property != null && property.baseType instanceof ClientTextClass && ((ClientTextClass) property.baseType).rich;
+        return property != null && property.baseType instanceof ClientRichTextClass;
     }
 
     private int getMaxColumnsCount(List<List<String>> table) {
@@ -953,7 +994,7 @@ public class GridTable extends ClientPropertyTable implements ClientTableView {
                             }
                         }
 
-                        Object newValue = sPasteValue == null ? null : property.parseChangeValueOrNull(sPasteValue);
+                        Object newValue = property.parsePaste(sPasteValue);
                         if (property.canUsePasteValueForRendering()) {
                             for (ClientGroupObjectValue key : keys) {
                                 Map<ClientGroupObjectValue, Object> propValues = values.get(property);
@@ -965,7 +1006,7 @@ public class GridTable extends ClientPropertyTable implements ClientTableView {
 
                         PasteData pasteData = paste.get(property);
                         if (pasteData == null) {
-                            pasteData = new PasteData(newValue, keys, oldValues);
+                            pasteData = new PasteData(newValue, sPasteValue, keys, oldValues);
                             paste.put(property, pasteData);
                         } else {
                             pasteData.keys.addAll(keys);
@@ -991,7 +1032,7 @@ public class GridTable extends ClientPropertyTable implements ClientTableView {
 
     @Override
     public void changeSelection(int rowIndex, int columnIndex, boolean toggle, boolean extend) {
-        if (isInternalNavigating || isCellFocusable(rowIndex, columnIndex)) {
+        if (!supressDragging && (isInternalNavigating || isCellFocusable(rowIndex, columnIndex))) {
             if (!properties.isEmpty() && model.getColumnCount() > 0) {
                 if (rowIndex >= getRowCount()) {
                     changeSelection(getRowCount() - 1, columnIndex, toggle, extend);
@@ -1225,6 +1266,40 @@ public class GridTable extends ClientPropertyTable implements ClientTableView {
         return getSelectedValue(model.getPropertyIndex(property, columnKey));
     }
 
+    @Override
+    public List<Pair<Column, String>> getFilterColumns() {
+        List<Pair<Column, String>> result = new ArrayList<>();
+        for(ClientPropertyDraw property : properties)
+            for(ClientGroupObjectValue columnKey : columnKeys.get(property))
+                result.add(getFilterColumn(property, columnKey));
+        return result;
+    }
+
+    public Pair<Column, String> getFilterColumn(ClientPropertyDraw property, ClientGroupObjectValue columnKey) {
+        return new Pair<>(new Column(property, columnKey), getPropertyFilterCaption(property, columnKey));
+    }
+
+    protected String getPropertyFilterCaption(ClientPropertyDraw property, ClientGroupObjectValue columnKey) {
+        String userCaption = getUserCaption(property);
+        if (userCaption != null)
+            return userCaption;
+
+        String propertyCaption = getPropertyCaption(captions.get(property), property, columnKey);
+        if (!BaseUtils.isRedundantString(propertyCaption)) {
+            return propertyCaption;
+        }
+        return property.getPropertyFormName(); // to see something in user filters
+    }
+
+    public static String getPropertyCaption(Map<ClientGroupObjectValue, Object> propCaptions, ClientPropertyDraw property, ClientGroupObjectValue columnKey) {
+        String caption;
+        if (propCaptions != null)
+            caption = property.getDynamicCaption(propCaptions.get(columnKey));
+        else
+            caption = property.getPropertyCaption();
+        return caption;
+    }
+
     private Object getSelectedValue(int col) {
         int row = getSelectedRow();
         if (row != -1 && row < getRowCount() && col != -1 && col < getColumnCount()) {
@@ -1358,63 +1433,58 @@ public class GridTable extends ClientPropertyTable implements ClientTableView {
     void configureEnclosingScrollPane(final JScrollPane pane) {
         assert pane.getViewport() == getParent();
         if (groupObject.pageSize != 0) {
-            pane.getHorizontalScrollBar().addAdjustmentListener(new AdjustmentListener() {
-                @Override
-                public void adjustmentValueChanged(AdjustmentEvent e) {
-                    if (skipScrollingAdjusments) {
+            pane.getHorizontalScrollBar().addAdjustmentListener(e -> {
+                if (skipScrollingAdjusments) {
+                    return;
+                }
+
+                int currCol = getColumnModel().getSelectionModel().getLeadSelectionIndex();
+                if (currCol != -1 && getColumnCount() > 0) {
+                    Pair<Integer, Integer> firstAndLast = getFirstAndLastVisibleColumns(pane);
+
+                    int firstCol = firstAndLast.first;
+                    int lastCol = firstAndLast.second;
+
+                    if (lastCol < firstCol) {
                         return;
                     }
 
-                    int currCol = getColumnModel().getSelectionModel().getLeadSelectionIndex();
-                    if (currCol != -1 && getColumnCount() > 0) {
-                        Pair<Integer, Integer> firstAndLast = getFirstAndLastVisibleColumns(pane);
-
-                        int firstCol = firstAndLast.first;
-                        int lastCol = firstAndLast.second;
-
-                        if (lastCol < firstCol) {
-                            return;
-                        }
-
-                        if (isLayouting > 0) {
-                            selectColumn(currCol);
-                        } else {
-                            if (currCol > lastCol) {
-                                selectColumn(lastCol);
-                            } else if (currCol < firstCol) {
-                                selectColumn(firstCol);
-                            }
+                    if (isLayouting > 0) {
+                        selectColumn(currCol);
+                    } else {
+                        if (currCol > lastCol) {
+                            selectColumn(lastCol);
+                        } else if (currCol < firstCol) {
+                            selectColumn(firstCol);
                         }
                     }
                 }
             });
 
-            pane.getVerticalScrollBar().addAdjustmentListener(new AdjustmentListener() {
-                @Override
-                public void adjustmentValueChanged(AdjustmentEvent e) {
-                    if (skipScrollingAdjusments) {
+            pane.getVerticalScrollBar().addAdjustmentListener(e -> {
+                //ignore AdjustmentEvent if grid is not showing to prevent selection wrong row
+                if (!isShowing() || skipScrollingAdjusments) {
+                    return;
+                }
+                int currRow = getCurrentRow();
+                if (currRow != -1) {
+                    Rectangle viewRect = pane.getViewport().getViewRect();
+                    int firstRow = rowAtPoint(new Point(0, viewRect.y + getRowHeight() - 1));
+                    int lastRow = rowAtPoint(new Point(0, viewRect.y + viewRect.height - getRowHeight() + 1));
+
+                    if (lastRow < firstRow) {
                         return;
                     }
-                    int currRow = getCurrentRow();
-                    if (currRow != -1) {
-                        Rectangle viewRect = pane.getViewport().getViewRect();
-                        int firstRow = rowAtPoint(new Point(0, viewRect.y + getRowHeight() - 1));
-                        int lastRow = rowAtPoint(new Point(0, viewRect.y + viewRect.height - getRowHeight() + 1));
 
-                        if (lastRow < firstRow) {
-                            return;
-                        }
-
-                        if (isLayouting > 0) {
-                            selectRow(currRow);
-                        } else {
-                            if (currRow > lastRow) {
-                                keyController.record(false, lastRow);
-                                selectRow(lastRow);
-                            } else if (currRow < firstRow) {
-                                keyController.record(true, firstRow);
-                                selectRow(firstRow);
-                            }
+                    if (isLayouting > 0) {
+                        selectRow(currRow);
+                    } else {
+                        if (currRow > lastRow) {
+                            keyController.record(false, lastRow);
+                            stopCellEditingAndSelectRow(lastRow);
+                        } else if (currRow < firstRow) {
+                            keyController.record(true, firstRow);
+                            stopCellEditingAndSelectRow(firstRow);
                         }
                     }
                 }
@@ -1889,14 +1959,8 @@ public class GridTable extends ClientPropertyTable implements ClientTableView {
         }
 
         @Override
-        public String getToolTipText(MouseEvent e) {
-            int index = columnModel.getColumnIndexAtX(e.getPoint().x);
-            if (index == -1) {
-                return super.getToolTipText(e);
-            }
-            int modelIndex = columnModel.getColumn(index).getModelIndex();
-
-            return model.getColumnProperty(modelIndex).getTooltipText(getColumnCaption(index));
+        public Dimension getPreferredSize() {
+            return new Dimension(columnModel.getTotalColumnWidth(), getHeaderHeight());
         }
     }
 
@@ -1926,6 +1990,10 @@ public class GridTable extends ClientPropertyTable implements ClientTableView {
 
         @Override
         public TableCellRenderer getHeaderRenderer() {
+            if (tableHeader == null) {
+                return null;
+            }
+            
             TableCellRenderer defaultHeaderRenderer = tableHeader.getDefaultRenderer();
             if (defaultHeaderRendererRef == null || defaultHeaderRendererRef.get() != defaultHeaderRenderer) {
                 defaultHeaderRendererRef = new WeakReference<>(defaultHeaderRenderer);
@@ -1982,6 +2050,11 @@ public class GridTable extends ClientPropertyTable implements ClientTableView {
 
         public JTable getTable() {
             return GridTable.this;
+        }
+
+        @Override
+        protected Boolean isResizeOverflow() {
+            return groupObject.grid.resizeOverflow;
         }
     };
 

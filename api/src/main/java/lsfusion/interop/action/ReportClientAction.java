@@ -3,14 +3,14 @@ package lsfusion.interop.action;
 import lsfusion.interop.form.print.FormPrintType;
 import lsfusion.interop.form.print.ReportGenerationData;
 
-import java.io.IOException;
 import java.util.List;
 
 public class ReportClientAction implements ClientAction {
 
-    public List<ReportPath> reportPathList;
+    public List<String> reportPathList;
     public String formSID;
     public String formCaption;
+    public boolean autoPrint;
     public boolean isModal;
     public ReportGenerationData generationData;
     public boolean inDevMode;
@@ -18,12 +18,14 @@ public class ReportClientAction implements ClientAction {
     public String printerName;
     public String password;
     public String sheetName;
+    public boolean jasperReportsIgnorePageMargins;
 
-    public ReportClientAction(List<ReportPath> reportPathList, String formCaption, String formSID, boolean isModal, ReportGenerationData generationData,
+    public ReportClientAction(List<String> reportPathList, String formCaption, String formSID, boolean autoPrint, boolean isModal, ReportGenerationData generationData,
                               FormPrintType printType, String printerName, boolean inDevMode, String password, String sheetName) {
         this.reportPathList = reportPathList;
         this.formCaption = formCaption;
         this.formSID = formSID;
+        this.autoPrint = autoPrint;
         this.isModal = isModal;
         this.generationData = generationData;
         this.printType = printType;

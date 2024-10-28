@@ -1,11 +1,16 @@
 package lsfusion.client.form.object.table.tree.controller;
 
 import lsfusion.base.BaseUtils;
+import lsfusion.base.Pair;
 import lsfusion.client.ClientResourceBundle;
+import lsfusion.client.base.SwingUtils;
 import lsfusion.client.controller.remote.RmiQueue;
 import lsfusion.client.form.ClientFormChanges;
 import lsfusion.client.form.controller.ClientFormController;
+import lsfusion.client.form.design.ClientContainer;
+import lsfusion.client.form.design.view.ClientContainerView;
 import lsfusion.client.form.design.view.ClientFormLayout;
+import lsfusion.client.form.filter.user.ClientPropertyFilter;
 import lsfusion.client.form.filter.user.controller.FilterController;
 import lsfusion.client.form.object.ClientGroupObject;
 import lsfusion.client.form.object.ClientGroupObjectValue;
@@ -18,7 +23,10 @@ import lsfusion.client.form.object.table.tree.view.TreeGroupTable;
 import lsfusion.client.form.object.table.tree.view.TreeView;
 import lsfusion.client.form.property.ClientPropertyDraw;
 import lsfusion.client.form.property.ClientPropertyReader;
+import lsfusion.client.form.view.Column;
 
+import javax.swing.*;
+import javax.swing.tree.TreePath;
 import java.awt.*;
 import java.io.IOException;
 import java.util.List;
@@ -39,7 +47,7 @@ public class TreeGroupController extends AbstractTableController {
         super(formController, formLayout, itreeGroup.toolbar);
         treeGroup = itreeGroup;
 
-        view = new TreeView(this.formController, treeGroup);
+        view = new TreeView(this.formController, this, treeGroup);
         tree = view.getTree();
 
         panel = new PanelController(this.formController, formLayout);
@@ -47,14 +55,17 @@ public class TreeGroupController extends AbstractTableController {
         lastGroupObject = BaseUtils.last(treeGroup.groups);
 
         if (!treeGroup.plainTreeMode) {
-            filter = new FilterController(this, treeGroup.filter) {
-                protected void remoteApplyQuery() {
+            ClientContainerView filtersContainer = formLayout.getContainerView(treeGroup.filtersContainer);
+            filter = new FilterController(this, treeGroup.filters, filtersContainer, treeGroup.filterControls) {
+                public void applyFilters(List<ClientPropertyFilter> conditions, boolean focusFirstComponent) {
                     RmiQueue.runAction(new Runnable() {
                         @Override
                         public void run() {
                             try {
-                                TreeGroupController.this.formController.changeFilter(treeGroup, getConditions());
-                                tree.requestFocusInWindow();
+                                TreeGroupController.this.formController.changeFilter(treeGroup, conditions);
+                                if (focusFirstComponent) {
+                                    SwingUtilities.invokeLater(() -> focusFirstComponent());
+                                }
                             } catch (IOException e) {
                                 throw new RuntimeException(ClientResourceBundle.getString("errors.error.applying.filter"), e);
                             }
@@ -63,11 +74,7 @@ public class TreeGroupController extends AbstractTableController {
                 }
             };
 
-            filter.addView(formLayout);
-
-            addToToolbar(filter.getToolbarButton());
-
-            filter.getView().addActionsToInputMap(tree);
+            initFilterButtons();
 
             addToolbarSeparator();
             
@@ -77,7 +84,7 @@ public class TreeGroupController extends AbstractTableController {
             addToToolbar(expandTreeButton);
         }
 
-        formLayout.add(treeGroup, view);
+        formLayout.addBaseComponent(treeGroup, view);
 
         // вот так вот приходится делать, чтобы "узнавать" к какому GroupObject относится этот Component
         view.putClientProperty("groupObject", lastGroupObject);
@@ -136,16 +143,15 @@ public class TreeGroupController extends AbstractTableController {
         tree.updateTable();
 
         boolean isTreeVisible = tree.getColumnCount() > 1;
-        
-        view.setVisible(isTreeVisible);
+
+        SwingUtils.setGridVisible(view, isTreeVisible);
         
         if (toolbarView != null) {
-            toolbarView.setVisible(isTreeVisible);
+            SwingUtils.setGridVisible(toolbarView, isTreeVisible);
         }
 
-        if (filter != null) {
-            filter.setVisible(isTreeVisible);
-        }
+        filter.update();
+        filter.setVisible(isTreeVisible);
         
         for (ClientGroupObject groupObject : treeGroup.groups) {
             formController.setFiltersVisible(groupObject, isTreeVisible);
@@ -259,10 +265,14 @@ public class TreeGroupController extends AbstractTableController {
 
     @Override
     public ClientGroupObject getSelectedGroupObject() {
-        Object node = tree.currentTreePath.getLastPathComponent();
-        return node instanceof TreeGroupNode
-                ? ((TreeGroupNode) node).group
-                : treeGroup.groups.get(0);
+        TreePath selectedPath = tree.getPathForRow(tree.getSelectedRow());
+        if (selectedPath != null) {
+            Object node = selectedPath.getLastPathComponent();
+            if (node instanceof TreeGroupNode) {
+                return ((TreeGroupNode) node).group;
+            }
+        }
+        return treeGroup.groups.get(0);
     }
 
     @Override
@@ -290,17 +300,28 @@ public class TreeGroupController extends AbstractTableController {
     }
 
     @Override
-    public ClientPropertyDraw getSelectedProperty() {
-        return tree.getSelectedProperty();
+    public ClientPropertyDraw getSelectedFilterProperty() {
+        return tree.getSelectedFilterProperty();
     }
+
     @Override
     public ClientGroupObjectValue getSelectedColumn() {
-        return null; // пока не поддерживаются группы в колонки
+        return ClientGroupObjectValue.EMPTY; // пока не поддерживаются группы в колонки
     }
 
     @Override
     public Object getSelectedValue(ClientPropertyDraw property, ClientGroupObjectValue columnKey) {
         return tree.getSelectedValue(property);
+    }
+
+    @Override
+    public List<Pair<Column, String>> getFilterColumns() {
+        return tree.getFilterColumns(getSelectedGroupObject());
+    }
+
+    @Override
+    public ClientContainer getFiltersContainer() {
+        return treeGroup.getFiltersContainer();
     }
 
     @Override

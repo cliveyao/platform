@@ -3,18 +3,44 @@ package lsfusion.interop.form.property;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.util.HashMap;
+import java.util.Map;
 
 import static lsfusion.base.ApiResourceBundle.getString;
 
 public enum Compare {
-    EQUALS, GREATER, LESS, GREATER_EQUALS, LESS_EQUALS, NOT_EQUALS, START_WITH, CONTAINS, ENDS_WITH, LIKE, MATCH, INARRAY;
+    EQUALS("="), GREATER(">"), LESS("<"), GREATER_EQUALS(">="), 
+    LESS_EQUALS("<="), NOT_EQUALS("!="), CONTAINS("_"), MATCH("@"), 
+    INARRAY("IN ARRAY");
+
+    private final String str;
+
+    private static final Map<String, Compare> lookup = new HashMap<>();
+
+    static {
+        for (Compare c : Compare.values()) {
+            lookup.put(c.str, c);
+        }
+    }
+
+    Compare(String str) {
+        this.str = str;
+    }
+
+    public static Compare get(String str) {
+        return lookup.get(str);
+    }
 
     public static Compare get(boolean min) {
         return min?Compare.LESS:Compare.GREATER;
     }
 
     public static Compare deserialize(DataInputStream inStream) throws IOException {
-        switch(inStream.readByte()) {
+        return deserialize(inStream.readByte());
+    }
+
+    public static Compare deserialize(byte ibyte) throws IOException {
+        switch(ibyte) {
             case -1:
                 return null;
             case 0:
@@ -30,17 +56,9 @@ public enum Compare {
             case 5:
                 return NOT_EQUALS;
             case 6:
-                return START_WITH;
-            case 7:
                 return CONTAINS;
-            case 8:
-                return ENDS_WITH;
-            case 9:
-                return LIKE;
-            case 10:
+            case 7:
                 return MATCH;
-            case 11:
-                return INARRAY;
         }
         throw new RuntimeException("Deserialize Compare");
     }
@@ -59,18 +77,10 @@ public enum Compare {
                 return 4;
             case NOT_EQUALS:
                 return 5;
-            case START_WITH:
-                return 6;
             case CONTAINS:
-                return 7;
-            case ENDS_WITH:
-                return 8;
-            case LIKE:
-                return 9;
+                return 6;
             case MATCH:
-                return 10;
-            case INARRAY:
-                return 11;
+                return 7;
         }
         throw new RuntimeException("Serialize Compare");
     }
@@ -93,38 +103,60 @@ public enum Compare {
                 return GREATER_EQUALS;
             case NOT_EQUALS:
                 return NOT_EQUALS;
+            case CONTAINS:
+                return CONTAINS;
+            case MATCH:
+                return MATCH;
         }
         throw new RuntimeException("not supported yet");
     }
 
     @Override
     public String toString() {
+        return str;
+    }
+
+    public String getFullString() {
         switch (this) {
             case EQUALS :
-                return "=";
             case GREATER :
-                return ">";
             case LESS :
-                return "<";
             case GREATER_EQUALS :
-                return ">=";
             case LESS_EQUALS :
-                return "<=";
+                return str;
             case NOT_EQUALS :
-                return "!=";
-            case START_WITH :
-                return getString("interop.starts.with");
+                return str + " (" + getString("filter.compare.not.equals") + ")";
             case CONTAINS:
-                return getString("interop.contains");
-            case ENDS_WITH :
-                return getString("interop.ends.with");
-            case LIKE :
-                return "LIKE";
+                return str + " (" + getString("filter.compare.contains") + ")";
             case MATCH:
-                return "MATCH";
-            case INARRAY :
-                return "IN ARRAY";
+                return str + " (" + getString("filter.compare.search") + ")";
         }
-        throw new RuntimeException("Serialize Compare");
+        return "";
+    }
+
+    public String getTooltipText() {
+        switch (this) {
+            case EQUALS :
+                return getString("filter.compare.equals");
+            case GREATER :
+                return getString("filter.compare.greater");
+            case LESS :
+                return getString("filter.compare.less");
+            case GREATER_EQUALS :
+                return getString("filter.compare.greater.equals");
+            case LESS_EQUALS :
+                return getString("filter.compare.less.equals");
+            case NOT_EQUALS :
+                return getString("filter.compare.not.equals");
+            case CONTAINS:
+                return getString("filter.compare.contains");
+            case MATCH:
+                return getString("filter.compare.search");
+        }
+        return "";
+    }
+
+    public boolean escapeSeparator() {
+        return this == EQUALS || this == CONTAINS || this == MATCH;
     }
 }

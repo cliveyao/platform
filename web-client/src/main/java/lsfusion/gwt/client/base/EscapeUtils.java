@@ -1,55 +1,40 @@
 package lsfusion.gwt.client.base;
 
-import com.google.gwt.regexp.shared.RegExp;
-import com.google.gwt.safehtml.shared.SimpleHtmlSanitizer;
+import com.google.gwt.user.client.Element;
+import com.google.gwt.user.client.ui.Widget;
+import lsfusion.gwt.client.base.view.DivWidget;
+import lsfusion.gwt.client.base.view.FlexPanel;
+import lsfusion.gwt.client.base.view.GFlexAlignment;
+import lsfusion.gwt.client.base.view.StaticImageWidget;
 
 public class EscapeUtils {
     public static final String UNICODE_NBSP = "\u00A0";
-    public static final String UNICODE_CROSS = "\u00D7";
-    public static final String UNICODE_AMP = "\u0026";
-    public static final String UNICODE_LT = "\u003C";
-    public static final String UNICODE_GT = "\u003E";
-    public static final String UNICODE_SINGLE_QUOT = "\u0027";
-    public static final String UNICODE_QUOT = "\u005c\u0022";
     public static final String UNICODE_BULLET = "\u2022";
 
-    public static String toHtml(String plainString) {
-        if (plainString == null) {
-            return "";
+    // MESSAGE, CONFIRM, ASK
+    public static Widget toHTML(String plainString, StaticImage image) {
+        if(image != null) {
+            FlexPanel iconMessagePanel = new FlexPanel();
+            iconMessagePanel.add(getImageWidget(image));
+            iconMessagePanel.add(toHTML(plainString), GFlexAlignment.CENTER, 1, true, null);
+            return iconMessagePanel;
+        } else {
+            return toHTML(plainString);
         }
-        return SimpleHtmlSanitizer.sanitizeHtml(plainString).asString().replaceAll("(\r\n|\n\r|\r|\n)", "<br />");
-    }
-    
-    public static String sanitizeHtml(String plainString) {
-        return HtmlSanitizerUtil.sanitizeHtml(plainString).asString();
-    }
-
-    private static final RegExp AMP_RE = RegExp.compile("&", "g");
-    private static final RegExp GT_RE = RegExp.compile(">", "g");
-    private static final RegExp LT_RE = RegExp.compile("<", "g");
-    private static final RegExp SQUOT_RE = RegExp.compile("\'", "g");
-    private static final RegExp QUOT_RE = RegExp.compile("\"", "g");
-
-    public static String unicodeEscape(String s) {
-        if (s.contains("&")) {
-            s = AMP_RE.replace(s, UNICODE_AMP);
-        }
-        if (s.contains("<")) {
-            s = LT_RE.replace(s, UNICODE_LT);
-        }
-        if (s.contains(">")) {
-            s = GT_RE.replace(s, UNICODE_GT);
-        }
-        if (s.contains("\"")) {
-            s = QUOT_RE.replace(s, UNICODE_QUOT);
-        }
-        if (s.contains("'")) {
-            s = SQUOT_RE.replace(s, UNICODE_SINGLE_QUOT);
-        }
-        return s;
     }
 
-    public static String escapeLineBreakHTML(String value) {
-        return value.replace("\n", "<br/>");
+    // toPrintMessage, tooltip
+    public static DivWidget toHTML(String plainString) {
+        DivWidget widget = new DivWidget();
+        Element element = widget.getElement();
+        GwtClientUtils.initCaptionHtmlOrText(element, CaptionHtmlOrTextType.MESSAGE); // maybe should be treated as Data
+        GwtClientUtils.setCaptionHtmlOrText(element, plainString);
+        return widget;
+    }
+
+    public static StaticImageWidget getImageWidget(StaticImage image) {
+        StaticImageWidget imageWidget = new StaticImageWidget(image);
+        GwtClientUtils.addClassNames(imageWidget, "right-padding", "fs-3");
+        return imageWidget;
     }
 }

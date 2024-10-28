@@ -100,7 +100,8 @@ changeQuantity 'Change quantity' (Order o, Book b)  {
     INPUT q = INTEGER DO { // requesting a number
         IF lastOrderDetail(o, b) THEN { // checking if there is at least one row
             IF q THEN // inputting a number
-                quantity(OrderDetail d) <- q IF d == lastOrderDetail(o, b) WHERE order(d) == o AND book(d) == b; // writing the quantity in the last row with such a book
+                // writing the quantity in the last row with such a book
+                quantity(OrderDetail d) <- q IF d == lastOrderDetail(o, b) WHERE order(d) == o AND book(d) == b; 
             ELSE // the number is dropped - deleting the row
                 DELETE OrderDetail d WHERE order(d) == o AND book(d) == b;
         } ELSE
@@ -122,7 +123,7 @@ DESIGN order {
     OBJECTS {
         NEW pane { // creating a container after the order header
             fill = 1;
-            type = TABBED;
+            tabbed = TRUE;
             MOVE BOX(d);
             MOVE BOX(b) {
                 caption = 'Selection';

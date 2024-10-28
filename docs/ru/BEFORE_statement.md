@@ -6,7 +6,9 @@ title: 'Инструкция BEFORE'
 
 ### Синтаксис
 
-    BEFORE action(param1, ..., paramN) DO aspectAction;
+```
+BEFORE action(param1, ..., paramN) DO aspectAction;
+```
 
 Описание
 
@@ -30,5 +32,6 @@ title: 'Инструкция BEFORE'
 
 ```lsf
 changeName(Sku s, STRING[100] name)  { name(s) <- name; }
-BEFORE changeName(Sku s, STRING[100] name) DO MESSAGE 'Changing user name'; // Сообщение будет показано перед каждым вызовом changeName
+// Сообщение будет показано перед каждым вызовом changeName
+BEFORE changeName(Sku s, STRING[100] name) DO MESSAGE 'Changing user name'; 
 ```

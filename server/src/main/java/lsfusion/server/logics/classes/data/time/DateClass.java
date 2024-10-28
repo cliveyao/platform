@@ -4,7 +4,9 @@ import com.hexiong.jdbf.JDBFException;
 import lsfusion.base.DateConverter;
 import lsfusion.interop.base.view.FlexAlignment;
 import lsfusion.interop.classes.DataType;
+import lsfusion.interop.connection.LocalePreferences;
 import lsfusion.interop.form.property.ExtInt;
+import lsfusion.server.base.controller.thread.ThreadLocalContext;
 import lsfusion.server.data.sql.syntax.SQLSyntax;
 import lsfusion.server.data.stat.Stat;
 import lsfusion.server.data.type.exec.TypeEnvironment;
@@ -25,13 +27,11 @@ import java.sql.SQLException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.time.format.FormatStyle;
 import java.util.Date;
 
 import static lsfusion.base.DateConverter.*;
-import static lsfusion.server.logics.classes.data.time.DateTimeConverter.getWriteDate;
 
-public class DateClass extends DataClass<LocalDate> {
+public class DateClass extends TimeSeriesClass<LocalDate> {
 
     public final static DateClass instance = new DateClass();
 
@@ -44,7 +44,13 @@ public class DateClass extends DataClass<LocalDate> {
     public int getReportPreferredWidth() { return 70; }
 
     public Class getReportJavaClass() {
-        return java.util.Date.class;
+        return java.time.LocalDate.class;
+    }
+
+    @Override
+    public String getDefaultPattern() {
+        LocalePreferences localePreferences = ThreadLocalContext.get().getLocalePreferences();
+        return localePreferences != null ? localePreferences.dateFormat : ThreadLocalContext.getTFormats().datePattern;
     }
 
     public void fillReportDrawField(ReportDrawField reportField) {
@@ -62,10 +68,10 @@ public class DateClass extends DataClass<LocalDate> {
     }
 
     public LocalDate getDefaultValue() {
-        return getWriteDate(LocalDate.now());
+        return LocalDate.now();
     }
 
-    public String getDB(SQLSyntax syntax, TypeEnvironment typeEnv) {
+    public String getDBString(SQLSyntax syntax, TypeEnvironment typeEnv) {
         return syntax.getDateType();
     }
     public String getDotNetType(SQLSyntax syntax, TypeEnvironment typeEnv) {
@@ -114,17 +120,13 @@ public class DateClass extends DataClass<LocalDate> {
         return new ExtInt(25);
     }
 
-    @Override
-    public FlexAlignment getValueAlignment() {
-        return FlexAlignment.END;
-    }
-
     public boolean isSafeString(Object value) {
         return false;
     }
     
     public String getString(Object value, SQLSyntax syntax) {
-        return "{d '" + value + "'}";
+        LocalDate date = (LocalDate) value;
+        return "make_date(" + date.getYear() + "," + date.getMonthValue() + "," + date.getDayOfMonth() + ")";
     }
 
     @Override
@@ -145,11 +147,9 @@ public class DateClass extends DataClass<LocalDate> {
     public LocalDate parseString(String s) throws ParseException {
         try {
             //try to parse with default locale formats
-            for(FormatStyle formatStyle : new FormatStyle[]{FormatStyle.MEDIUM, FormatStyle.SHORT}) {
-                try {
-                    return LocalDate.parse(s, DateTimeFormatter.ofLocalizedDate(formatStyle));
-                } catch (Exception ignored) {
-                }
+            try {
+                return LocalDate.parse(s, ThreadLocalContext.getTFormats().dateParser);
+            } catch (Exception ignored) {
             }
             LocalDateTime result = DateConverter.smartParse(s);
             return result != null ? result.toLocalDate() : null;
@@ -158,22 +158,28 @@ public class DateClass extends DataClass<LocalDate> {
         }
     }
 
-    public String formatString(LocalDate value) {
-        return value == null ? null : value.format(DateTimeFormatter.ofLocalizedDate(FormatStyle.SHORT));
+    public String formatString(LocalDate value, boolean ui) {
+        LocalePreferences localePreferences = ThreadLocalContext.get().getLocalePreferences();
+        return value != null ? (value.format(ui && localePreferences != null ? DateTimeFormatter.ofPattern(localePreferences.dateFormat)
+                : ThreadLocalContext.getTFormats().dateFormatter)) : null;
     }
 
     public String getSID() {
         return "DATE";
     }
 
+    //Using LocalDate.MIN or any date with negative year causes pgsql error 'time zone displacement out of range'
+    private static final LocalDate minDate = LocalDate.of(1, 1, 1);
+    private static final LocalDate maxDate = LocalDate.of(5874896, 1, 1);
+
     @Override
     public LocalDate getInfiniteValue(boolean min) {
-        return min ? LocalDate.MIN : LocalDate.MAX;
+        return min ? minDate : maxDate;
     }
 
     @Override
     public OverJDBField formatDBF(String fieldName) throws JDBFException {
-        return new OverJDBField(fieldName, 'D', 8, 0);
+        return OverJDBField.createField(fieldName, 'D', 8, 0);
     }
 
     @Override
@@ -190,7 +196,17 @@ public class DateClass extends DataClass<LocalDate> {
     }
 
     @Override
-    public boolean useIndexedJoin() {
-        return true;
+    public String getIntervalProperty() {
+        return "interval[DATE,DATE]";
+    }
+
+    @Override
+    public String getFromIntervalProperty() {
+        return "from[INTERVAL[DATE]]";
+    }
+
+    @Override
+    public String getToIntervalProperty() {
+        return "to[INTERVAL[DATE]]";
     }
 }

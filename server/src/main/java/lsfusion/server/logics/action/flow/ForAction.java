@@ -7,10 +7,10 @@ import lsfusion.base.col.MapFact;
 import lsfusion.base.col.SetFact;
 import lsfusion.base.col.interfaces.immutable.*;
 import lsfusion.base.col.interfaces.mutable.MList;
-import lsfusion.base.col.interfaces.mutable.MOrderExclSet;
 import lsfusion.base.col.interfaces.mutable.MSet;
 import lsfusion.base.col.interfaces.mutable.mapvalue.ThrowingFunction;
 import lsfusion.interop.form.property.Compare;
+import lsfusion.server.base.caches.IdentityInstanceLazy;
 import lsfusion.server.base.caches.IdentityLazy;
 import lsfusion.server.base.controller.stack.ExecutionStackAspect;
 import lsfusion.server.base.controller.stack.ParamMessage;
@@ -19,7 +19,6 @@ import lsfusion.server.base.controller.stack.ThisMessage;
 import lsfusion.server.data.expr.Expr;
 import lsfusion.server.data.expr.key.KeyExpr;
 import lsfusion.server.data.sql.exception.SQLHandledException;
-import lsfusion.server.data.type.Type;
 import lsfusion.server.data.value.DataObject;
 import lsfusion.server.data.value.ObjectValue;
 import lsfusion.server.data.where.Where;
@@ -36,21 +35,23 @@ import lsfusion.server.logics.classes.ValueClass;
 import lsfusion.server.logics.classes.user.AbstractCustomClass;
 import lsfusion.server.logics.classes.user.ConcreteCustomClass;
 import lsfusion.server.logics.classes.user.CustomClass;
+import lsfusion.server.logics.form.interactive.action.async.map.AsyncMapEventExec;
 import lsfusion.server.logics.property.Property;
 import lsfusion.server.logics.property.PropertyFact;
+import lsfusion.server.logics.property.classes.ClassPropertyInterface;
 import lsfusion.server.logics.property.classes.infer.ClassType;
 import lsfusion.server.logics.property.data.SessionDataProperty;
 import lsfusion.server.logics.property.data.StoredDataProperty;
 import lsfusion.server.logics.property.implement.PropertyInterfaceImplement;
 import lsfusion.server.logics.property.implement.PropertyMapImplement;
 import lsfusion.server.logics.property.oraction.PropertyInterface;
-import lsfusion.server.physics.admin.log.LogTime;
 import lsfusion.server.physics.dev.i18n.LocalizedString;
 
 import java.sql.SQLException;
 import java.util.Collections;
 import java.util.Iterator;
 
+import static lsfusion.server.logics.ServerResourceBundle.getString;
 import static lsfusion.server.logics.property.PropertyFact.*;
 
 public class ForAction<I extends PropertyInterface> extends ExtendContextAction<I> {
@@ -103,13 +104,13 @@ public class ForAction<I extends PropertyInterface> extends ExtendContextAction<
     }
 
     @Override
-    public ImMap<Property, Boolean> aspectUsedExtProps() {
+    public ImMap<Property, Boolean> calculateUsedExtProps() {
        MSet<Property> mUsed = SetFact.mSet();
        if(ifProp!=null)
            ifProp.mapFillDepends(mUsed);
        for(PropertyInterfaceImplement<I> order : orders.keyIt())
            order.mapFillDepends(mUsed);
-       return mUsed.immutable().toMap(false).merge(super.aspectUsedExtProps(), addValue);
+       return mUsed.immutable().toMap(false).merge(super.calculateUsedExtProps(), addValue);
     }
     
     private static class RowUpdateIterate<I extends PropertyInterface> implements Iterable<ImMap<I, DataObject>>, Iterator<ImMap<I, DataObject>>, UpdateCurrentClasses {
@@ -173,15 +174,20 @@ public class ForAction<I extends PropertyInterface> extends ExtendContextAction<
                 for (int i = 0; i < size; i++) {
                     ImMap<I, DataObject> row = rowUpdate.rows.get(i);
                     ImMap<I, ObjectValue> newValues = MapFact.addExcl(innerValues, row);
-                    if(addObject!=null)
-                        newValues = MapFact.addExcl(newValues, addObject, context.addObject((ConcreteCustomClass) addClass, autoSet));
+                    if (addObject != null) {
+                        if (addClass instanceof ConcreteCustomClass) {
+                            newValues = MapFact.addExcl(newValues, addObject, context.addObject((ConcreteCustomClass) addClass, autoSet));
+                        } else {
+                            throw new UnsupportedOperationException(getString("logics.error.unable.create.object.of.abstract.class"));
+                        }
+                    }
 
                     ExecutionStackAspect.popProgressStackItem(stackItem);
                     stackItem = ExecutionStackAspect.pushProgressStackItem(progressCaption, i + 1, rowUpdate.rows.size());
 
-                    FlowResult actionResult = executeFor(overrideMoreSessionUsages && (recursive || i < size - 1) // is not last 
+                    FlowResult actionResult = executeFor(overrideMoreSessionUsages && (recursive || i < size - 1) // is not last
                                                         ? context.override(true): context, newValues);
-                    if (actionResult != FlowResult.FINISH) {
+                    if (actionResult != FlowResult.FINISH && actionResult != FlowResult.CONTINUE) {
                         if (actionResult != FlowResult.BREAK) {
                             result = actionResult;
                         }
@@ -201,7 +207,6 @@ public class ForAction<I extends PropertyInterface> extends ExtendContextAction<
         return result;
     }
 
-    @LogTime
     @ThisMessage
     private FlowResult executeFor(ExecutionContext<PropertyInterface> context, @ParamMessage (profile = false) ImMap<I, ObjectValue> newValues) throws SQLException, SQLHandledException {
         return execute(context, action, newValues, mapInterfaces);
@@ -243,13 +248,6 @@ public class ForAction<I extends PropertyInterface> extends ExtendContextAction<
         if(addObject != null)
             result = result.removeIncl(addObject);
         return result;
-    }
-
-    private ImMap<I, ValueClass> getExtendClasses() {
-        if(ifProp==null)
-            return MapFact.EMPTY();
-        assert forIsFull();
-        return ifProp.mapInterfaceClasses(ClassType.forPolicy).remove(mapInterfaces.valuesSet()); // вообще тут предполагается ASSERTFULL, но только для extend interfaces, а пока такой возможности нет
     }
 
     private boolean forIsFull() {
@@ -306,7 +304,7 @@ public class ForAction<I extends PropertyInterface> extends ExtendContextAction<
             ImSet<I> noInlineInterfaces = extNoInline;
             MSet<SessionDataProperty> mLocals = SetFact.mSet();
             if(Property.depends(ifProp.property, StoredDataProperty.set)) { // нужно создать сначала материалайзить условие for по аналогии с проталкиванием
-                noInlineIfProp = PropertyFact.createForDataProp(getExtendClasses(), ifProp.property.getValueClass(ClassType.forPolicy), mLocals);// делаем SET в session свойство, и подменяем условие на это свойство
+                noInlineIfProp = createForDataProp(mLocals, null);// делаем SET в session свойство, и подменяем условие на это свойство
                 mResult.add(PropertyFact.createSetAction(addObject != null ? innerInterfaces.removeIncl(addObject) : innerInterfaces, context, null, noInlineIfProp, ifProp));
                 noInlineInterfaces = noInline;
             }
@@ -341,18 +339,17 @@ public class ForAction<I extends PropertyInterface> extends ExtendContextAction<
             }
         }
 
+        if (action.hasFlow(ChangeFlowType.BREAK, ChangeFlowType.CONTINUE, ChangeFlowType.RETURN, ChangeFlowType.APPLY, ChangeFlowType.CANCEL, ChangeFlowType.SYNC))
+            return null;
+
         if(addObject != null) {
             MSet<SessionDataProperty> mLocals = SetFact.mSet();
-            PropertyMapImplement<?, I> result = PropertyFact.createForDataProp(getExtendClasses(), addClass, mLocals);
+            PropertyMapImplement<?, I> result = createForDataProp(mLocals, addClass);
             return PropertyFact.createListAction(context, ListFact.<ActionMapImplement<?, I>>toList(
                     PropertyFact.createAddAction(addClass, innerInterfaces.removeIncl(addObject), context, ifProp, result, orders, ordersNotNull, autoSet),
                     PropertyFact.createForAction(innerInterfaces, context, PropertyFact.<I>createCompare(
                             addObject, result, Compare.EQUALS), MapFact.<PropertyInterfaceImplement<I>, Boolean>singletonOrder(addObject, false), false, action, elseAction, null, null, false, false, allNoInline ? noInline.addExcl(addObject) : noInline, forceInline)), mLocals.immutable());
         }
-
-        // проталкиваем for'ы
-        if (action.hasFlow(ChangeFlowType.BREAK, ChangeFlowType.RETURN, ChangeFlowType.APPLY, ChangeFlowType.CANCEL, ChangeFlowType.SYNC))
-            return null;
 
         ImList<ActionMapImplement<?, I>> list = action.getList();
 
@@ -413,7 +410,7 @@ public class ForAction<I extends PropertyInterface> extends ExtendContextAction<
 
             if (Property.depends(ifProp.property, pushChangedProps) || // если есть stored свойства (а не чисто session) или меняет условия
                     Property.depends(ifProp.property, StoredDataProperty.set)) {
-                pushProp = PropertyFact.createForDataProp(getExtendClasses(), ifProp.property.getValueClass(ClassType.forPolicy), mLocals); // делаем SET в session свойство, и подменяем условие на это свойство
+                pushProp = createForDataProp(mLocals, null); // делаем SET в session свойство, и подменяем условие на это свойство
                 mResult.add(PropertyFact.createSetAction(innerInterfaces, context, null, pushProp, ifProp));
             }
         }
@@ -428,6 +425,20 @@ public class ForAction<I extends PropertyInterface> extends ExtendContextAction<
                     ordersNotNull, PropertyFact.createListAction(innerInterfaces, rest), elseAction, false, innerInterfaces.remove(context), false));
 
         return PropertyFact.createListAction(context, mResult.immutableList(), mLocals.immutable());
+    }
+
+    @IdentityInstanceLazy
+    private <T extends PropertyInterface> PropertyMapImplement<?, T> getTrueProperty() { // to avoid property leaks
+        return PropertyFact.createTrue();
+    }
+
+    private PropertyMapImplement<ClassPropertyInterface, I> createForDataProp(MSet<SessionDataProperty> mLocals, ValueClass valueClass) {
+        assert forIsFull();
+        return createForDataProp(ifProp != null ? ifProp : getTrueProperty(), mapInterfaces, valueClass, mLocals);
+    }
+
+    public static <I extends PropertyInterface> PropertyMapImplement<ClassPropertyInterface, I> createForDataProp(PropertyMapImplement<?, I> ifProp, ImRevMap<?, I> mapInterfaces, ValueClass valueClass, MSet<SessionDataProperty> mLocals) {
+        return PropertyFact.createForDataProp(ifProp.mapInterfaceClasses(ClassType.forPolicy).remove(mapInterfaces.valuesSet()), valueClass != null ? valueClass : ifProp.property.getValueClass(ClassType.forPolicy), mLocals);
     }
 
     @Override
@@ -464,10 +475,16 @@ public class ForAction<I extends PropertyInterface> extends ExtendContextAction<
 
     @Override
     public boolean hasFlow(ChangeFlowType type) {
-        if (type == ChangeFlowType.BREAK)
+        if (type == ChangeFlowType.BREAK || type == ChangeFlowType.RETURN)
             return false;
-        if (addObject != null && type.isChange())
-            return true;            
+        if (addObject != null) {
+            if (type.isChange())
+                return true;
+            if (type == ChangeFlowType.PRIMARY)
+                return true;
+            if (type == ChangeFlowType.ANYEFFECT)
+                return true;
+        }
         return super.hasFlow(type);
     }
 
@@ -483,7 +500,10 @@ public class ForAction<I extends PropertyInterface> extends ExtendContextAction<
 
         // сначала and'им where и push, получаем интерфейсы I + push (T)
         Result<ImRevMap<I, PropertyInterface>> mapInnerInterfaces = new Result<>();
-        ImRevMap<T, PropertyInterface> mapPushInterfaces = createCommon(mapping.valuesSet().merge(push.mapping.valuesSet()), innerInterfaces, mapping.crossJoin(mapInterfaces), mapInnerInterfaces);
+        ImSet<T> mergedInterfaces = mapping.valuesSet().merge(push.mapping.valuesSet());
+        for(PropertyInterfaceImplement<T> order : orders.keyIt())
+            mergedInterfaces = mergedInterfaces.merge(order.getInterfaces());
+        ImRevMap<T, PropertyInterface> mapPushInterfaces = createCommon(mergedInterfaces, innerInterfaces, mapping.crossJoin(mapInterfaces), mapInnerInterfaces);
 
         PropertyMapImplement<?, PropertyInterface> mapPush = push.map(mapPushInterfaces);
         if(forProp!=null)
@@ -508,24 +528,14 @@ public class ForAction<I extends PropertyInterface> extends ExtendContextAction<
     }
 
     @Override
-    public Type getFlowSimpleRequestInputType(boolean optimistic, boolean inRequest) {
-        Type actionType = action.action.getSimpleRequestInputType(optimistic, inRequest);
-        Type elseType = elseAction == null ? null : elseAction.action.getSimpleRequestInputType(optimistic, inRequest);
-
-        if (!optimistic) {
-            if (actionType == null) {
-                return null;
-            }
-            if (elseAction != null && elseType == null) {
-                return null;
-            }
-        }
-
-        return actionType == null
-                ? elseType
-                : elseType == null
-                ? actionType
-                : actionType.getCompatible(elseType);
+    public AsyncMapEventExec<PropertyInterface> calculateAsyncEventExec(boolean optimistic, boolean recursive) {
+        ImList<ActionMapImplement<?, I>> list = ListFact.singleton(action);
+        if(elseAction != null)
+            list = list.addList(elseAction);
+        AsyncMapEventExec<I> asyncExec = getBranchAsyncEventExec(list, optimistic, recursive, false, elseAction != null);
+        if(asyncExec != null)
+            return asyncExec.mapInner(mapInterfaces.reverse());
+        return null;
     }
 
 }

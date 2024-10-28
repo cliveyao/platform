@@ -4,22 +4,20 @@ import lsfusion.interop.form.remote.serialization.SerializationPool;
 import lsfusion.server.logics.form.interactive.design.ComponentView;
 import lsfusion.server.logics.form.interactive.design.ContainerView;
 import lsfusion.server.logics.form.interactive.design.FormView;
+import lsfusion.server.logics.form.interactive.design.filter.FilterControlsView;
 import lsfusion.server.logics.form.interactive.design.filter.FilterView;
 import lsfusion.server.logics.form.interactive.design.filter.RegularFilterGroupView;
 import lsfusion.server.logics.form.interactive.design.filter.RegularFilterView;
 import lsfusion.server.logics.form.interactive.design.object.*;
 import lsfusion.server.logics.form.interactive.design.property.PropertyDrawView;
-import lsfusion.server.logics.form.struct.property.async.AsyncAddRemove;
-import lsfusion.server.logics.form.struct.property.async.AsyncChange;
-import lsfusion.server.logics.form.struct.property.async.AsyncOpenForm;
 
 
-public class ServerSerializationPool extends SerializationPool<ServerContext> {
+public class ServerSerializationPool extends SerializationPool<FormInstanceContext> {
     public ServerSerializationPool() {
         this(null);
     }
 
-    public ServerSerializationPool(ServerContext context) {
+    public ServerSerializationPool(FormInstanceContext context) {
         super(context);
         //порядок добавления должен соответствовать порядку в ClientSerializationPool
 
@@ -31,15 +29,12 @@ public class ServerSerializationPool extends SerializationPool<ServerContext> {
         addMapping2(GridView.class);
         addMapping2(ToolbarView.class);
         addMapping2(FilterView.class);
+        addMapping2(FilterControlsView.class);
         addMapping2(CalculationsView.class);
-        addMapping2(ClassChooserView.class);
         addMapping2(ObjectView.class);
         addMapping2(PropertyDrawView.class);
         addMapping2(RegularFilterView.class);
         addMapping2(RegularFilterGroupView.class);
-        addMapping2(AsyncAddRemove.class);
-        addMapping2(AsyncChange.class);
-        addMapping2(AsyncOpenForm.class);
     }
 
     // IDEA даёт ошибку при добавлении генериков,

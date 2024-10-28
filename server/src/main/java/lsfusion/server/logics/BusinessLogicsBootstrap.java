@@ -1,13 +1,12 @@
 package lsfusion.server.logics;
 
 import lsfusion.base.BaseUtils;
+import lsfusion.server.base.ResourceUtils;
 import lsfusion.base.SystemUtils;
 import lsfusion.base.file.IOUtils;
 import lsfusion.base.remote.RMIUtils;
 import lsfusion.server.base.controller.thread.ThreadUtils;
-import lsfusion.server.data.expr.BaseExpr;
-import lsfusion.server.data.expr.where.classes.data.EqualsWhere;
-import lsfusion.server.data.where.Where;
+import lsfusion.server.data.sql.adapter.DataAdapter;
 import lsfusion.server.physics.admin.SystemProperties;
 import lsfusion.server.physics.admin.log.ServerLoggers;
 import org.apache.log4j.Logger;
@@ -20,9 +19,10 @@ import java.util.Scanner;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-public class BusinessLogicsBootstrap {
-    private static final Logger logger = ServerLoggers.startLogger;
+import static lsfusion.server.physics.admin.log.ServerLoggers.startLog;
+import static lsfusion.server.physics.admin.log.ServerLoggers.startLogError;
 
+public class BusinessLogicsBootstrap {
     private static AbstractXmlApplicationContext springContext;
     private static LogicsInstance logicsInstance;
 
@@ -34,7 +34,10 @@ public class BusinessLogicsBootstrap {
         SystemProperties.setDGCParams();
 
         long startTime = System.currentTimeMillis();
-        logger.info("Server is starting...");
+        startLog("Server is starting...");
+
+        String revision = ResourceUtils.getRevision(SystemProperties.inDevMode);
+        startLog("Current version: " + BaseUtils.getPlatformVersion() + " (" + BaseUtils.getApiVersion() + ")" + (revision != null ? (" " + revision) : ""));
 
 //        initLRUCaches();
 
@@ -44,7 +47,7 @@ public class BusinessLogicsBootstrap {
             logicsInstance = (LogicsInstance) springContext.getBean("logicsInstance");
             instanceCreated = true;
         } catch (Throwable t) {
-            logger.error("Error creating logics instance: ", t);
+            startLogError("Error creating logics instance: ", t);
         }
 
         if (instanceCreated) {
@@ -57,15 +60,16 @@ public class BusinessLogicsBootstrap {
 
                 String version = BaseUtils.getPlatformVersion();
                 if(version != null) {
-                    logger.info("Desktop Client is available at:");
-                    logger.info("Java Web Start (with auto update, requires JDK): https://download.lsfusion.org/java/lsfusion-client-" + version + ".jnlp");
+                    startLog("Desktop Client is available at:");
+                    startLog("Java Web Start (with auto update, requires JDK): https://download.lsfusion.org/java/lsfusion-client-" + version + ".jnlp");
                     if(SystemUtils.IS_OS_WINDOWS) {
-                        logger.info("Installer for Windows (without auto update): https://download.lsfusion.org/exe/lsfusion-desktop-" + version + (SystemUtils.is64Arch() ? "-x64" : "") + ".exe");
+                        startLog("Installer for Windows (without auto update): https://download.lsfusion.org/exe/lsfusion-desktop-" + version + (SystemUtils.is64Arch() ? "-x64" : "") + ".exe");
                     }
                 }
-                logger.info("Server has successfully started in " + (System.currentTimeMillis() - startTime) + " ms.");
+
+                startLog("Server has successfully started in " + (System.currentTimeMillis() - startTime) + " ms");
             } catch (Throwable e) {
-                logger.info("Error starting server, server will be stopped.");
+                startLog("Error starting server, server will be stopped");
                 stop();
             }
         }
@@ -77,9 +81,9 @@ public class BusinessLogicsBootstrap {
 
     private static String getSettingsPath() throws IOException {
         String settingsPath = null;
-        InputStream settingsStream = BusinessLogicsBootstrap.class.getResourceAsStream("/lsfusion.properties");
-        if (settingsStream != null) {
-            Scanner scanner = new Scanner(IOUtils.readStreamToString(settingsStream));
+        String settings = DataAdapter.readResource("/lsfusion.properties");
+        if (settings != null) {
+            Scanner scanner = new Scanner(settings);
             while (scanner.hasNextLine()) {
                 Pattern p = Pattern.compile("logics\\.lsfusionXMLPath=(.*)");
                 Matcher m = p.matcher(scanner.nextLine());
@@ -94,7 +98,7 @@ public class BusinessLogicsBootstrap {
     private static void registerShutdownHook() {
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             if (!stopped) {
-                logger.info("Executing shutdown hook.");
+                startLog("Executing shutdown hook");
                 stop();
             }
         }));
@@ -109,7 +113,7 @@ public class BusinessLogicsBootstrap {
 
     public synchronized static void stop() {
         if (!stopped) {
-            logger.info("Server is stopping...");
+            startLog("Server is stopping...");
 
             try {
                 logicsInstance.stop();
@@ -122,7 +126,7 @@ public class BusinessLogicsBootstrap {
             // поэтому убиваем RMI поток сами, а то зависает
             RMIUtils.killRmiThread();
 
-            logger.info("Server has stopped...");
+            startLog("Server has stopped...");
 
             // форсируем выход в отдельном потоке
             final Thread closer = new Thread("Closing thread...") {

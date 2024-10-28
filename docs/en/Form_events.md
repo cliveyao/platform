@@ -8,6 +8,7 @@ While the application is running, there is a number of events for each form that
 
 -   `QUERYCLOSE` - the user tries to close the form by clicking on the corresponding button in the form header.
 -   `QUERYOK` - the user tries to close a modal form by double-clicking on any row in the table.
+-   `SCHEDULE` - scheduler that executes some action at form.
 
 #### For objects on the form
 
@@ -117,8 +118,13 @@ FORM invoice 'Invoice' // creating a form for editing an invoice
 //    ...  setting the rest of the form behavior
 
     EVENTS
-        ON OK { posted(i) <- TRUE; }, // specifying that when the user clicks OK, an action should be executed that will execute actions to "conduction" this invoice
-        ON DROP showImpossibleMessage() // by clicking the formDrop button, showing a message that this cannot be, since this button by default will be shown only in the form for choosing an invoice, and this form is basically an invoice edit form
+        // specifying that when the user clicks OK, an action should be executed that will execute
+        // actions to "conduction" this invoice
+        ON OK { posted(i) <- TRUE; }, 
+        // by clicking the formDrop button, showing a message that this cannot be, since this button 
+        // by default will be shown only in the form for choosing an invoice, and this form is basically 
+        // an invoice edit form
+        ON DROP showImpossibleMessage() 
 ;
 
 CLASS Shift;
@@ -147,9 +153,13 @@ createReceipt ()  {
     }
 }
 
-EXTEND FORM POS // adding a property through the form extension so that SEEK could be applied to the already created object on the form
+// adding a property through the form extension so that SEEK could be applied
+// to the already created object on the form
+EXTEND FORM POS 
     EVENTS
-        ON INIT createReceipt() // when opening the form, executing the action to create a new receipt, which fills in the shift, cashier and other information
+        // when opening the form, executing the action to create a new receipt,
+        // which fills in the shift, cashier and other information
+        ON INIT createReceipt() 
 ;
 ```
 

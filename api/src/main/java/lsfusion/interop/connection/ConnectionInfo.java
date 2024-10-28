@@ -4,21 +4,23 @@ import java.io.Serializable;
 
 public class ConnectionInfo implements Serializable {
 
-    public final String hostName;
-    public final String hostAddress;
+    public final ComputerInfo computerInfo;
 
-    public final String language;
-    public final String country;
+    public final UserInfo userInfo;
 
-    public final String dateFormat;
-    public final String timeFormat;
+    public ConnectionInfo(ComputerInfo computerInfo, UserInfo userInfo) {
+        this.computerInfo = computerInfo;
 
-    public ConnectionInfo(String hostName, String hostAddress, String language, String country, String dateFormat, String timeFormat) {
-        this.hostName = hostName;
-        this.hostAddress = hostAddress;
-        this.language = language;
-        this.country = country;
-        this.dateFormat = dateFormat;
-        this.timeFormat = timeFormat;
+        this.userInfo = userInfo;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        return this == o || o instanceof ConnectionInfo && computerInfo.equals(((ConnectionInfo) o).computerInfo) && userInfo.equals(((ConnectionInfo) o).userInfo);
+    }
+
+    @Override
+    public int hashCode() {
+        return 31 * computerInfo.hashCode() + userInfo.hashCode();
     }
 }

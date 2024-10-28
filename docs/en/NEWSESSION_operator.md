@@ -6,12 +6,16 @@ The `NEWSESSION` operator creates an [action](Actions.md) that executes the othe
 
 ### Syntax
 
-    NEWSESSION [NEWSQL] [nestedBlock] action 
+```
+NEWSESSION [NEWSQL] [nestedBlock] action 
+```
 
 where `nestedBlock` has one of two possible syntaxes:
 
-    NESTED LOCAL
-    NESTED (propertyId1, ..., propertyIdN)
+```
+NESTED LOCAL
+NESTED (propertyId1, ..., propertyIdN)
+```
 
 ### Description
 
@@ -56,7 +60,8 @@ testNewSession ()  {
         MESSAGE (GROUP SUM 1 IF local(Currency c) == 'Local'); // will return NULL
     }
     NEWSESSION NESTED (local) {
-        MESSAGE (GROUP SUM 1 IF local(Currency c) == 'Local'); // will return the number of objects of class Currency
+        // will return the number of objects of class Currency
+        MESSAGE (GROUP SUM 1 IF local(Currency c) == 'Local'); 
     }
 
     NEWSESSION {

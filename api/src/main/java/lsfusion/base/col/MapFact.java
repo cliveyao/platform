@@ -120,6 +120,13 @@ public class MapFact {
         return mMap.immutable();
     }
 
+    public static <V> ImMap<Integer, V> toIndexedMap(V[] values) {
+        MExclMap<Integer, V> mMap = MapFact.mExclMap(values.length);
+        for(int i=0;i<values.length;i++)
+            mMap.exclAdd(i, values[i]);
+        return mMap.immutable();
+    }
+
     public static <K, V> ImMap<K, V> toMap(K[] keys, Function<K, V> values) {
         MExclMap<K, V> mMap = MapFact.mExclMap(keys.length);
         for(int i=0;i<keys.length;i++) {
@@ -267,13 +274,15 @@ public class MapFact {
         return result.immutableRev();
     }
 
-    public static int colHash(int h) { // копися с hashSet'а
-//        return h;
-        h ^= (h >>> 20) ^ (h >>> 12);
-        return (h ^ (h >>> 7) ^ (h >>> 4));
+    // https://stackoverflow.com/questions/664014/what-integer-hash-function-are-good-that-accepts-an-integer-hash-key
+    // Can return negative values!
+    public static int colHash(int h) {
+        h = ((h >>> 16) ^ h) * 0x45d9f3b;
+        h = ((h >>> 16) ^ h) * 0x45d9f3b;
+        return (h >>> 16) ^ h;
     }
 
-    public static int objHash(int h) { // копися с hashSet'а
+    public static int objHash(int h) {
         return h;
 //        h ^= (h >>> 20) ^ (h >>> 12);
 //        return (h ^ (h >>> 7) ^ (h >>> 4));
@@ -492,6 +501,11 @@ public class MapFact {
 
             public boolean addAll(ImMap<? extends K, ? extends V> map) {
                 mExclMap.exclAddAll(map);
+                return true;
+            }
+
+            public boolean addAll(ImSet<? extends K> set, V value) {
+                mExclMap.exclAddAll(set, value);
                 return true;
             }
 

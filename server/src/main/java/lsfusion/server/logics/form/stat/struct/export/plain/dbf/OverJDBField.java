@@ -2,6 +2,7 @@ package lsfusion.server.logics.form.stat.struct.export.plain.dbf;
 
 import com.hexiong.jdbf.JDBFException;
 import com.hexiong.jdbf.JDBField;
+import lsfusion.server.physics.admin.Settings;
 
 import java.text.DecimalFormat;
 import java.text.DecimalFormatSymbols;
@@ -11,11 +12,21 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.Date;
 
-import static lsfusion.server.logics.classes.data.time.DateTimeConverter.*;
+import static lsfusion.base.DateConverter.*;
+import static lsfusion.base.TimeConverter.localTimeToSqlTime;
 
 public class OverJDBField extends JDBField {
 
     private char type = super.getType();
+
+    public static OverJDBField createField(String name, char type, int i, int j) {
+        try {
+            return new OverJDBField(name, type, i, j);
+        } catch (JDBFException e) {
+            //default constructor throws exception without field name
+            throw new RuntimeException(String.format("Creation of field '%s' failed: " + e.getMessage(), name), e);
+        }
+    }
 
     public OverJDBField(String s, char c, int i, int j) throws JDBFException {
         super(s, c, i, j);
@@ -40,6 +51,13 @@ public class OverJDBField extends JDBField {
                 }
                 if (getDecimalCount() > 0) {
                     stringBuilder.setCharAt(getLength() - getDecimalCount() - 1, '.');
+
+                    if (Settings.get().isExportDBFNumericMandatoryZeroes()) {
+                        stringBuilder.setCharAt(getLength() - getDecimalCount() - 2, '0');
+                        for (int i = getLength() - getDecimalCount(); i < getLength(); i++) {
+                            stringBuilder.setCharAt(i, '0');
+                        }
+                    }
                 }
                 DecimalFormat decimalformat = new DecimalFormat(stringBuilder.toString());
                 DecimalFormatSymbols dfSymbols = decimalformat.getDecimalFormatSymbols();
@@ -75,6 +93,9 @@ public class OverJDBField extends JDBField {
 
                 }
                 return s + stringBuilder1;
+            } else if (obj instanceof LocalTime) {
+                Date date = localTimeToSqlTime((LocalTime) obj);
+                return new SimpleDateFormat("HH:mm:ss").format(date);
             } else {
                 throw new JDBFException("Expected a String, got " + obj.getClass() + ".");
             }

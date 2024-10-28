@@ -2,20 +2,24 @@ package lsfusion.client.form.property.table.view;
 
 import com.google.common.base.Preconditions;
 import lsfusion.base.BaseUtils;
-import lsfusion.base.SystemUtils;
+import lsfusion.base.Result;
 import lsfusion.client.base.SwingUtils;
 import lsfusion.client.classes.ClientActionClass;
 import lsfusion.client.classes.ClientType;
-import lsfusion.client.classes.data.ClientTextClass;
+import lsfusion.client.classes.data.ClientStringClass;
 import lsfusion.client.form.controller.ClientFormController;
+import lsfusion.client.form.design.view.widget.TableWidget;
 import lsfusion.client.form.object.ClientGroupObject;
 import lsfusion.client.form.object.ClientGroupObjectValue;
 import lsfusion.client.form.property.ClientPropertyDraw;
+import lsfusion.client.form.property.async.ClientInputList;
+import lsfusion.client.form.property.async.ClientInputListAction;
 import lsfusion.client.form.property.cell.EditBindingMap;
 import lsfusion.client.form.property.cell.controller.ClientAbstractCellEditor;
 import lsfusion.client.form.property.cell.controller.dispatch.EditPropertyDispatcher;
 import lsfusion.client.form.property.cell.view.ClientAbstractCellRenderer;
 import lsfusion.client.form.property.cell.view.PropertyRenderer;
+import lsfusion.client.form.property.panel.view.SingleCellTable;
 import lsfusion.interop.action.ServerResponse;
 import lsfusion.interop.form.event.BindingMode;
 import lsfusion.interop.form.event.KeyInputEvent;
@@ -29,6 +33,7 @@ import javax.swing.table.TableColumn;
 import javax.swing.table.TableModel;
 import javax.swing.text.JTextComponent;
 import java.awt.*;
+import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseListener;
@@ -37,7 +42,7 @@ import java.util.EventObject;
 
 import static lsfusion.client.form.property.cell.EditBindingMap.*;
 
-public abstract class ClientPropertyTable extends JTable implements TableTransferHandler.TableInterface, CellTableInterface {
+public abstract class ClientPropertyTable extends TableWidget implements TableTransferHandler.TableInterface, AsyncChangeCellTableInterface {
     private final EditPropertyDispatcher editDispatcher;
     protected final EditBindingMap editBindingMap = new EditBindingMap(true);
     private final CellTableContextMenuHandler contextMenuHandler = new CellTableContextMenuHandler(this);
@@ -50,8 +55,13 @@ public abstract class ClientPropertyTable extends JTable implements TableTransfe
     protected int editCol;
     protected ClientType currentEditType;
     protected Object currentEditValue;
+    protected ClientInputList currentInputList;
+    protected ClientInputListAction[] currentInputListActions;
+    protected String currentActionSID;
     protected boolean editPerformed;
     protected boolean commitingValue;
+    
+    public boolean hasHeader;
     
     protected ClientPropertyTable(TableModel model, ClientFormController form, ClientGroupObject groupObject) {
         this(model, form, groupObject, new ClientAbstractCellRenderer());
@@ -62,6 +72,8 @@ public abstract class ClientPropertyTable extends JTable implements TableTransfe
         
         this.form = form;
         this.groupObject = groupObject;
+        
+        hasHeader = groupObject != null && groupObject.hasHeaders;
 
         editDispatcher = new EditPropertyDispatcher(this, form.getDispatcherListener());
 
@@ -73,6 +85,8 @@ public abstract class ClientPropertyTable extends JTable implements TableTransfe
         initializeActionMap();
 
         contextMenuHandler.install();
+
+        enableEvents(AWTEvent.MOUSE_EVENT_MASK); // just in case, because we override processMouseEvent (however there are addMouseListeners)
     }
 
     private void initializeActionMap() {
@@ -86,7 +100,7 @@ public abstract class ClientPropertyTable extends JTable implements TableTransfe
     private ClientFormController.Binding getEnterBinding(boolean shiftPressed) {
         ClientFormController.Binding binding = new ClientFormController.Binding(groupObject, -100) {
             @Override
-            public boolean pressed(KeyEvent ke) {
+            public boolean pressed(InputEvent ke) {
                 tabAction(!shiftPressed);
                 return true;
             }
@@ -95,6 +109,7 @@ public abstract class ClientPropertyTable extends JTable implements TableTransfe
                 return true;
             }
         };
+        binding.bindPreview = BindingMode.NO;
         binding.bindEditing = BindingMode.NO;
         binding.bindGroup = BindingMode.ONLY;
         return binding;
@@ -109,7 +124,33 @@ public abstract class ClientPropertyTable extends JTable implements TableTransfe
     public Object getCurrentEditValue() {
         return currentEditValue;
     }
-    
+
+    public EventObject getCurrentEditEvent() {
+        return editEvent;
+    }
+
+    public ClientInputList getCurrentInputList() {
+        return currentInputList;
+    }
+
+    public ClientInputListAction[] getCurrentInputListActions() {
+        return currentInputListActions;
+    }
+
+    public String getCurrentActionSID() {
+        return currentActionSID;
+    }
+
+    Integer contextAction = null;
+    @Override
+    public Integer getContextAction() {
+        return contextAction;
+    }
+    @Override
+    public void setContextAction(Integer contextAction) {
+        this.contextAction = contextAction;
+    }
+
     @Override
     public Object getEditValue() {
         if(!checkEditBounds())
@@ -129,13 +170,14 @@ public abstract class ClientPropertyTable extends JTable implements TableTransfe
         ClientPropertyDraw property = getProperty(row, column);
         ClientGroupObjectValue columnKey = getColumnKey(row, column);
 
-        String actionSID = getPropertyEventActionSID(e, property, editBindingMap);
+        Result<Integer> contextAction = new Result<>();
+        String actionSID = getPropertyEventActionSID(e, contextAction, property, editBindingMap);
 
         if (actionSID == null) {
             return false;
         }
 
-        if (isEditableAwareEditEvent(actionSID) && !isCellEditable(row, column)) {
+        if (isChangeEvent(actionSID) && !isCellEditable(row, column)) {
             return false;
         }
         if(ServerResponse.EDIT_OBJECT.equals(actionSID) && !property.hasEditObjectAction) {
@@ -147,17 +189,17 @@ public abstract class ClientPropertyTable extends JTable implements TableTransfe
         //здесь немного запутанная схема...
         //executePropertyEventAction возвращает true, если редактирование произошло на сервере, необязательно с вводом значения...
         //но из этого editCellAt мы должны вернуть true, только если началось редактирование значения
-        editPerformed = edit(property, columnKey, actionSID, row, column, e);
+        editPerformed = edit(property, columnKey, actionSID, row, column, e, contextAction.result);
         return editorComp != null;
     }
 
-    public boolean edit(ClientPropertyDraw property, ClientGroupObjectValue columnKey, String actionSID, int row, int column, EventObject e) {
+    public boolean edit(ClientPropertyDraw property, ClientGroupObjectValue columnKey, String actionSID, int row, int column, EventObject e, Integer contextAction) {
         editRow = row;
         editCol = column;
         commitingValue = false;
         editEvent = e;
 
-        return editDispatcher.executePropertyEventAction(property, columnKey, actionSID, editEvent);
+        return editDispatcher.executePropertyEventAction(property, columnKey, actionSID, editEvent, contextAction);
     }
 
     public abstract int getCurrentRow();
@@ -167,7 +209,7 @@ public abstract class ClientPropertyTable extends JTable implements TableTransfe
         return editRow < getRowCount() && editCol < getColumnCount();
     }
 
-    public boolean requestValue(ClientType valueType, Object oldValue) {
+    public boolean requestValue(ClientType valueType, Object oldValue, ClientInputList inputList, ClientInputListAction[] inputListActions, String actionSID) {
         quickLog("formTable.requestValue: " + valueType);
 
         //пока чтение значения можно вызывать только один раз в одном изменении...
@@ -177,6 +219,9 @@ public abstract class ClientPropertyTable extends JTable implements TableTransfe
         // need this because we use getTableCellEditorComponent infrastructure and we need to pass currentEditValue there somehow
         currentEditType = valueType;
         currentEditValue = oldValue;
+        currentInputList = inputList;
+        currentInputListActions = inputListActions;
+        currentActionSID = actionSID;
 
         if (!super.editCellAt(editRow, editCol, editEvent)) {
             return false;
@@ -186,7 +231,13 @@ public abstract class ClientPropertyTable extends JTable implements TableTransfe
         assert checkEditBounds();
         prepareTextEditor();
 
-        editorComp.requestFocusInWindow();
+        if (editorComp instanceof AsyncInputComponent) {
+            ((AsyncInputComponent) editorComp).initEditor(editEvent, !KeyStrokes.isChangeAppendKeyEvent(editEvent));
+        }
+
+        if(editorComp != null) {
+            editorComp.requestFocusInWindow();
+        }
 
         form.setCurrentEditingTable(this);
 
@@ -243,7 +294,7 @@ public abstract class ClientPropertyTable extends JTable implements TableTransfe
     private void commitValue(Object value) {
         quickLog("formTable.commitValue: " + value);
         commitingValue = true;
-        editDispatcher.commitValue(value);
+        editDispatcher.commitValue(value, contextAction);
         form.clearCurrentEditingTable(this);
     }
 
@@ -309,10 +360,45 @@ public abstract class ClientPropertyTable extends JTable implements TableTransfe
         resizeAndRepaint();
     }
 
+    //If the click in the table has triggered a dialog, the processing of the click will continue after the dialog
+    //is closed. If the cursor position changes during this time, the MOUSE_DRAGGED event will occur.
+    //Need to supress changeSelection on MOUSE_DRAGGED
+    protected boolean supressDragging = false;
+
+    @Override
+    protected void processMouseEvent(MouseEvent e) {
+        checkMouseEvent(e, true);
+
+        super.processMouseEvent(e);
+
+        if (e.getID() == MouseEvent.MOUSE_PRESSED && !e.getLocationOnScreen().equals(MouseInfo.getPointerInfo().getLocation())) {
+            supressDragging = true;
+        } else if (e.getID() == MouseEvent.MOUSE_RELEASED) {
+            supressDragging = false;
+        }
+
+        checkMouseEvent(e, false);
+    }
+
+    protected abstract ClientPropertyDraw getSelectedProperty();
+
+    private void checkMouseEvent(MouseEvent e, boolean preview) {
+        form.checkMouseEvent(e, preview, getSelectedProperty(), () -> groupObject, this instanceof SingleCellTable);
+    }
+
+    private void checkKeyEvent(KeyStroke ks, boolean preview, KeyEvent e, int condition, boolean pressed) {
+        form.checkKeyEvent(ks, e, preview, getSelectedProperty(), () -> groupObject, this instanceof SingleCellTable, condition, pressed);
+    }
+
     protected boolean processKeyBinding(KeyStroke ks, KeyEvent e, int condition, boolean pressed) {
+        checkKeyEvent(ks, true, e, condition, pressed);
+
         editPerformed = false;
-        boolean consumed = e.isConsumed() || super.processKeyBinding(ks, e, condition, pressed);
-        return consumed || editPerformed;
+        boolean consumed = e.isConsumed() || super.processKeyBinding(ks, e, condition, pressed) || editPerformed;
+
+        checkKeyEvent(ks, false, e, condition, pressed);
+
+        return consumed || e.isConsumed();
     }
 
     @Override
@@ -325,7 +411,7 @@ public abstract class ClientPropertyTable extends JTable implements TableTransfe
 
             String keyPressedActionSID = getPropertyKeyPressActionSID(e, property);
             if (keyPressedActionSID != null) {
-                edit(property, columnKey, keyPressedActionSID, row, column, new InternalEditEvent(this, keyPressedActionSID));
+                edit(property, columnKey, keyPressedActionSID, row, column, new InternalEditEvent(this, keyPressedActionSID), null);
             }
         }
         
@@ -339,7 +425,7 @@ public abstract class ClientPropertyTable extends JTable implements TableTransfe
 
     private MouseListener listener;
 
-    private boolean isSubstituteListener(MouseListener listener) {
+    private static boolean isSubstituteListener(MouseListener listener) {
         return listener != null && "javax.swing.plaf.basic.BasicTableUI$Handler".equals(listener.getClass().getName()) ||
                 "com.apple.laf.AquaTableUI$MouseInputHandler".equals(listener.getClass().getName());
     }
@@ -373,13 +459,6 @@ public abstract class ClientPropertyTable extends JTable implements TableTransfe
         if (rowIndex != -1 && colIndex != -1) {
             ClientPropertyDraw cellProperty = getProperty(rowIndex, colIndex);
             
-            // todo: временно отключил тултипы для richText'а для Java старше 8. часто вылетает (особенно при вставке из Word). следует убрать проверку после перехода на Java 8:
-            // https://bugs.openjdk.java.net/browse/JDK-8034955
-            Double javaVersion = SystemUtils.getJavaSpecificationVersion();
-            if ((javaVersion == null || javaVersion < 1.8) && cellProperty.baseType instanceof ClientTextClass && ((ClientTextClass) cellProperty.baseType).rich) {
-                return null;
-            }
-            
             if (cellProperty.baseType instanceof ClientActionClass) {
                 return null;
             }
@@ -394,12 +473,15 @@ public abstract class ClientPropertyTable extends JTable implements TableTransfe
                     String formattedValue;
                     try {
                         formattedValue = cellProperty.formatString(value);
-                    } catch (ParseException e1) {
+                    } catch (ParseException | IllegalArgumentException e1) {
                         formattedValue = String.valueOf(value);
                     }
 
                     if (!BaseUtils.isRedundantString(formattedValue)) {
-                        return SwingUtils.toMultilineHtml(formattedValue, createToolTip().getFont());
+                        return SwingUtils.toMultilineHtml(
+                                cellProperty.baseType instanceof ClientStringClass && ((ClientStringClass) cellProperty.baseType).trimTooltip()
+                                        && formattedValue.length() > 1000 ? (BaseUtils.substring(formattedValue, 1000) + "...") : formattedValue,
+                                createToolTip().getFont());
                     }
                 } else if (cellProperty.isEditableNotNull()) {
                     return PropertyRenderer.REQUIRED_STRING;

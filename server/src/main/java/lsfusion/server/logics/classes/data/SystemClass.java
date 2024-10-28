@@ -2,6 +2,7 @@ package lsfusion.server.logics.classes.data;
 
 import lsfusion.interop.form.property.ExtInt;
 import lsfusion.server.data.sql.syntax.SQLSyntax;
+import lsfusion.server.data.type.DBType;
 import lsfusion.server.data.type.ObjectType;
 import lsfusion.server.data.type.exec.TypeEnvironment;
 import lsfusion.server.logics.classes.data.integral.LongClass;
@@ -37,8 +38,9 @@ public class SystemClass extends DataClass<Long> {
         return compClass instanceof SystemClass?this:null; 
     }
 
-    public String getDB(SQLSyntax syntax, TypeEnvironment typeEnv) {
-        return idClass.getDB(syntax, typeEnv);
+    @Override
+    public DBType getDBType() {
+        return idClass;
     }
 
     public String getDotNetType(SQLSyntax syntax, TypeEnvironment typeEnv) {
@@ -90,11 +92,6 @@ public class SystemClass extends DataClass<Long> {
 
     public Long parseString(String s) {
         throw new RuntimeException("not supported");
-    }
-
-    @Override
-    public String formatString(Long value) {
-        return value == null ? null : String.valueOf(value);
     }
 
     public String getSID() {

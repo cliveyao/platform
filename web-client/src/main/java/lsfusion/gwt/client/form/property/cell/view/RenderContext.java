@@ -1,13 +1,25 @@
 package lsfusion.gwt.client.form.property.cell.view;
 
+import com.google.gwt.user.client.ui.Widget;
 import lsfusion.gwt.client.form.design.GFont;
 
 public interface RenderContext {
-    Integer getStaticHeight();
-
-    boolean isAlwaysSelected(); // needed for editing object style (on ctrl pressed)
 
     boolean globalCaptionIsDrawn();
 
     GFont getFont();
+
+    Widget getPopupOwnerWidget();
+
+    RendererType getRendererType();
+
+    default boolean isTabFocusable() { return false; }
+
+    boolean isInputRemoveAllPMB();
+
+    String getPattern();
+
+    String getRegexp();
+
+    String getRegexpMessage();
 }

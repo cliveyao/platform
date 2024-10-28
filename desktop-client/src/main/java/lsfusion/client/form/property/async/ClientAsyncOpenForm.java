@@ -1,61 +1,55 @@
 package lsfusion.client.form.property.async;
 
+import lsfusion.base.file.AppImage;
+import lsfusion.base.file.IOUtils;
 import lsfusion.client.form.controller.ClientFormController;
-import lsfusion.client.form.controller.remote.serialization.ClientSerializationPool;
 import lsfusion.client.form.object.ClientGroupObjectValue;
 import lsfusion.client.form.property.ClientPropertyDraw;
 import lsfusion.client.form.property.cell.controller.dispatch.EditPropertyDispatcher;
 import lsfusion.client.view.DockableMainFrame;
 import lsfusion.client.view.MainFrame;
+import lsfusion.interop.form.ModalityWindowFormType;
+import lsfusion.interop.form.WindowFormType;
+import lsfusion.interop.form.remote.serialization.SerializationUtil;
 
 import java.io.DataInputStream;
-import java.io.DataOutputStream;
 import java.io.IOException;
 
 public class ClientAsyncOpenForm extends ClientAsyncExec {
     public String canonicalName;
     public String caption;
+    public AppImage appImage;
     public boolean forbidDuplicate;
     public boolean modal;
+    public WindowFormType type;
 
     @SuppressWarnings("UnusedDeclaration")
     public ClientAsyncOpenForm() {
     }
 
-    public ClientAsyncOpenForm(String canonicalName, String caption, boolean forbidDuplicate, boolean modal) {
-        this.canonicalName = canonicalName;
-        this.caption = caption;
-        this.forbidDuplicate = forbidDuplicate;
-        this.modal = modal;
-    }
+    public ClientAsyncOpenForm(DataInputStream inStream) throws IOException {
+        super(inStream);
 
-    @Override
-    public void customSerialize(ClientSerializationPool pool, DataOutputStream outStream) throws IOException {
-        throw new UnsupportedOperationException("not supported");
-    }
-
-    @Override
-    public void customDeserialize(ClientSerializationPool pool, DataInputStream inStream) throws IOException {
-        this.canonicalName = pool.readString(inStream);
-        this.caption = pool.readString(inStream);
-        this.forbidDuplicate = pool.readBoolean(inStream);
-        this.modal = pool.readBoolean(inStream);
+        this.canonicalName = SerializationUtil.readString(inStream);
+        this.caption = SerializationUtil.readString(inStream);
+        appImage = IOUtils.readAppImage(inStream);
+        this.forbidDuplicate = inStream.readBoolean();
+        this.modal = inStream.readBoolean();
+        this.type = WindowFormType.deserialize(inStream);
     }
 
     @Override
     public boolean exec(ClientFormController form, EditPropertyDispatcher dispatcher, ClientPropertyDraw property, ClientGroupObjectValue columnKey, String actionSID) throws IOException {
-        form.asyncOpenForm(property, columnKey, actionSID, this);
+        form.asyncOpenForm(property, dispatcher, columnKey, actionSID, this);
         return true;
     }
 
-    public boolean isModal() {
-        //if current form is modal, new async form can't be non-modal
-        ClientFormController currentForm = MainFrame.instance.currentForm;
-        return modal || (currentForm != null && currentForm.isModal());
+    @Override
+    public void exec(long requestIndex) {
+        ((DockableMainFrame) (MainFrame.instance)).asyncOpenForm(this, requestIndex);
     }
 
-    @Override
-    public void exec() {
-        ((DockableMainFrame) (MainFrame.instance)).asyncOpenForm(this);
+    public boolean isDesktopEnabled(boolean canShowDockedModal) { // should correspond SwingClientActionDispatcher.getModalityType
+        return type == ModalityWindowFormType.DOCKED && !(modal && !canShowDockedModal);
     }
 }

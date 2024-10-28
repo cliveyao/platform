@@ -8,35 +8,38 @@ import lsfusion.client.form.controller.ClientFormController;
 import lsfusion.client.form.controller.CloseAllAction;
 import lsfusion.client.form.controller.FormsController;
 import lsfusion.client.navigator.ClientNavigator;
-import lsfusion.client.view.DockableMainFrame;
+import lsfusion.client.navigator.controller.AsyncFormController;
 import lsfusion.client.view.MainFrame;
+import lsfusion.interop.form.FormClientData;
 import lsfusion.interop.form.remote.RemoteFormInterface;
 
 import javax.swing.*;
 import java.awt.*;
-import java.util.List;
 import java.awt.event.KeyEvent;
+import java.util.List;
+
+import static lsfusion.client.base.SwingUtils.wrapHtml;
 
 public class ClientFormDockable extends ClientDockable {
 
     private FormsController formsController;
     private ClientFormController form;
 
-    public ClientFormDockable(String canonicalName, String caption, FormsController formsController, List<ClientDockable> openedForms, Long requestIndex, boolean async) {
+    public ClientFormDockable(String canonicalName, String caption, FormsController formsController, List<ClientDockable> openedForms, AsyncFormController asyncFormController, boolean async) {
         super(canonicalName, formsController);
         setCaption(caption, null);
         addAction(new CloseAllAction(openedForms));
         this.formsController = formsController;
-        this.requestIndex = requestIndex;
         this.async = async;
+        this.asyncFormController = asyncFormController;
     }
 
     public void asyncInit() {
         setContent(new JLabel(new ImageIcon(ClientImages.get("loading_async.gif").getImage().getScaledInstance(32, 32, Image.SCALE_DEFAULT))));
     }
 
-    public void init(ClientNavigator navigator, String canonicalName, String formSID, RemoteFormInterface remoteForm, ClientForm clientForm, final MainFrame.FormCloseListener closeListener, byte[] firstChanges) {
-        this.form = new ClientFormController(canonicalName, formSID, remoteForm, formsController, clientForm, firstChanges, navigator, false, false) {
+    public void init(ClientNavigator navigator, RemoteFormInterface remoteForm, ClientForm clientForm, final MainFrame.FormCloseListener closeListener, FormClientData clientData, String formId) {
+        this.form = new ClientFormController(remoteForm, formsController, clientForm, clientData, navigator, false, false) {
             @Override
             public void onFormHidden() {
                 if (control() != null) {
@@ -62,7 +65,8 @@ public class ClientFormDockable extends ClientDockable {
 
             @Override
             public void unblockView() {
-                ClientFormDockable.this.form.getLayout().setBlocked(false);
+                if (ClientFormDockable.this.form != null)
+                    ClientFormDockable.this.form.getLayout().setBlocked(false);
                 ClientFormDockable.this.unblockView();
             }
 
@@ -81,18 +85,21 @@ public class ClientFormDockable extends ClientDockable {
         };
 
         setContent(this.form.getLayout());
+        onContendAdded();
         async = false;
+
+        this.formId = formId;
     }
 
     public void setCaption(String caption, String tooltip) {
-        setTitleText(caption);
+        setTitleText(wrapHtml(caption));
         setTitleToolTip(tooltip);
     }
 
     @Override
     public void onClosing() {
         if(async) {
-            ((DockableMainFrame) MainFrame.instance).removeOpenForm(requestIndex);
+            asyncFormController.removeAsyncForm();
             super.onClosing();
         } else {
             RmiQueue.runAction(new Runnable() {
@@ -152,6 +159,12 @@ public class ClientFormDockable extends ClientDockable {
     public void directProcessKeyEvent(KeyEvent e) {
         if (form != null && !form.isEditing()) {
             form.getLayout().directProcessKeyEvent(e);
+        }
+    }
+
+    public void focusGained() {
+        if(form != null) {
+            form.getLayout().focusGained();
         }
     }
 }

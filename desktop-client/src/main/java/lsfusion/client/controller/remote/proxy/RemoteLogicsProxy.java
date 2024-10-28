@@ -2,9 +2,10 @@ package lsfusion.client.controller.remote.proxy;
 
 import lsfusion.client.navigator.controller.remote.proxy.RemoteNavigatorProxy;
 import lsfusion.client.session.remote.proxy.RemoteSessionProxy;
-import lsfusion.interop.action.ReportPath;
-import lsfusion.interop.connection.authentication.Authentication;
 import lsfusion.interop.connection.AuthenticationToken;
+import lsfusion.interop.connection.ConnectionInfo;
+import lsfusion.interop.connection.authentication.Authentication;
+import lsfusion.interop.logics.remote.RemoteClientInterface;
 import lsfusion.interop.logics.remote.RemoteLogicsInterface;
 import lsfusion.interop.navigator.NavigatorInfo;
 import lsfusion.interop.navigator.remote.RemoteNavigatorInterface;
@@ -60,26 +61,33 @@ public class RemoteLogicsProxy<T extends RemoteLogicsInterface> extends PendingR
     }
 
     @Override
-    public ExternalResponse exec(AuthenticationToken token, SessionInfo sessionInfo, String action, ExternalRequest request) throws RemoteException {
+    public ExternalResponse exec(AuthenticationToken token, ConnectionInfo connectionInfo, String action, ExternalRequest request) throws RemoteException {
         logRemoteMethodStartCall("exec");
-        ExternalResponse result = target.exec(token, sessionInfo, action, request);
+        ExternalResponse result = target.exec(token, connectionInfo, action, request);
         logRemoteMethodEndVoidCall("exec");
         return result;
     }
 
     @Override
-    public ExternalResponse eval(AuthenticationToken token, SessionInfo sessionInfo, boolean action, Object paramScript, ExternalRequest request) throws RemoteException {
+    public ExternalResponse eval(AuthenticationToken token, ConnectionInfo connectionInfo, boolean action, ExternalRequest.Param paramScript, ExternalRequest request) throws RemoteException {
         logRemoteMethodStartCall("eval");
-        ExternalResponse result = target.eval(token, sessionInfo, action, paramScript, request);
+        ExternalResponse result = target.eval(token, connectionInfo, action, paramScript, request);
         logRemoteMethodEndVoidCall("eval");
         return result;
     }
 
     @Override
-    public List<ReportPath> saveAndGetCustomReportPathList(String formSID, boolean recreate) throws RemoteException {
+    public List<String> saveAndGetCustomReportPathList(String formSID, boolean recreate) throws RemoteException {
         logRemoteMethodStartVoidCall("saveCustomReportPathList");
-        List<ReportPath> result = target.saveAndGetCustomReportPathList(formSID, recreate);
+        List<String> result = target.saveAndGetCustomReportPathList(formSID, recreate);
         logRemoteMethodEndVoidCall("saveCustomReportPathList");
         return result;
+    }
+
+    @Override
+    public void registerClient(RemoteClientInterface client) throws RemoteException {
+        logRemoteMethodStartVoidCall("registerClient");
+        target.registerClient(client);
+        logRemoteMethodEndVoidCall("registerClient");
     }
 }

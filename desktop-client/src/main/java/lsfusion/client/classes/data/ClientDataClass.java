@@ -7,28 +7,23 @@ import lsfusion.client.classes.ClientClass;
 import lsfusion.client.classes.ClientType;
 import lsfusion.client.classes.ClientTypeClass;
 import lsfusion.client.form.controller.ClientFormController;
+import lsfusion.client.form.design.view.flex.LinearCaptionContainer;
 import lsfusion.client.form.object.ClientGroupObjectValue;
 import lsfusion.client.form.property.ClientPropertyDraw;
 import lsfusion.client.form.property.cell.EditBindingMap;
 import lsfusion.client.form.property.cell.classes.controller.PropertyEditor;
 import lsfusion.client.form.property.panel.view.DataPanelView;
 import lsfusion.client.form.property.panel.view.PanelView;
+import lsfusion.client.form.property.table.view.AsyncChangeInterface;
 import lsfusion.interop.form.property.Compare;
 
 import java.awt.*;
-import java.io.DataOutputStream;
-import java.io.IOException;
 
 import static lsfusion.interop.form.property.Compare.*;
 
 public abstract class ClientDataClass extends ClientClass implements ClientType {
 
     protected ClientDataClass() {
-    }
-
-    @Override
-    public void serialize(DataOutputStream outStream) throws IOException {
-        outStream.writeByte(getTypeClass().getTypeId());
     }
 
     public boolean hasChildren() {
@@ -61,28 +56,25 @@ public abstract class ClientDataClass extends ClientClass implements ClientType 
         return 1;
     }
 
-    public PanelView getPanelView(ClientPropertyDraw key, ClientGroupObjectValue columnKey, ClientFormController form) {
-        return new DataPanelView(form, key, columnKey);
+    @Override
+    public PanelView getPanelView(ClientPropertyDraw key, ClientGroupObjectValue columnKey, ClientFormController form, LinearCaptionContainer captionContainer) {
+        return new DataPanelView(form, key, columnKey, captionContainer);
     }
 
-    public PropertyEditor getChangeEditorComponent(Component ownerComponent, ClientFormController form, ClientPropertyDraw property, Object value) {
-        return getDataClassEditorComponent(value, property);
+    @Override
+    public PropertyEditor getChangeEditorComponent(Component ownerComponent, ClientFormController form, ClientPropertyDraw property, AsyncChangeInterface asyncChange, Object value) {
+        return getDataClassEditorComponent(value, property, asyncChange);
     }
 
-    public PropertyEditor getValueEditorComponent(ClientFormController form, ClientPropertyDraw property, Object value) {
-        return getDataClassEditorComponent(value, property);
+    @Override
+    public PropertyEditor getValueEditorComponent(ClientFormController form, ClientPropertyDraw property, AsyncChangeInterface asyncChange, Object value) {
+        return getDataClassEditorComponent(value, property, asyncChange);
     }
 
-    protected abstract PropertyEditor getDataClassEditorComponent(Object value, ClientPropertyDraw property);
+    protected abstract PropertyEditor getDataClassEditorComponent(Object value, ClientPropertyDraw property, AsyncChangeInterface asyncChange);
 
     public String getConfirmMessage() {
         return ClientResourceBundle.getString("logics.classes.do.you.really.want.to.edit.property");
-    }
-
-    // за исключение классов динамической ширины - так как нету множественного наследования и не хочется каждому прописывать
-    @SuppressWarnings("UnusedDeclaration")
-    public ClientType getDefaultType() {
-        return this;
     }
 
     public ClientTypeClass getTypeClass() {
@@ -91,12 +83,7 @@ public abstract class ClientDataClass extends ClientClass implements ClientType 
 
     @Override
     public Compare[] getFilterCompares() {
-        return new Compare[] {EQUALS, GREATER, LESS, GREATER_EQUALS, LESS_EQUALS, NOT_EQUALS};
-    }
-
-    @Override
-    public Compare getDefaultCompare() {
-        return EQUALS;
+        return new Compare[] {EQUALS, GREATER, LESS, GREATER_EQUALS, LESS_EQUALS};
     }
 
     @Override

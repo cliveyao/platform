@@ -12,15 +12,13 @@ import lsfusion.server.logics.classes.ValueClass;
 import lsfusion.server.logics.classes.data.DataClass;
 import lsfusion.server.logics.classes.user.set.AndClassSet;
 import lsfusion.server.logics.form.interactive.changed.ChangedData;
+import lsfusion.server.logics.form.interactive.instance.FormInstance;
 import lsfusion.server.logics.form.struct.object.ObjectEntity;
-
-import java.sql.SQLException;
 
 // ObjectInstance table'ы
 public class DataObjectInstance extends ObjectInstance {
 
     DataClass dataClass;
-    ObjectValue value = NullValue.instance;
 
     public DataObjectInstance(ObjectEntity entity, DataClass dataClass) {
         super(entity);
@@ -37,15 +35,6 @@ public class DataObjectInstance extends ObjectInstance {
 
     public DataClass getBaseClass() {
         return dataClass;
-    }
-
-    public void changeValue(SessionChanges session, ObjectValue objectValue) {
-        if(BaseUtils.nullEquals(value, objectValue)) return;
-        assert objectValue instanceof NullValue || dataClass.getCompatible(((DataObject) objectValue).getType()) != null;
-        value = objectValue;
-
-        updated = updated | UPDATED_OBJECT;
-        groupTo.updated = groupTo.updated | GroupObjectInstance.UPDATED_OBJECT;
     }
 
     public boolean classChanged(ChangedData changedProps) {

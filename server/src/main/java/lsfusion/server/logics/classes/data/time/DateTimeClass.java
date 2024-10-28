@@ -4,7 +4,9 @@ import com.hexiong.jdbf.JDBFException;
 import lsfusion.base.DateConverter;
 import lsfusion.interop.base.view.FlexAlignment;
 import lsfusion.interop.classes.DataType;
+import lsfusion.interop.connection.LocalePreferences;
 import lsfusion.interop.form.property.ExtInt;
+import lsfusion.server.base.controller.thread.ThreadLocalContext;
 import lsfusion.server.data.sql.syntax.SQLSyntax;
 import lsfusion.server.data.stat.Stat;
 import lsfusion.server.data.type.exec.TypeEnvironment;
@@ -23,34 +25,37 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDateTime;
-import java.time.chrono.Chronology;
 import java.time.format.DateTimeFormatter;
-import java.time.format.DateTimeFormatterBuilder;
 import java.time.format.DateTimeParseException;
-import java.time.format.FormatStyle;
-import java.util.Locale;
+import java.util.ArrayList;
+import java.util.Collection;
 
 import static lsfusion.base.DateConverter.*;
-import static lsfusion.server.logics.classes.data.time.DateTimeConverter.getWriteDateTime;
 
-public class DateTimeClass extends DataClass<LocalDateTime> {
+public class DateTimeClass extends HasTimeClass<LocalDateTime> {
 
-    public final static DateTimeClass instance = new DateTimeClass();
-
-    private final static String dateTimePattern = DateTimeFormatterBuilder.getLocalizedDateTimePattern(FormatStyle.SHORT, FormatStyle.MEDIUM, Chronology.ofLocale(Locale.getDefault()), Locale.getDefault());
-
-    static {
-        DataClass.storeClass(instance);
+    private DateTimeClass(LocalizedString caption, ExtInt millisLength) {
+        super(caption, millisLength);
     }
 
-    private DateTimeClass() { super(LocalizedString.create("{classes.date.with.time}")); }
+    private final static Collection<DateTimeClass> dateTimeClasses = new ArrayList<>();
+    public final static DateTimeClass instance = get(ExtInt.UNLIMITED);
+    public static DateTimeClass get(ExtInt millisLength) {
+        return getCached(dateTimeClasses, millisLength, () -> new DateTimeClass(LocalizedString.create("{classes.date.with.time}"), millisLength));
+    }
 
     public int getReportPreferredWidth() {
         return 80;
     }
 
     public Class getReportJavaClass() {
-        return java.util.Date.class;
+        return java.time.LocalDateTime.class;
+    }
+
+    @Override
+    public String getDefaultPattern() {
+        LocalePreferences localePreferences = ThreadLocalContext.get().getLocalePreferences();
+        return localePreferences != null ? localePreferences.dateTimeFormat : ThreadLocalContext.getTFormats().dateTimePattern;
     }
 
     @Override
@@ -58,7 +63,6 @@ public class DateTimeClass extends DataClass<LocalDateTime> {
         super.fillReportDrawField(reportField);
 
         reportField.alignment = HorizontalTextAlignEnum.RIGHT;
-        reportField.pattern = dateTimePattern;
     }
 
     public byte getTypeID() {
@@ -70,11 +74,11 @@ public class DateTimeClass extends DataClass<LocalDateTime> {
     }
 
     public LocalDateTime getDefaultValue() {
-        return getWriteDateTime(LocalDateTime.now());
+        return LocalDateTime.now();
     }
 
-    public String getDB(SQLSyntax syntax, TypeEnvironment typeEnv) {
-        return syntax.getDateTimeType();
+    public String getDBString(SQLSyntax syntax, TypeEnvironment typeEnv) {
+        return syntax.getDateTimeType(millisLength);
     }
     public String getDotNetType(SQLSyntax syntax, TypeEnvironment typeEnv) {
         return "SqlDateTime";
@@ -123,17 +127,8 @@ public class DateTimeClass extends DataClass<LocalDateTime> {
         return new ExtInt(25);
     }
 
-    @Override
-    public FlexAlignment getValueAlignment() {
-        return FlexAlignment.END;
-    }
-
     public boolean isSafeString(Object value) {
         return false;
-    }
-
-    public String getString(Object value, SQLSyntax syntax) {
-        throw new RuntimeException("not supported");
     }
 
     @Override
@@ -153,15 +148,9 @@ public class DateTimeClass extends DataClass<LocalDateTime> {
 
     public LocalDateTime parseString(String s) throws ParseException {
         try {
-            //try to parse with default locale formats
-            FormatStyle[] formatStyles = new FormatStyle[]{FormatStyle.SHORT, FormatStyle.MEDIUM};
-            for(FormatStyle dateStyle : formatStyles) {
-                for(FormatStyle timeStyle : formatStyles) {
-                    try {
-                        return LocalDateTime.parse(s, DateTimeFormatter.ofLocalizedDateTime(dateStyle, timeStyle));
-                    } catch (DateTimeParseException ignored) {
-                    }
-                }
+            try {
+                return LocalDateTime.parse(s, ThreadLocalContext.getTFormats().dateTimeParser);
+            } catch (DateTimeParseException ignored) {
             }
             return DateConverter.smartParse(s);
         } catch (Exception e) {
@@ -170,17 +159,14 @@ public class DateTimeClass extends DataClass<LocalDateTime> {
     }
 
     @Override
-    public String formatString(LocalDateTime value) {
-        return value == null ? null : value.format(DateTimeFormatter.ofLocalizedDateTime(FormatStyle.SHORT, FormatStyle.MEDIUM));
+    public String formatString(LocalDateTime value, boolean ui) {
+        LocalePreferences localePreferences = ThreadLocalContext.get().getLocalePreferences();
+        return value != null ? (value.format(ui && localePreferences != null ? DateTimeFormatter.ofPattern(localePreferences.dateTimeFormat)
+                : ThreadLocalContext.getTFormats().dateTimeFormatter)) : null;
     }
 
     public String getSID() {
         return "DATETIME";
-    }
-
-    @Override
-    public LocalDateTime getInfiniteValue(boolean min) {
-        return min ? LocalDateTime.MIN : LocalDateTime.MAX;
     }
 
     @Override
@@ -190,7 +176,7 @@ public class DateTimeClass extends DataClass<LocalDateTime> {
 
     @Override
     public OverJDBField formatDBF(String fieldName) throws JDBFException {
-        return new OverJDBField(fieldName, 'D', 8, 0);
+        return OverJDBField.createField(fieldName, 'D', 8, 0);
     }
 
     @Override
@@ -201,8 +187,35 @@ public class DateTimeClass extends DataClass<LocalDateTime> {
         cell.setCellStyle(styles.dateTime);
     }
 
+    public static final LocalDateTime minDate = LocalDateTime.of(1, 1, 1, 0, 0);
+    public static final LocalDateTime maxDate = LocalDateTime.of(294275, 1, 1, 0 , 0);
+
     @Override
-    public boolean useIndexedJoin() {
-        return true;
+    public LocalDateTime getInfiniteValue(boolean min) {
+        return min ? minDate : maxDate;
+    }
+
+    // actually is used only for OrderClass.getSource
+    @Override
+    public String getString(Object value, SQLSyntax syntax) {
+        assert value != null;
+        LocalDateTime dateTime = (LocalDateTime) value;
+        return "make_timestamp(" + dateTime.getYear() + "," + dateTime.getMonthValue() + "," + dateTime.getDayOfMonth() +
+                dateTime.getHour() + "," + dateTime.getMinute() + "," + dateTime.getSecond() + ", 0.0)";
+    }
+
+    @Override
+    public String getIntervalProperty() {
+        return "interval[DATETIME,DATETIME]";
+    }
+
+    @Override
+    public String getFromIntervalProperty() {
+        return "from[INTERVAL[DATETIME]]";
+    }
+
+    @Override
+    public String getToIntervalProperty() {
+        return "to[INTERVAL[DATETIME]]";
     }
 }

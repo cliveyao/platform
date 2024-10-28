@@ -1,7 +1,8 @@
 package lsfusion.server.data.sql.adapter;
 
 import lsfusion.base.Pair;
-import lsfusion.base.ResourceUtils;
+import lsfusion.interop.session.ExternalUtils;
+import lsfusion.server.base.ResourceUtils;
 import lsfusion.base.col.MapFact;
 import lsfusion.base.col.interfaces.immutable.ImList;
 import lsfusion.base.col.interfaces.mutable.add.MAddExclMap;
@@ -27,15 +28,13 @@ import lsfusion.server.physics.admin.log.ServerLoggers;
 import org.apache.log4j.Logger;
 import org.springframework.util.PropertyPlaceholderHelper;
 
+import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Properties;
-import java.util.Set;
+import java.util.*;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -67,27 +66,23 @@ public abstract class DataAdapter extends AbstractConnectionPool implements Type
         this.instance = instance;
     }
 
-    private List<String> resources;
-
     public void ensure(boolean cleanDB) throws Exception {
         ensureDB(cleanDB);
 
         ensureConnection = startConnection();
         ensureConnection.setAutoCommit(true);
 
-        resources = ResourceUtils.getResources(Pattern.compile("/sql/.*"));
-
         ensureSqlFuncs();
     }
 
-    private static List<String> getAllDBNames() {
+    public static List<String> getAllDBNames() {
         return new ArrayList<>(Arrays.asList(PostgreDataAdapter.DB_NAME, MySQLDataAdapter.DB_NAME));
     }
 
-    private List<String> filterResources() {
+    private List<String> findSQLScripts() {
         List<String> allDBNames = getAllDBNames();
         allDBNames.remove(getDBName());
-        return resources.stream().filter(resource -> {
+        return ResourceUtils.getResources(Pattern.compile("/sql/.*")).stream().filter(resource -> {
             if (resource.contains(".tsql"))
                 return false;
             for (String key : allDBNames) {
@@ -98,24 +93,31 @@ public abstract class DataAdapter extends AbstractConnectionPool implements Type
         }).collect(Collectors.toList());
     }
 
-    protected abstract String getDBName();
+    public abstract String getDBName();
 
     protected void ensureSqlFuncs() throws IOException, SQLException {
-        executeEnsure(filterResources());
+        executeEnsure(findSQLScripts());
     }
 
     public void ensureLogLevel() {
+    }
+
+    public boolean checkBackupParams(ExecutionContext context) {
+        return false;
     }
 
     public String getBackupFilePath(String dumpFileName) {
         return null;
     }
 
-    public String backupDB(ExecutionContext context, String dumpFileName, int threadCount, List<String> excludeTables) throws IOException {
+    public String getBackupFileLogPath(String dumpFileName) {
         return null;
     }
 
-    public String customRestoreDB(String fileBackup, Set<String> tables) throws IOException {
+    public void backupDB(ExecutionContext context, String dumpFileName, int threadCount, List<String> excludeTables) throws IOException {
+    }
+
+    public String customRestoreDB(String fileBackup, Set<String> tables, boolean isMultithread) throws IOException {
         return null;
     }
 
@@ -158,7 +160,7 @@ public abstract class DataAdapter extends AbstractConnectionPool implements Type
             throw new UnsupportedOperationException();
         }
 
-        public void addNeedSafeCast(Type type, Boolean isInt) {
+        public void addNeedSafeCast(Type type, Integer sourceType) {
             throw new UnsupportedOperationException();
         }
     };
@@ -170,21 +172,44 @@ public abstract class DataAdapter extends AbstractConnectionPool implements Type
     protected Connection ensureConnection;
 
     protected void executeEnsure(String command) {
-        try (Statement statement = ensureConnection.createStatement()) {
-            statement.execute(command);
+        try {
+            executeEnsureWithException(command);
         } catch (SQLException e) {
             ServerLoggers.sqlSuppLog(e);
         }
     }
 
+    public static String readResource(String path) throws IOException {
+        InputStream resourceAsStream = BusinessLogics.class.getResourceAsStream(path);
+        if(resourceAsStream == null)
+            return null;
+        return IOUtils.readStreamToString(resourceAsStream, ExternalUtils.resourceCharset.name());
+    }
+
+    public static Set<String> disabledFunctions = new HashSet<>();
     protected void executeEnsure(List<String> functions) {
         functions.forEach(command -> {
             try {
-                executeEnsure(IOUtils.readStreamToString(ResourceUtils.getResourceAsStream(command)));
-            } catch (IOException e) {
-                throw new RuntimeException(e);
+                executeEnsureWithException(readResource(command));
+            } catch (IOException | SQLException e) {
+                String name = new File(command).getName();
+                if (name.endsWith("_opt.sql")) {
+                    disabledFunctions.add(name);
+                } else {
+                    throw new RuntimeException(command, e);
+                }
             }
         });
+    }
+
+    public static boolean hasTrgmExtension() {
+        return !disabledFunctions.contains("trgm_opt.sql");
+    }
+
+    protected void executeEnsureWithException(String command) throws SQLException {
+        try (Statement statement = ensureConnection.createStatement()) {
+            statement.execute(command);
+        }
     }
 
     protected MAddExclMap<ConcatenateType, Boolean> ensuredConcTypes = MapFact.mAddExclMap();
@@ -216,10 +241,11 @@ public abstract class DataAdapter extends AbstractConnectionPool implements Type
 
     protected String safeCastString;
     protected String safeCastIntString;
+    protected String safeCastStrString;
 
-    private LRUSVSMap<Pair<Type, Boolean>, Boolean> ensuredSafeCasts = new LRUSVSMap<>(LRUUtil.G2);
+    private LRUSVSMap<Pair<Type, Integer>, Boolean> ensuredSafeCasts = new LRUSVSMap<>(LRUUtil.G2);
 
-    public synchronized void ensureSafeCast(Pair<Type, Boolean> castType) throws SQLException {
+    public synchronized void ensureSafeCast(Pair<Type, Integer> castType) throws SQLException {
         Boolean ensured = ensuredSafeCasts.get(castType);
         if(ensured != null)
             return;
@@ -231,8 +257,11 @@ public abstract class DataAdapter extends AbstractConnectionPool implements Type
         properties.put("param.minvalue", castType.first.getInfiniteValue(true).toString());
         properties.put("param.maxvalue", castType.first.getInfiniteValue(false).toString());
 
+        boolean isInt = castType.second == 0 && Settings.get().getSafeCastIntType() == 1;
+        boolean isStr = castType.second == 1 && Settings.get().getSafeCastIntType() == 1;
+
         executeEnsure(stringResolver.replacePlaceholders(
-                castType.second && Settings.get().getSafeCastIntType() == 1 ? safeCastIntString : safeCastString, properties));
+                isInt ? safeCastIntString : isStr ? safeCastStrString : safeCastString, properties));
 
         ensuredSafeCasts.put(castType, true);
     }
@@ -247,7 +276,7 @@ public abstract class DataAdapter extends AbstractConnectionPool implements Type
         throw new UnsupportedOperationException();
     }
     public void ensureScript(String script, Properties props) throws SQLException, IOException {
-        String scriptString = IOUtils.readStreamToString(BusinessLogics.class.getResourceAsStream(getPath() + script));
+        String scriptString = readResource(getPath() + script);
         executeEnsure(stringResolver.replacePlaceholders(scriptString, props));
     }
 

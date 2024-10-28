@@ -1,22 +1,31 @@
 <%@ page import="lsfusion.base.ServerMessages" %>
+<%@ page import="lsfusion.base.ServerUtils" %>
 <%@ taglib prefix="c" uri="http://java.sun.com/jsp/jstl/core" %>
 <%@ page contentType="text/html; charset=UTF-8" pageEncoding="UTF-8" %>
 <%@ page isELIgnored="false" %>
+<%@ taglib prefix="lsf" uri="writeResources" %>
 
 <!DOCTYPE html>
 <html>
     <head>
+        <link rel="manifest" href="manifest">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
         <title>${title}</title>
+        <lsf:writeResources resources="${noAuthResourcesBeforeSystem}"/>
         <link rel="shortcut icon" href="${logicsIcon}" />
         <link rel="stylesheet" media="only screen and (min-device-width: 601px)" href="static/noauth/css/login.css"/>
         <link rel="stylesheet" media="only screen and (max-device-width: 600px)" href="static/noauth/css/mobile_login.css"/>
-        <script type="text/javascript" src="static/noauth/js/loadResources.js"></script>
-        <script>
-            loadResources([
-                'static/noauth/css/fontAwesome/css/font-awesome.min.css'
-            ]);
-        </script>
+
+        <% pageContext.setAttribute("versionedResources", ServerUtils.getVersionedResources(config.getServletContext(),
+
+                "static/noauth/css/fontAwesome/css/fontawesome.min.css",
+                "static/noauth/css/fontAwesome/css/brands.min.css",
+                "static/noauth/css/fontAwesome/css/solid.min.css"
+                )); %>
+        <lsf:writeResources resources="${versionedResources}"/>
+        <lsf:writeResources resources="${noAuthResourcesAfterSystem}"/>
+
     </head>
     <body onload="document.loginForm.username.focus();">
         <div class="main">
@@ -40,7 +49,7 @@
                     <fieldset>
                         <div class="label-and-field">
                             <label for="username"><%= ServerMessages.getString(request, "login") %></label>
-                            <input type="text" id="username" name="username" class="round full-width-box"/>
+                            <input autocapitalize="off" type="text" id="username" name="username" class="round full-width-box" value="${username}"/>
                         </div>
                         <div class="label-and-field">
                             <div class="password-labels-container">
@@ -50,19 +59,19 @@
                             <input type="password" id="password" name="password" class="round full-width-box"/>
                         </div>
                         <input name="submit" type="submit" class="action-button round blue" value="<%= ServerMessages.getString(request, "sign.in") %>"/>
-                        <c:if test="${not empty SPRING_SECURITY_LAST_EXCEPTION}">
-                            <%
-                                if (session.getAttribute("SPRING_SECURITY_LAST_EXCEPTION") instanceof Exception) {
-                                    session.setAttribute("SPRING_SECURITY_LAST_EXCEPTION", ((Exception) session.getAttribute("SPRING_SECURITY_LAST_EXCEPTION")).getMessage());
-                                }
-                            %>
-                            <div class="error-block round full-width-box">
-                                ${SPRING_SECURITY_LAST_EXCEPTION}
-                            </div>
-                            <c:remove var="SPRING_SECURITY_LAST_EXCEPTION" scope="session"/>
-                        </c:if>
                     </fieldset>
                 </form>
+                <c:if test="${not empty SPRING_SECURITY_LAST_EXCEPTION}">
+                    <%
+                        if (session.getAttribute("SPRING_SECURITY_LAST_EXCEPTION") instanceof Exception) {
+                            session.setAttribute("SPRING_SECURITY_LAST_EXCEPTION", ((Exception) session.getAttribute("SPRING_SECURITY_LAST_EXCEPTION")).getMessage());
+                        }
+                    %>
+                    <div class="error-block round">
+                            ${SPRING_SECURITY_LAST_EXCEPTION}
+                    </div>
+                    <c:remove var="SPRING_SECURITY_LAST_EXCEPTION" scope="session"/>
+                </c:if>
                 <c:if test="${! disableRegistration}">
                     <div class="reg-block">
                         <%= ServerMessages.getString(request, "no.account") %>
@@ -74,7 +83,7 @@
                             <div class="oauth-title"><%= ServerMessages.getString(request, "sign.in.with") %></div>
                             <div class="oauth-links">
                                 <c:forEach var="url" items="${urls}">
-                                    <a href="${url.value}" class="oauth-link fa fa-${url.key}" title="${url.key}"></a>
+                                    <a href="${url.value}" class="oauth-link fa-brands fa-solid fa-${url.key}" title="${url.key}"></a>
                                 </c:forEach>
                             </div>
                         </div>
@@ -84,6 +93,9 @@
             <div class="footer">
                 <div class="desktop-link link">
                     ${jnlpUrls}
+                </div>
+                <div class="client-version">
+                    ${apiVersion}
                 </div>
             </div>
         </div>

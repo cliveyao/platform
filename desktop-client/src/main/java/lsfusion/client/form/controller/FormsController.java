@@ -20,13 +20,15 @@ import lsfusion.client.form.property.async.ClientAsyncOpenForm;
 import lsfusion.client.form.view.ClientFormDockable;
 import lsfusion.client.form.view.ClientModalForm;
 import lsfusion.client.navigator.ClientNavigator;
+import lsfusion.client.navigator.controller.AsyncFormController;
 import lsfusion.client.view.DockableMainFrame;
 import lsfusion.client.view.MainFrame;
+import lsfusion.interop.form.FormClientData;
 import lsfusion.interop.form.print.ReportGenerationData;
 import lsfusion.interop.form.remote.RemoteFormInterface;
 
-import java.awt.*;
 import javax.swing.*;
+import java.awt.*;
 import java.awt.event.KeyEvent;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -111,6 +113,8 @@ public class FormsController implements ColorThemeChangeListener {
                     page.onShowingChanged(event.getOldShowing(), event.getNewShowing());
                     if(event.getOldShowing()) {
                         prevFocusPage = page;
+                    } else if (page instanceof ClientFormDockable) {
+                        ((ClientFormDockable) page).focusGained();
                     }
                 }
             }
@@ -128,47 +132,52 @@ public class FormsController implements ColorThemeChangeListener {
 
         page.onOpened();
         openedForms.add(page);
+
+        ((DockableMainFrame) MainFrame.instance).setLogsDockableVisible(false);
     }
 
-    public ClientFormDockable openForm(Long requestIndex, ClientNavigator navigator, String canonicalName, String formSID, boolean forbidDuplicate, RemoteFormInterface remoteForm, byte[] firstChanges, MainFrame.FormCloseListener closeListener) {
-        ClientFormDockable page = getDuplicateForm(canonicalName, forbidDuplicate);
-        if(page != null) {
-            page.toFront();
-            page.requestFocusInWindow();
+    public ClientFormDockable openForm(AsyncFormController asyncFormController, ClientNavigator navigator, boolean forbidDuplicate,
+                                       RemoteFormInterface remoteForm, FormClientData clientData, MainFrame.FormCloseListener closeListener, String formId) throws IOException {
+        ClientForm clientForm = ClientFormController.deserializeClientForm(remoteForm, clientData);
+        ClientFormDockable page = asyncFormController.removeAsyncForm();
+        boolean asyncOpened = page != null;
+
+        if (!asyncOpened) {
+            ClientFormDockable duplicateForm = getDuplicateForm(clientData.canonicalName, forbidDuplicate);
+            if (duplicateForm != null) {
+                duplicateForm.toFront();
+                duplicateForm.requestFocusInWindow();
+                return duplicateForm;
+            }
+        }
+
+        if (!asyncOpened) {
+            if (openFormTimer != null) {
+                openFormTimer.stop();
+                openFormTimer = null;
+            }
+            page = new ClientFormDockable(clientForm.canonicalName, clientForm.getCaption(), this, openedForms, null, false);
         } else {
-
-            ClientForm clientForm = ClientFormController.deserializeClientForm(remoteForm);
-            page = forms.removeAsyncForm(requestIndex);
-
-            boolean asyncOpened = page != null;
-            if (!asyncOpened) {
-                if(openFormTimer != null) {
-                    openFormTimer.stop();
-                    openFormTimer = null;
-                }
-                page = new ClientFormDockable(clientForm.canonicalName, clientForm.getCaption(), this, openedForms, null, false);
-            } else {
-                page.getContentPane().removeAll(); //remove loading
-            }
-            page.init(navigator, canonicalName, formSID, remoteForm, clientForm, closeListener, firstChanges);
-            if (!asyncOpened) {
-                openForm(page);
-            }
+            page.getContentPane().removeAll(); //remove loading
+        }
+        page.init(navigator, remoteForm, clientForm, closeListener, clientData, formId);
+        if (!asyncOpened) {
+            openForm(page);
         }
         return page;
     }
 
     //we don't want flashing, so we use timer
     Timer openFormTimer;
-    public void asyncOpenForm(Long requestIndex, ClientAsyncOpenForm asyncOpenForm) {
+    public void asyncOpenForm(AsyncFormController asyncFormController, ClientAsyncOpenForm asyncOpenForm) {
         if (getDuplicateForm(asyncOpenForm.canonicalName, asyncOpenForm.forbidDuplicate) == null) {
             openFormTimer = new Timer(100, e -> {
                 if(openFormTimer != null) {
-                    if (requestIndex > lastCompletedRequest) { //request is not completed yet
-                        ClientFormDockable page = new ClientFormDockable(asyncOpenForm.canonicalName, asyncOpenForm.caption, FormsController.this, openedForms, requestIndex, true);
+                    if (asyncFormController.checkNotCompleted()) { //request is not completed yet
+                        ClientFormDockable page = new ClientFormDockable(asyncOpenForm.canonicalName, asyncOpenForm.caption, FormsController.this, openedForms, asyncFormController, true);
                         page.asyncInit();
                         openForm(page);
-                        forms.addAsyncForm(requestIndex, page);
+                        asyncFormController.putAsyncForm(page);
                     }
                     openFormTimer = null;
                 }
@@ -180,8 +189,10 @@ public class FormsController implements ColorThemeChangeListener {
 
     private ClientFormDockable getDuplicateForm(String canonicalName, boolean forbidDuplicate) {
         if (MainController.forbidDuplicateForms && forbidDuplicate) {
-            if (forms.getFormsList().contains(canonicalName)) {
-                CDockable dockable = control.getCDockable(control.getCDockableCount() - forms.getFormsList().size() + forms.getFormsList().indexOf(canonicalName));
+            List<ClientDockable> formsList = forms.getFormsList();
+            ClientDockable duplicate = formsList.stream().filter(dockable -> dockable.getCanonicalName() != null && dockable.getCanonicalName().equals(canonicalName)).findFirst().orElse(null);
+            if (duplicate != null) {
+                CDockable dockable = control.getCDockable(control.getCDockableCount() - formsList.size() + formsList.indexOf(duplicate));
                 if (dockable instanceof ClientFormDockable) {
                     return (ClientFormDockable) dockable;
                 }
@@ -234,17 +245,15 @@ public class FormsController implements ColorThemeChangeListener {
         public void visibilityChanged(CDockable cdockable) {
             ClientDockable dockable = (ClientDockable) cdockable;
 
-            String canonicalName = dockable.getCanonicalName();
             if (dockable.isVisible()) {
-                if(!dockable.async) {
-                    forms.add(canonicalName);
-                }
+                forms.add(dockable);
             } else {
-                forms.remove(canonicalName);
+                forms.remove(dockable);
                 control.removeDockable(dockable);
 
                 dockable.onClosed();
                 openedForms.remove(dockable);
+                
                 //return focus to previous page (by default in maximized mode after closing page focus returns to the last page from the list)
                 if(prevFocusPage != null) {
                     ExtendedMode mode = prevFocusPage.getExtendedMode();

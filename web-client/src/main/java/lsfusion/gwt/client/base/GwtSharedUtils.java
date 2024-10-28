@@ -15,6 +15,12 @@ import java.util.*;
 import java.util.stream.Stream;
 
 public class GwtSharedUtils {
+
+    public static final String NOTIFICATION_CHANNEL = "push_notification";
+    public static final String NOTIFICATION_PARAM = "notification_id";
+    public static final String NOTIFICATION_SEND = "send:";
+    public static final String NOTIFICATION_RECEIVED = "received:";
+
     public static <K> int relativePosition(K element, List<K> comparatorList, List<K> insertList) {
         int ins = 0;
         int ind = comparatorList.indexOf(element);
@@ -39,16 +45,33 @@ public class GwtSharedUtils {
     }
 
     public static <K> String toString(String separator, K... array) {
+        return toString(separator, array.length, array);
+    }
+    public static <K> String toString(String separator, int size, K[] array) {
         String result = "";
-        for (K element : array)
-            result = (result.length() == 0 ? "" : result + separator) + element;
+        for (int i = 0; i < size; i++) {
+            result = (result.length() == 0 ? "" : result + separator) + array[i];
+        }
         return result;
+    }
+
+    public static String[] toArray(String element, int size) {
+        String[] array = new String[size];
+        for (int i = 0; i < size; i++)
+            array[i] = element;
+        return array;
     }
 
     public static String replicate(char character, int length) {
         char[] chars = new char[length];
         Arrays.fill(chars, character);
         return new String(chars);
+    }
+    public static String replicate(String str, int length) {
+        String result = "";
+        for(int i=0;i<length;i++)
+            result += str;
+        return result;
     }
 
     public static String multiplyString(String string, int multiplier) {
@@ -69,35 +92,20 @@ public class GwtSharedUtils {
         return count;
     }
 
-    public static DateTimeFormat getDateFormat(String pattern, boolean edit) {
-        return pattern != null ? DateTimeFormat.getFormat(pattern) : getDefaultDateFormat(edit);
+    public static DateTimeFormat getDateFormat(String pattern) {
+        return pattern != null ? DateTimeFormat.getFormat(pattern) : getDefaultDateFormat();
     }
 
     public static DateTimeFormat getTimeFormat(String pattern) {
         return pattern != null ? DateTimeFormat.getFormat(pattern) : getDefaultTimeFormat();
     }
 
-    public static DateTimeFormat getDateTimeFormat(String pattern, boolean edit) {
-        return pattern != null ? DateTimeFormat.getFormat(pattern) : getDefaultDateTimeFormat(edit);
+    public static DateTimeFormat getDateTimeFormat(String pattern) {
+        return pattern != null ? DateTimeFormat.getFormat(pattern) : getDefaultDateTimeFormat();
     }
 
-    public static DateTimeFormat getDefaultDateFormat(boolean edit) {
-        if(edit) {
-            String pattern = getValidEditDateFormat(MainFrame.dateFormat, false);
-            if(pattern != null) {
-                return DateTimeFormat.getFormat(pattern);
-            } else {
-                String currentLocale = LocaleInfo.getCurrentLocale().getLocaleName();
-                //in gwt 2.9.0 default DATE_SHORT format for "ru" locale is dd.MM.y
-                if(currentLocale.equals("ru")) {
-                    return DateTimeFormat.getFormat("dd.MM.yy");
-                } else {
-                    return DateTimeFormat.getFormat(DateTimeFormat.PredefinedFormat.DATE_SHORT);
-                }
-            }
-        } else {
-            return DateTimeFormat.getFormat(MainFrame.dateFormat);
-        }
+    public static DateTimeFormat getDefaultDateFormat() {
+        return DateTimeFormat.getFormat(MainFrame.dateFormat);
     }
 
     public static DateTimeFormat getDefaultTimeFormat() {
@@ -109,18 +117,8 @@ public class GwtSharedUtils {
         return DateTimeFormat.getFormat(DateTimeFormat.PredefinedFormat.TIME_SHORT);
     }
 
-    public static DateTimeFormat getDefaultDateTimeFormat(boolean edit) {
-        if(edit) {
-            String pattern = getValidEditDateFormat(MainFrame.dateFormat + " " + MainFrame.timeFormat, true);
-            if(pattern != null) {
-                return DateTimeFormat.getFormat(pattern);
-            } else {
-                DateTimeFormatInfo info = LocaleInfo.getCurrentLocale().getDateTimeFormatInfo();
-                return DateTimeFormat.getFormat(info.dateTime(info.timeFormatMedium(), info.dateFormatShort()).replace(",", ""));
-            }
-        } else {
-            return DateTimeFormat.getFormat(MainFrame.dateFormat + " " + MainFrame.timeFormat);
-        }
+    public static DateTimeFormat getDefaultDateTimeFormat() {
+        return DateTimeFormat.getFormat(MainFrame.dateTimeFormat);
     }
 
     //equal to BaseUtils.getValidEditDateFormat
@@ -133,7 +131,25 @@ public class GwtSharedUtils {
 
     public static DateTimeFormat getDefaultDateTimeShortFormat() {
         DateTimeFormatInfo info = LocaleInfo.getCurrentLocale().getDateTimeFormatInfo();
-        return DateTimeFormat.getFormat(info.dateTime(info.timeFormatShort(), info.dateFormatShort()).replace(",", ""));
+        return DateTimeFormat.getFormat(info.dateTime(info.timeFormatShort(), getDateFormatShort(info.dateFormatShort())).replace(",", ""));
+    }
+
+    //in gwt 2.9.0 default DATE_SHORT format for "ru" locale is dd.MM.y
+    private static String getDateFormatShort(String defaultFormat) {
+        String currentLocale = LocaleInfo.getCurrentLocale().getLocaleName();
+        if(currentLocale.equals("ru")) {
+            return "dd.MM.yy";
+        } else {
+            return defaultFormat;
+        }
+    }
+    private static DateTimeFormat getDateFormatShort(DateTimeFormat defaultFormat) {
+        String currentLocale = LocaleInfo.getCurrentLocale().getLocaleName();
+        if(currentLocale.equals("ru")) {
+            return DateTimeFormat.getFormat("dd.MM.yy");
+        } else {
+            return defaultFormat;
+        }
     }
 
     public static <B, K1 extends B, K2 extends B, V> NativeHashMap<B, V> override(NativeHashMap<K1, ? extends V> map1, NativeHashMap<K2, ? extends V> map2) {
@@ -156,11 +172,6 @@ public class GwtSharedUtils {
             return obj2 == null;
         else
             return obj1.equals(obj2);
-    }
-
-    public static Object nullBoolean(Boolean b) {
-        if (b) return true;
-        else return null;
     }
 
     public static String nullTrim(String string) {
@@ -347,10 +358,5 @@ public class GwtSharedUtils {
             msg.append(args[args.length - 1]);
         }
         return msg.toString();
-    }
-
-    public static String getDownloadURL(String name, String displayName, String extension, boolean actionFile) {
-        return  "downloadFile" + (actionFile ? "" : "/static") +
-                "?name=" + name + (displayName != null ? "&displayName=" + displayName : "") + (extension != null ? "&extension=" + extension : "");
     }
 }

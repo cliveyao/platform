@@ -1,31 +1,41 @@
 package lsfusion.gwt.server.convert;
 
-import lsfusion.base.file.FileData;
-import lsfusion.base.file.RawFileData;
-import lsfusion.client.classes.data.ClientImageClass;
+import com.google.common.base.Throwables;
+import lsfusion.base.file.*;
 import lsfusion.client.form.ClientFormChanges;
 import lsfusion.client.form.design.ClientComponent;
+import lsfusion.client.form.design.ClientContainer;
+import lsfusion.client.form.object.ClientCustomObjectValue;
 import lsfusion.client.form.object.ClientGroupObject;
 import lsfusion.client.form.object.ClientGroupObjectValue;
 import lsfusion.client.form.object.ClientObject;
 import lsfusion.client.form.property.ClientPropertyDraw;
 import lsfusion.client.form.property.ClientPropertyReader;
+import lsfusion.client.form.property.cell.ClientAsync;
 import lsfusion.gwt.client.GFormChangesDTO;
+import lsfusion.gwt.client.base.AppFileImage;
+import lsfusion.gwt.client.base.GAsync;
+import lsfusion.gwt.client.form.object.GCustomObjectValue;
 import lsfusion.gwt.client.form.object.GGroupObjectValue;
 import lsfusion.gwt.client.form.object.GGroupObjectValueBuilder;
 import lsfusion.gwt.client.form.property.GPropertyReaderDTO;
 import lsfusion.gwt.client.form.property.cell.classes.*;
 import lsfusion.gwt.server.FileUtils;
+import lsfusion.gwt.server.MainDispatchServlet;
 import lsfusion.http.provider.form.FormSessionObject;
+import lsfusion.interop.logics.LogicsSessionObject;
+import lsfusion.interop.logics.ServerSettings;
+import lsfusion.interop.session.SessionInfo;
 
+import javax.servlet.ServletContext;
 import java.awt.*;
+import java.io.IOException;
 import java.io.Serializable;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -43,7 +53,7 @@ public class ClientFormChangesToGwtConverter extends ObjectConverter {
     }
 
     @Converter(from = ClientFormChanges.class)
-    public GFormChangesDTO convertFormChanges(ClientFormChanges changes, Integer requestIndex, FormSessionObject sessionObject) {
+    public GFormChangesDTO convertFormChanges(ClientFormChanges changes, Integer requestIndex, FormSessionObject sessionObject, MainDispatchServlet servlet) throws IOException {
         GFormChangesDTO dto = new GFormChangesDTO();
 
         dto.requestIndex = requestIndex;
@@ -89,15 +99,15 @@ public class ClientFormChangesToGwtConverter extends ObjectConverter {
 
         dto.expandablesGroupIds = new int[changes.expandables.size()];
         dto.expandableKeys = new GGroupObjectValue[changes.expandables.size()][];
-        dto.expandableValues = new Boolean[changes.expandables.size()][];
+        dto.expandableValues = new Integer[changes.expandables.size()][];
         i = 0;
-        for (Map.Entry<ClientGroupObject, Map<ClientGroupObjectValue, Boolean>> entry : changes.expandables.entrySet()) {
-            Map<ClientGroupObjectValue, java.lang.Boolean> values = entry.getValue();
+        for (Map.Entry<ClientGroupObject, Map<ClientGroupObjectValue, Integer>> entry : changes.expandables.entrySet()) {
+            Map<ClientGroupObjectValue, Integer> values = entry.getValue();
 
             int j = 0;
             GGroupObjectValue[] expandableKeys = new GGroupObjectValue[values.size()];
-            Boolean[] expandableValues = new Boolean[values.size()];
-            for (Map.Entry<ClientGroupObjectValue, Boolean> expandable : values.entrySet()) {
+            Integer[] expandableValues = new Integer[values.size()];
+            for (Map.Entry<ClientGroupObjectValue, Integer> expandable : values.entrySet()) {
                 GGroupObjectValue groupObjectValue = convertOrCast(expandable.getKey());
                 expandableKeys[j] = groupObjectValue;
                 expandableValues[j] = expandable.getValue();
@@ -123,12 +133,8 @@ public class ClientFormChangesToGwtConverter extends ObjectConverter {
             for (Map.Entry<ClientGroupObjectValue, Object> clientValues : values.entrySet()) {
                 GGroupObjectValue groupObjectValue = convertOrCast(clientValues.getKey());
 
-                Object propValue = convertOrCast(clientValues.getValue());
-                if (propValue instanceof FileData || propValue instanceof RawFileData) {
-                    propValue = convertFileValue(reader, propValue, sessionObject);
-                }
                 propValueKeys[j] = groupObjectValue;
-                propValueValues[j] = (Serializable) propValue;
+                propValueValues[j] = convertFileValue(clientValues.getValue(), sessionObject, servlet);
                 j++;
             }
 
@@ -164,15 +170,102 @@ public class ClientFormChangesToGwtConverter extends ObjectConverter {
             dto.activatePropsIds[i++] = activateProperty.ID;
         }
 
+        dto.collapseContainerIds = new int[changes.collapseContainers.size()];
+        i = 0;
+        for (ClientContainer container : changes.collapseContainers) {
+            dto.collapseContainerIds[i++] = container.ID;
+        }
+
+        dto.expandContainerIds = new int[changes.expandContainers.size()];
+        i = 0;
+        for (ClientContainer container : changes.expandContainers) {
+            dto.expandContainerIds[i++] = container.ID;
+        }
+
+        dto.needConfirm = changes.needConfirm;
+        dto.size = changes.size;
+
         return dto;
     }
 
-    private Object convertFileValue(ClientPropertyReader reader, Object value, FormSessionObject sessionObject) {
-        if ((reader instanceof ClientPropertyDraw && ((ClientPropertyDraw) reader).baseType instanceof ClientImageClass)
-                || reader instanceof ClientPropertyDraw.ImageReader) {
-            return FileUtils.saveFormFile((RawFileData) value, sessionObject);
-        } else {
-            return value == null ? null : true;
+    public Serializable convertFileValue(Object object, FormSessionObject sessionObject, MainDispatchServlet servlet) throws IOException {
+        return convertFileValue(convertOrCast(object), sessionObject, servlet, sessionObject.navigatorID);
+    }
+
+    public static Serializable convertFileValue(Object value, FormSessionObject sessionObject, MainDispatchServlet servlet, String sessionID) throws IOException {
+        return convertFileValue((Serializable) value, sessionObject, servlet.getServletContext(), servlet.getServerSettings(sessionID));
+    }
+    // AppFileImage, String | AppStaticImage, GStringWithFiles (String | AppStaticImage)
+    public static Serializable convertFileValue(Serializable value, FormSessionObject sessionObject, ServletContext servletContext, ServerSettings serverSettings) throws IOException {
+        if(value instanceof AppFileDataImage) { // dynamic image
+            return new AppFileImage(convertFileValue(((AppFileDataImage) value).data, sessionObject), getExtension(((AppFileDataImage) value).data));
+        }
+
+        if (value instanceof FileData || value instanceof NamedFileData || value instanceof RawFileData) {
+            return convertFileValue(value, sessionObject);
+        }
+
+        if(value instanceof AppImage) { // static image
+            return FileUtils.createImageFile(servletContext, serverSettings, (AppImage) value, false);
+        }
+
+        if(value instanceof StringWithFiles.Resource) { // resource file
+            StringWithFiles.Resource file = (StringWithFiles.Resource) value;
+            return FileUtils.saveWebFile(file.name, file.raw, serverSettings, false);
+        }
+
+        if (value instanceof StringWithFiles) {
+            StringWithFiles stringWithFiles = (StringWithFiles) value;
+            return new GStringWithFiles(stringWithFiles.prefixes, convertFileValue(stringWithFiles.files, servletContext, serverSettings, sessionObject), stringWithFiles.rawString);
+        }
+
+        return value;
+    }
+
+    public static String[] convertFileValue(Serializable[] files, ServletContext servletContext, LogicsSessionObject sessionObject, SessionInfo sessionInfo) {
+        try {
+            return convertFileValue(convertFileValue(files, servletContext, sessionObject.getServerSettings(sessionInfo, null, false), null));
+        } catch (IOException e) {
+            throw Throwables.propagate(e);
+        }
+    }
+
+    // String | AppStaticImage
+    public static Serializable[] convertFileValue(Serializable[] files, ServletContext servletContext, ServerSettings serverSettings, FormSessionObject formSessionObject) throws IOException {
+        Serializable[] urls = new Serializable[files.length];
+        for (int k = 0; k < files.length; k++)
+            urls[k] = convertFileValue(files[k], formSessionObject, servletContext, serverSettings);
+        return urls;
+    }
+
+    // should correspond PValue.convertFileValue
+    public static String[] convertFileValue(Serializable[] files) {
+        String[] fileStrings = new String[files.length];
+        for (int j = 0; j < files.length; j++) {
+            Serializable file = files[j];
+            if(file instanceof String) // file
+                fileStrings[j] = (String) file;
+        }
+        return fileStrings;
+   }
+
+
+    private static String convertFileValue(Serializable value, FormSessionObject sessionObject) {
+        String displayName = value instanceof NamedFileData ? ((NamedFileData) value).getName() : null;
+        return FileUtils.saveFormFile(getFileData(value), displayName, sessionObject != null ? sessionObject.savedTempFiles : null);
+    }
+
+    private static String getExtension(Serializable value) {
+        return getFileData(value).getExtension();
+    }
+
+    private static FileData getFileData(Serializable value) {
+        if (value instanceof NamedFileData) {
+            return ((NamedFileData) value).getFileData();
+        } else if (value instanceof FileData) {
+            return (FileData) value;
+        } else { // it's a really rare case see FormChanges.convertFileValue - when there is no static file class, but still we get rawFileData
+            return new FileData((RawFileData) value, "");
         }
     }
 
@@ -184,10 +277,15 @@ public class ClientFormChangesToGwtConverter extends ObjectConverter {
     @Converter(from = ClientGroupObjectValue.class)
     public GGroupObjectValue convertGroupObjectValue(ClientGroupObjectValue clientGroupObjValue) {
         GGroupObjectValueBuilder groupObjectValue = new GGroupObjectValueBuilder();
-        for (Map.Entry<ClientObject, Object> keyPart : clientGroupObjValue.entrySet()) {
+        for (Map.Entry<ClientObject, Serializable> keyPart : clientGroupObjValue.iterate()) {
             groupObjectValue.put(keyPart.getKey().ID, convertOrCast(keyPart.getValue()));
         }
         return groupObjectValue.toGroupObjectValue();
+    }
+
+    @Converter(from = ClientCustomObjectValue.class)
+    public GCustomObjectValue convertCustomObjectValue(ClientCustomObjectValue customObjectValue) {
+        return new GCustomObjectValue(customObjectValue.id, customObjectValue.idClass);
     }
 
     @Converter(from = LocalDate.class)
@@ -208,5 +306,17 @@ public class ClientFormChangesToGwtConverter extends ObjectConverter {
     @Converter(from = Instant.class)
     public GZDateTimeDTO convertDateTime(Instant dateTime) {
         return new GZDateTimeDTO(dateTime.toEpochMilli());
+    }
+
+    @Converter(from = ClientAsync.class)
+    public GAsync convertAsync(ClientAsync async, FormSessionObject sessionObject, MainDispatchServlet servlet) throws IOException {
+        if(async.equals(ClientAsync.CANCELED))
+            return GAsync.CANCELED;
+        if(async.equals(ClientAsync.NEEDMORE))
+            return GAsync.NEEDMORE;
+        if(async.equals(ClientAsync.RECHECK))
+            return GAsync.RECHECK;
+        return new GAsync(convertFileValue(async.displayValue, sessionObject, servlet),
+                convertFileValue(async.rawValue, sessionObject, servlet), convertOrCast(async.key));
     }
 }

@@ -35,7 +35,7 @@ public class DataType {
     public final static byte CSVLINK = 32;
     public final static byte HTML = 33;
     public final static byte HTMLLINK = 34;
-    public final static byte JSON = 35;
+    public final static byte JSONFILE = 35;
     public final static byte JSONLINK = 36;
     public final static byte XML = 37;
     public final static byte XMLLINK = 38;
@@ -48,4 +48,18 @@ public class DataType {
     public final static byte DATEINTERVAL = 45;
     public final static byte DATETIMEINTERVAL = 46;
     public final static byte TIMEINTERVAL = 47;
+    public final static byte DBF = 48;
+    public final static byte DBFLINK = 49;
+    public final static byte TLOGICAL = 50;
+    public final static byte ZDATETIMEINTERVAL = 51;
+    public final static byte HTMLTEXT = 52;
+    public final static byte RICHTEXT = 53;
+    public final static byte NAMEDFILE = 54;
+    public final static byte JSON = 55;
+    public final static byte TSVECTOR = 56;
+    public final static byte TSQUERY = 57;
+    public final static byte HTMLSTRING = 58;
+    public final static byte JSONTEXT = 59;
+    public final static byte VIDEO = 60;
+    public final static byte VIDEOLINK = 61;
 }

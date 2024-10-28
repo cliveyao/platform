@@ -1,8 +1,9 @@
 package lsfusion.gwt.client.controller.remote.action.navigator;
 
-import lsfusion.gwt.client.controller.remote.action.form.ServerResponseResult;
+import lsfusion.gwt.client.controller.remote.action.RequestAction;
+import net.customware.gwt.dispatch.shared.Result;
 
-public class NavigatorRequestAction extends NavigatorAction<ServerResponseResult> {
+public class NavigatorRequestAction<R extends Result> extends NavigatorAction<R> implements RequestAction<R> {
     public long requestIndex;
     public long lastReceivedRequestIndex;
 

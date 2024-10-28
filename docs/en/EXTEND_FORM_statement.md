@@ -6,11 +6,13 @@ The `EXTEND FORM` statement [extends](Form_extension.md) an existing [form](Form
 
 ### Syntax
 
-    EXTEND FORM formName 
-        formBlock1
-        ...
-        formBlockN
-    ;
+```
+EXTEND FORM formName 
+    formBlock1
+    ...
+    formBlockN
+;
+```
 
 ### Description
 
@@ -39,6 +41,8 @@ EXTEND FORM items
 
     OBJECTS g = ItemGroup BEFORE i // adding a product group object to the form before the product
     PROPERTIES(g) READONLY name
-    FILTERS itemGroup(i) == g // if the object was added after the object with products, then filtering would go by the group of products, and not by products
+    // if the object was added after the object with products, then filtering would go by the group of products, 
+    // and not by products
+    FILTERS itemGroup(i) == g 
 ;
 ```

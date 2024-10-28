@@ -1,26 +1,24 @@
 package lsfusion.server.logics.form.interactive.design.object;
 
+import lsfusion.interop.base.view.FlexAlignment;
+import lsfusion.server.logics.form.interactive.controller.remote.serialization.FormInstanceContext;
 import lsfusion.server.logics.form.interactive.controller.remote.serialization.ServerSerializationPool;
-import lsfusion.server.logics.form.interactive.design.ComponentView;
+import lsfusion.server.logics.form.interactive.design.BaseComponentView;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 
-public class ToolbarView extends ComponentView {
+public class ToolbarView extends BaseComponentView {
     public boolean visible = true;
 
-    public boolean showGroupChange = true;
-    public boolean showCountRows = true;
-    public boolean showCalculateSum = true;
-    public boolean showGroupReport = true;
-    public boolean showPrint = true;
-    public boolean showXls = true;
+    public boolean showViews = true;
+    public boolean showFilters = true;
     public boolean showSettings = true;
-
-    public ToolbarView() {
-
-    }
+    public boolean showCountQuantity = true;
+    public boolean showCalculateSum = true;
+    public boolean showPrintGroupXls = true;
+    public boolean showManualUpdate = true;
 
     public ToolbarView(int ID) {
         super(ID);
@@ -32,13 +30,13 @@ public class ToolbarView extends ComponentView {
 
         outStream.writeBoolean(visible);
 
-        outStream.writeBoolean(showGroupChange);
-        outStream.writeBoolean(showCountRows);
-        outStream.writeBoolean(showCalculateSum);
-        outStream.writeBoolean(showGroupReport);
-        outStream.writeBoolean(showPrint);
-        outStream.writeBoolean(showXls);
+        outStream.writeBoolean(showViews);
+        outStream.writeBoolean(showFilters);
         outStream.writeBoolean(showSettings);
+        outStream.writeBoolean(showCountQuantity);
+        outStream.writeBoolean(showCalculateSum);
+        outStream.writeBoolean(showPrintGroupXls);
+        outStream.writeBoolean(showManualUpdate);
     }
 
     @Override
@@ -47,12 +45,18 @@ public class ToolbarView extends ComponentView {
 
         visible = inStream.readBoolean();
 
-        showGroupChange = inStream.readBoolean();
-        showCountRows = inStream.readBoolean();
-        showCalculateSum = inStream.readBoolean();
-        showGroupReport = inStream.readBoolean();
-        showPrint = inStream.readBoolean();
-        showXls = inStream.readBoolean();
+        showViews = inStream.readBoolean();
+        showFilters = inStream.readBoolean();
         showSettings = inStream.readBoolean();
+        showCountQuantity = inStream.readBoolean();
+        showCalculateSum = inStream.readBoolean();
+        showPrintGroupXls = inStream.readBoolean();
+        showManualUpdate = inStream.readBoolean();
+    }
+
+    @Override
+    protected FlexAlignment getDefaultAlignment(FormInstanceContext context) {
+        // we want the toolbar to always be on the same distance from the grid
+        return FlexAlignment.START;
     }
 }

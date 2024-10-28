@@ -1,6 +1,7 @@
 package lsfusion.base.file;
 
 import org.apache.poi.hssf.usermodel.*;
+import org.apache.poi.openxml4j.util.ZipSecureFile;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.ss.util.CellRangeAddress;
 import org.apache.poi.ss.util.PaneInformation;
@@ -22,14 +23,7 @@ public final class CopyExcelUtil {
     public static void copyHSSFSheets(HSSFWorkbook sourceWB, HSSFWorkbook destinationWB) {
         for (Iterator<Sheet> it = sourceWB.sheetIterator(); it.hasNext(); ) {
             HSSFSheet sheet = (HSSFSheet) it.next();
-            String sheetName = sheet.getSheetName();
-            if (destinationWB.getSheetIndex(sheetName) != -1) {
-                int index = 1;
-                while (destinationWB.getSheetIndex(sheetName + "(" + index + ")") != -1) {
-                    index++;
-                }
-                sheetName += "(" + index + ")";
-            }
+            String sheetName = getSheetName(sheet, destinationWB);
             HSSFSheet newSheet = destinationWB.createSheet(sheetName);
             copySheetSettings(newSheet, sheet);
             copyHSSFSheet(newSheet, sheet);
@@ -64,6 +58,8 @@ public final class CopyExcelUtil {
 
     public static void copyHSSFRow(HSSFSheet destSheet, HSSFRow srcRow, HSSFRow destRow, Map<Integer, HSSFCellStyle> styleMap, List<CellRangeAddress> sheetMergedRegions, Set<String> mergedRegions) {
         destRow.setHeight(srcRow.getHeight());
+        //here should be copy of outlineLevel as in xssf, but it's more complicated.
+        //if need, use reflection to get RowRecord from destRow and setOutlineLevel for it
         // pour chaque row
         for (int j = srcRow.getFirstCellNum(); j <= srcRow.getLastCellNum(); j++) {
             HSSFCell oldCell = srcRow.getCell(j);   // ancienne cell
@@ -130,21 +126,39 @@ public final class CopyExcelUtil {
     }
 
     public static void copyXSSFSheets(XSSFWorkbook sourceWB, XSSFWorkbook destinationWB) {
-        for (Iterator<Sheet> it = sourceWB.sheetIterator(); it.hasNext(); ) {
-            XSSFSheet sheet = (XSSFSheet) it.next();
-            String sheetName = sheet.getSheetName();
-            if (destinationWB.getSheetIndex(sheetName) != -1) {
-                int index = 1;
-                while (destinationWB.getSheetIndex(sheetName + "(" + index + ")") != -1) {
-                    index++;
-                }
-                sheetName += "(" + index + ")";
+        double minInflateRatio = ZipSecureFile.getMinInflateRatio();
+        try {
+            ZipSecureFile.setMinInflateRatio(0);
+            for (Iterator<Sheet> it = sourceWB.sheetIterator(); it.hasNext(); ) {
+                XSSFSheet sheet = (XSSFSheet) it.next();
+                String sheetName = getSheetName(sheet, destinationWB);
+                XSSFSheet newSheet = destinationWB.createSheet(sheetName);
+                copySheetSettings(newSheet, sheet);
+                copyXSSFSheet(newSheet, sheet);
+                copyPictures(newSheet, sheet);
             }
-            XSSFSheet newSheet = destinationWB.createSheet(sheetName);
-            copySheetSettings(newSheet, sheet);
-            copyXSSFSheet(newSheet, sheet);
-            copyPictures(newSheet, sheet);
+        } finally {
+            ZipSecureFile.setMinInflateRatio(minInflateRatio);
         }
+    }
+
+    private static String getSheetName(Sheet sourceSheet, Workbook destinationWB) {
+        String sourceSheetName = sourceSheet.getSheetName();
+        String destinationSheetName = sourceSheetName;
+        if (destinationWB.getSheetIndex(destinationSheetName) != -1) {
+            int index = 1;
+            while ((destinationSheetName = checkSheetName(sourceSheetName, index, destinationWB)) == null) {
+                index++;
+            }
+
+        }
+        return destinationSheetName;
+    }
+
+    private static String checkSheetName(String sourceSheetName, int index, Workbook destinationWB) {
+        String postfix = "(" + index + ")"; //max name length = 31
+        String destinationSheetName = sourceSheetName.substring(0, Math.min(sourceSheetName.length(), 31 - postfix.length())) + postfix;
+        return destinationWB.getSheetIndex(destinationSheetName) != -1 ? null : destinationSheetName;
     }
 
     public static void copySheetSettings(Sheet newSheet, Sheet sheetToCopy) {
@@ -242,6 +256,7 @@ public final class CopyExcelUtil {
 
     public static void copyXSSFRow(XSSFSheet destSheet, XSSFRow srcRow, XSSFRow destRow, Map<Integer, XSSFCellStyle> styleMap, List<CellRangeAddress> sheetMergedRegions, Set<String> mergedRegions) {
         destRow.setHeight(srcRow.getHeight());
+        destRow.getCTRow().setOutlineLevel(srcRow.getCTRow().getOutlineLevel());
         // pour chaque row
         for (int j = srcRow.getFirstCellNum(); j <= srcRow.getLastCellNum(); j++) {
             XSSFCell oldCell = srcRow.getCell(j);   // ancienne cell

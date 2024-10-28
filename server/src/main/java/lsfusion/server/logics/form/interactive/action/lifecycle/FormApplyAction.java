@@ -14,8 +14,9 @@ import lsfusion.server.logics.property.classes.ClassPropertyInterface;
 import java.sql.SQLException;
 
 public class FormApplyAction extends FormFlowAction {
-    private static LP showIf = createIfProperty(new Property[]{FormEntity.manageSession}, new boolean[]{false});
-    private static LP readOnlyIf = createIfProperty(new Property[]{DataSession.isDataChanged}, new boolean[]{true});
+    private static LP showIf = createIfProperty(new Property[]{FormEntity.isManageSession, FormEntity.isEditing}, new boolean[]{false, true});
+    private static LP readOnlyIf = createDisableIfNotProperty(DataSession.isDataChanged);
+
 
     public FormApplyAction(BaseLogicsModule lm) {
         super(lm);
@@ -43,6 +44,13 @@ public class FormApplyAction extends FormFlowAction {
             return true;
         if (type == ChangeFlowType.HASSESSIONUSAGES)
             return true;
+        if(type == ChangeFlowType.PRIMARY)
+            return true;
         return super.hasFlow(type);
+    }
+
+    @Override
+    protected String getValueElementClass() {
+        return "btn-outline-primary";
     }
 }

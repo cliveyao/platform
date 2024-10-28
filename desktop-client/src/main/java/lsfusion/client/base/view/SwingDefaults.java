@@ -9,7 +9,7 @@ import javax.swing.*;
 import javax.swing.border.Border;
 import java.awt.*;
 
-import static lsfusion.client.base.view.ClientColorUtils.getDisplayColor;
+import static lsfusion.client.base.view.ClientColorUtils.getThemedColor;
 import static lsfusion.client.controller.MainController.colorPreferences;
 import static lsfusion.client.controller.MainController.colorTheme;
 import static lsfusion.client.view.MainFrame.getIntUISize;
@@ -27,6 +27,8 @@ public class SwingDefaults {
 
     private static Color defaultThemeTableCellBackground;
     private static Color defaultThemePanelBackground;
+    
+    private static Border defaultButtonBorder;
 
     private static Color componentFocusBorderColor;
     private static Color buttonBackground;
@@ -48,6 +50,7 @@ public class SwingDefaults {
     private static Color notDefinedForeground;
     private static Color logPanelErrorColor;
     private static Color titledBorderTitleColor;
+    private static Color panelBorderColor;
     private static Color dockableBorderColor;
     private static Color tabbedPaneUnderlineColor;
     private static Color tabbedPaneFocusColor;
@@ -67,6 +70,7 @@ public class SwingDefaults {
     private static Color panelBackground;
 
     public static void reset() {
+        defaultButtonBorder = null;
         componentFocusBorderColor = null;
         buttonBackground = null;
         buttonForeground = null;
@@ -82,6 +86,7 @@ public class SwingDefaults {
         notDefinedForeground = null;
         logPanelErrorColor = null;
         titledBorderTitleColor = null;
+        panelBorderColor = null;
         dockableBorderColor = null;
         tabbedPaneUnderlineColor = null;
         tabbedPaneFocusColor = null;
@@ -223,7 +228,7 @@ public class SwingDefaults {
 
     public static Color getFocusedTableCellBackground() {
         if (focusedTableCellBackground == null) {
-            focusedTableCellBackground = getDisplayColor(colorPreferences != null ? colorPreferences.getFocusedCellBackground() : null);
+            focusedTableCellBackground = getThemedColor(colorPreferences != null ? colorPreferences.getFocusedCellBackground() : null);
             if (focusedTableCellBackground == null) {
                 focusedTableCellBackground = getSelectionColor();
             }
@@ -233,7 +238,7 @@ public class SwingDefaults {
 
     public static Border getFocusedTableCellBorder() {
         if (focusedTableCellBorder == null) {
-            Color borderColor = getDisplayColor(colorPreferences != null ? colorPreferences.getFocusedCellBorderColor() : null);
+            Color borderColor = getThemedColor(colorPreferences != null ? colorPreferences.getFocusedCellBorderColor() : null);
             if (borderColor == null) {
                 borderColor = getSelectionBorderColor();
             }
@@ -246,7 +251,7 @@ public class SwingDefaults {
 
     public static Color getFocusedTableRowBackground() {
         if (focusedTableRowBackground == null) {
-            focusedTableRowBackground = getDisplayColor(colorPreferences != null ? colorPreferences.getSelectedRowBackground() : null);
+            focusedTableRowBackground = getThemedColor(colorPreferences != null ? colorPreferences.getSelectedRowBackground() : null);
             if (focusedTableRowBackground == null) {
                 focusedTableRowBackground = getSelectionColor();
             }
@@ -256,7 +261,7 @@ public class SwingDefaults {
 
     public static Color getTableSelectionBackground() {
         if (tableSelectionBackground == null) {
-            Color preferredBackground = getDisplayColor(colorPreferences != null ? colorPreferences.getSelectedCellBackground() : null);
+            Color preferredBackground = getThemedColor(colorPreferences != null ? colorPreferences.getSelectedCellBackground() : null);
             tableSelectionBackground = preferredBackground != null ? preferredBackground : getColor("Table.selectionInactiveBackground");
         }
         return tableSelectionBackground; 
@@ -264,7 +269,7 @@ public class SwingDefaults {
     
     public static Color getTableGridColor() {
         if (tableGridColor == null) {
-            Color preferredColor = getDisplayColor(colorPreferences != null ? colorPreferences.getTableGridColor() : null);
+            Color preferredColor = getThemedColor(colorPreferences != null ? colorPreferences.getTableGridColor() : null);
             tableGridColor = preferredColor != null ? preferredColor : getColor("TableHeader.separatorColor");
         }
         return tableGridColor;
@@ -299,6 +304,13 @@ public class SwingDefaults {
             }
         }
         return titledBorderTitleColor;
+    }
+
+    public static Color getPanelBorderColor() {
+        if (panelBorderColor == null) {
+            panelBorderColor = getColor("Separator.foreground");
+        }
+        return panelBorderColor;
     }
     
     public static Color getComponentBorderColor() {
@@ -439,17 +451,28 @@ public class SwingDefaults {
         }
         return defaultThemePanelBackground;
     }
+    
+    public static Border getDefaultButtonBorder() {
+        if (defaultButtonBorder == null) {
+            defaultButtonBorder = new JButton().getBorder(); 
+        }
+        return defaultButtonBorder;
+    }
 
     
     // ----------- not cached properties ----------- //
     
     
-    public static int getButtonBorderWidth() {
+    public static int getComponentBorderWidth() {
         return 1;
     }
     
+    public static int getButtonBorderWidth() {
+        return getComponentBorderWidth();
+    }
+    
     public static int getComponentHeight() {
-        return getValueHeight() + 2; // supposing all components have border width = 1px
+        return getValueHeight() + getComponentBorderWidth() * 2; // supposing all components have border width = 1px
     }
     
     public static int getSingleCellTableIntercellSpacing() {
@@ -466,6 +489,15 @@ public class SwingDefaults {
     }
     
     public static int splitDividerWidth() {
+        return 6;
+    }
+    
+    public static int getDataPanelLabelMargin() {
+        return 4;
+    }
+
+    // increase valueWidth on this fixed value in order to make cell wide enough to display at least some wide characters (as 'W')
+    public static int getCharWidthSparePixels() {
         return 6;
     }
 }

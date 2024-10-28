@@ -6,12 +6,16 @@ title: 'Оператор NEWSESSION'
 
 ### Синтаксис
 
-    NEWSESSION [NEWSQL] [nestedBlock] action 
+```
+NEWSESSION [NEWSQL] [nestedBlock] action 
+```
 
 где `nestedBlock` имеет один из двух вариантов синтаксиса:
 
-    NESTED LOCAL
-    NESTED (propertyId1, ..., propertyIdN)
+```
+NESTED LOCAL
+NESTED (propertyId1, ..., propertyIdN)
+```
 
 ### Описание
 
@@ -56,7 +60,8 @@ testNewSession ()  {
         MESSAGE (GROUP SUM 1 IF local(Currency c) == 'Local'); // возвратит NULL
     }
     NEWSESSION NESTED (local) {
-        MESSAGE (GROUP SUM 1 IF local(Currency c) == 'Local'); // возвратит кол-во объектов класса Currency
+        // возвратит кол-во объектов класса Currency
+        MESSAGE (GROUP SUM 1 IF local(Currency c) == 'Local'); 
     }
 
     NEWSESSION {

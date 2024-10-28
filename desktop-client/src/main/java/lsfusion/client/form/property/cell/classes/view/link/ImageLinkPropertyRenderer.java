@@ -1,5 +1,6 @@
 package lsfusion.client.form.property.cell.classes.view.link;
 
+import lsfusion.base.file.AppFileDataImage;
 import lsfusion.base.file.RawFileData;
 import lsfusion.client.form.property.ClientPropertyDraw;
 import lsfusion.client.form.property.cell.classes.view.ImagePropertyRenderer;
@@ -24,11 +25,11 @@ public class ImageLinkPropertyRenderer extends LinkPropertyRenderer {
     }
 
     public void setValue(Object value) {
-        RawFileData iconBytes = readImage(property, (String) value);
+        AppFileDataImage dataImage = readImage(property, (String) value);
         
         icon = null; // сбрасываем
-        if (iconBytes != null) {
-            Image image = ImagePropertyRenderer.convertValue(iconBytes);
+        if (dataImage != null) {
+            Image image = ImagePropertyRenderer.convertValue(dataImage);
             if (image != null) {
                 icon = new ImageIcon(image);
             }
@@ -73,23 +74,22 @@ public class ImageLinkPropertyRenderer extends LinkPropertyRenderer {
         imageMap.put(url, image);
     }
 
-    public static RawFileData readImage(ClientPropertyDraw property, String link) {
+    public static AppFileDataImage readImage(ClientPropertyDraw property, String link) {
         try {
             RawFileData result = getFromCache(property, link);
             if (result == null && !isCached(property, link)) {
                 URLConnection httpcon = new URL(link).openConnection();
-                httpcon.addRequestProperty("User-Agent", "");
                 InputStream inputStream = httpcon.getInputStream();
                 result = new RawFileData(inputStream);
                 
-                ImageIcon icon = new ImageIcon(result.getBytes()); // проверка на то, что массив байтов - картинка. readBytesFromStream возвращает 4 байта, а не null
+                ImageIcon icon = result.getImageIcon(); // проверка на то, что массив байтов - картинка. readBytesFromStream возвращает 4 байта, а не null
                 if (icon.getIconWidth() < 0 || icon.getIconHeight() < 0) {
                     result = null;
                 }
                 
                 putIntoCache(property, link, result);
             }
-            return result;
+            return result != null ? new AppFileDataImage(result) : null;
         } catch (IOException e) {
             putIntoCache(property, link, null);
             return null;

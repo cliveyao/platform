@@ -6,7 +6,9 @@ title: 'Оператор ACTIVE TAB'
 
 ### Синтаксис 
 
-    ACTIVE TAB formName.componentSelector
+```
+ACTIVE TAB formName.componentSelector
+```
 
 ### Описание
 
@@ -36,7 +38,7 @@ FORM tabbedForm 'Форма с табами'
 
 DESIGN tabbedForm {
     NEW tabPane FIRST {
-        type = TABBED;
+        tabbed = TRUE;
         NEW contacts {
             caption = 'Контакты';
             MOVE BOX(u);

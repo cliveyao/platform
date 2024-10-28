@@ -1,10 +1,12 @@
 package lsfusion.server.logics.property.set;
 
 import lsfusion.base.BaseUtils;
+import lsfusion.base.col.ListFact;
 import lsfusion.base.col.SetFact;
 import lsfusion.base.col.interfaces.immutable.ImCol;
 import lsfusion.base.col.interfaces.immutable.ImRevMap;
 import lsfusion.base.col.interfaces.immutable.ImSet;
+import lsfusion.base.col.interfaces.mutable.MList;
 import lsfusion.interop.form.property.Compare;
 import lsfusion.server.data.expr.Expr;
 import lsfusion.server.data.expr.PullExpr;
@@ -14,10 +16,7 @@ import lsfusion.server.data.expr.query.GroupType;
 import lsfusion.server.data.query.build.Join;
 import lsfusion.server.data.where.Where;
 import lsfusion.server.data.where.WhereBuilder;
-import lsfusion.server.logics.action.session.change.DataChanges;
-import lsfusion.server.logics.action.session.change.PropertyChange;
-import lsfusion.server.logics.action.session.change.PropertyChanges;
-import lsfusion.server.logics.action.session.change.StructChanges;
+import lsfusion.server.logics.action.session.change.*;
 import lsfusion.server.logics.form.interactive.property.checked.ConstraintCheckChangeProperty;
 import lsfusion.server.logics.property.Property;
 import lsfusion.server.logics.property.PropertyFact;
@@ -59,17 +58,8 @@ public class CycleGroupProperty<I extends PropertyInterface, P extends PropertyI
         return PropertyFact.createCompare(constraintImplement, BaseUtils.<PropertyMapImplement<?, Interface<I>>>immutableCast(one), Compare.GREATER).property;
     }
 
-    public LocalizedString getConstrainedMessage() {
-        String cycleCaption;
-        if(groupProperty instanceof PropertyMapImplement)
-            cycleCaption = ((PropertyMapImplement<?, I>)groupProperty).property.toString();
-        else
-            cycleCaption = groupProperty.toString();
-        return LocalizedString.createFormatted("{logics.property.derived.violate.property.uniqueness.for.objects}", cycleCaption);
-    }
-
     @Override
-    protected ImSet<Property> calculateUsedDataChanges(StructChanges propChanges) {
+    protected ImSet<Property> calculateUsedDataChanges(StructChanges propChanges, CalcDataType type) {
         if(toChange!=null)
             return ConstraintCheckChangeProperty.getUsedChanges(this,toChange, propChanges);
         else
@@ -84,7 +74,7 @@ public class CycleGroupProperty<I extends PropertyInterface, P extends PropertyI
     }
 
     @Override
-    protected DataChanges calculateDataChanges(PropertyChange<Interface<I>> change, WhereBuilder changedWhere, PropertyChanges propChanges) {
+    protected DataChanges calculateDataChanges(PropertyChange<Interface<I>> change, CalcDataType type, WhereBuilder changedWhere, PropertyChanges propChanges) {
 
         if(toChange!=null) {
             ImRevMap<P,KeyExpr> toChangeKeys = toChange.getMapKeys();
@@ -92,7 +82,7 @@ public class CycleGroupProperty<I extends PropertyInterface, P extends PropertyI
             DataChanges dataChanges = toChange.getDataChanges(new PropertyChange<>(toChangeKeys, resultExpr, resultExpr.getWhere().or(getNullWhere(change, propChanges, toChangeKeys))), propChanges);
             if(changedWhere!=null) {
                 if (Settings.get().isCalculateGroupDataChanged())
-                    getExpr(change.getMapExprs(), dataChanges.add(propChanges), changedWhere);
+                    getExpr(change.getMapExprs(), dataChanges.getPropertyChanges().add(propChanges), changedWhere);
                 else
                     changedWhere.add(change.where);
             }

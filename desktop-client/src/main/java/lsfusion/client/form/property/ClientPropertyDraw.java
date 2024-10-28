@@ -1,30 +1,28 @@
 package lsfusion.client.form.property;
 
 import lsfusion.base.BaseUtils;
+import lsfusion.base.file.AppImage;
 import lsfusion.client.base.SwingUtils;
 import lsfusion.client.base.view.ClientImages;
 import lsfusion.client.base.view.SwingDefaults;
 import lsfusion.client.classes.*;
-import lsfusion.client.classes.data.ClientFormatClass;
-import lsfusion.client.classes.data.ClientIntegralClass;
-import lsfusion.client.classes.data.ClientLongClass;
+import lsfusion.client.classes.data.*;
 import lsfusion.client.controller.MainController;
 import lsfusion.client.form.controller.ClientFormController;
 import lsfusion.client.form.controller.remote.serialization.ClientIdentitySerializable;
 import lsfusion.client.form.controller.remote.serialization.ClientSerializationPool;
 import lsfusion.client.form.design.ClientComponent;
+import lsfusion.client.form.design.view.flex.LinearCaptionContainer;
 import lsfusion.client.form.object.ClientGroupObject;
 import lsfusion.client.form.object.ClientGroupObjectValue;
 import lsfusion.client.form.object.table.controller.TableController;
-import lsfusion.client.form.property.async.ClientAsyncAddRemove;
-import lsfusion.client.form.property.async.ClientAsyncChange;
-import lsfusion.client.form.property.async.ClientAsyncEventExec;
-import lsfusion.client.form.property.async.ClientAsyncOpenForm;
+import lsfusion.client.form.property.async.*;
 import lsfusion.client.form.property.cell.EditBindingMap;
 import lsfusion.client.form.property.cell.classes.controller.PropertyEditor;
 import lsfusion.client.form.property.cell.classes.view.FormatPropertyRenderer;
 import lsfusion.client.form.property.cell.view.PropertyRenderer;
 import lsfusion.client.form.property.panel.view.PanelView;
+import lsfusion.client.form.property.table.view.AsyncChangeInterface;
 import lsfusion.interop.action.ServerResponse;
 import lsfusion.interop.base.view.FlexAlignment;
 import lsfusion.interop.form.event.KeyInputEvent;
@@ -35,29 +33,50 @@ import lsfusion.interop.form.property.PropertyReadType;
 
 import javax.swing.*;
 import java.awt.*;
+import java.awt.event.KeyEvent;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.text.*;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 
-import static lsfusion.base.BaseUtils.isRedundantString;
-import static lsfusion.base.BaseUtils.nullTrim;
+import static lsfusion.base.BaseUtils.*;
+import static lsfusion.base.EscapeUtils.escapeLineBreakHTML;
 import static lsfusion.client.ClientResourceBundle.getString;
-import static lsfusion.client.base.EscapeUtils.escapeLineBreakHTML;
+import static lsfusion.client.base.SwingUtils.getEventCaption;
+import static lsfusion.interop.form.property.PropertyReadType.*;
 
 @SuppressWarnings({"UnusedDeclaration"})
 public class ClientPropertyDraw extends ClientComponent implements ClientPropertyReader, ClientIdentitySerializable {
 
     public CaptionReader captionReader = new CaptionReader();
     public ShowIfReader showIfReader = new ShowIfReader();
+    public ValueElementClassReader valueElementClassReader = new ValueElementClassReader();
+    public CaptionElementClassReader captionElementClassReader = new CaptionElementClassReader();
+    public ExtraPropReader fontReader = new ExtraPropReader(CELL_FONT);
     public BackgroundReader backgroundReader = new BackgroundReader();
     public ForegroundReader foregroundReader = new ForegroundReader();
     public FooterReader footerReader = new FooterReader();
     public ReadOnlyReader readOnlyReader = new ReadOnlyReader();
     public ImageReader imageReader = new ImageReader();
     public boolean hasDynamicImage;
+    public boolean hasDynamicCaption;
+
+    public ExtraPropReader commentReader = new ExtraPropReader(COMMENT);
+    public ExtraPropReader commentElementClassReader = new ExtraPropReader(COMMENTELEMENTCLASS);
+    public ExtraPropReader placeholderReader = new ExtraPropReader(PLACEHOLDER);
+    public ExtraPropReader patternReader = new ExtraPropReader(PATTERN);
+    public ExtraPropReader regexpReader = new ExtraPropReader(REGEXP);
+    public ExtraPropReader regexpMessageReader = new ExtraPropReader(REGEXPMESSAGE);
+    public ExtraPropReader tooltipReader = new ExtraPropReader(TOOLTIP);
+    public ExtraPropReader valueTooltipReader = new ExtraPropReader(VALUETOOLTIP);
+
+    public boolean boxed;
+
+    public boolean isAutoSize() {
+        return valueHeight == -1 || valueWidth == -1;
+    }
 
     // for pivoting
     public String formula;
@@ -69,14 +88,24 @@ public class ClientPropertyDraw extends ClientComponent implements ClientPropert
 
     public ClientPropertyDraw quickFilterProperty;
 
+    public Boolean inline;
+
     public boolean isList;
 
-    // символьный идентификатор, нужен для обращению к свойствам в печатных формах
-    public ClientType baseType;
+    public ClientType baseType; // cellType
+    public ClientType valueType;
     public ClientClass returnClass;
 
-    // асинхронные интерфейсы
-    public ClientType changeWYSType;
+    public String tag;
+    public String inputType;
+    public String valueElementClass;
+    public String captionElementClass;
+    public boolean toolbar;
+    public boolean toolbarActions;
+
+    public boolean ignoreHasHeaders;
+
+    public ClientType externalChangeType;
     public Map<String, ClientAsyncEventExec> asyncExecMap;
     public boolean askConfirm;
     public String askConfirmMessage;
@@ -84,12 +113,13 @@ public class ClientPropertyDraw extends ClientComponent implements ClientPropert
     public boolean hasEditObjectAction;
     public boolean hasChangeAction;
 
+    public boolean disableInputList;
+
     public String[] interfacesCaptions;
     public ClientClass[] interfacesTypes;
 
     public String caption;
-    public String regexp;
-    public String regexpMessage;
+    public AppImage image;
     public Long maxValue;
     public boolean echoSymbols;
     public boolean noSort;
@@ -100,28 +130,53 @@ public class ClientPropertyDraw extends ClientComponent implements ClientPropert
     public boolean showChangeKey;
     public MouseInputEvent changeMouse;
     public Integer changeMousePriority;
+    public boolean showChangeMouse;
 
     public boolean drawAsync; // рисовать асинхронность на этой кнопке
 
     public Boolean focusable;
     public PropertyEditType editType = PropertyEditType.EDITABLE;
 
-    public boolean panelCaptionVertical;
-    public boolean panelCaptionAfter;
-
     public boolean panelColumnVertical;
 
-    public FlexAlignment valueAlignment;
+    public FlexAlignment valueAlignmentHorz;
+    public FlexAlignment valueAlignmentVert;
 
-    public int charHeight;
+    public String valueOverflowHorz;
+    public String valueOverflowVert;
+
+    public boolean valueShrinkHorz;
+    public boolean valueShrinkVert;
+
+    public String comment;
+    public String commentElementClass;
+    public boolean panelCommentVertical;
+    public boolean panelCommentFirst;
+    public FlexAlignment panelCommentAlignment;
+
+    public String placeholder;
+
+    public String pattern;
+    public String userPattern;
+
+    public String regexp;
+    public String regexpMessage;
+
+    public String tooltip;
+    public String valueTooltip;
+
     public int charWidth;
-    public Dimension valueSize;
+    public int charHeight;
+
+    public int valueWidth;
+    public int valueHeight;
+
+    public int captionWidth;
+    public int captionHeight;
+    public int captionCharHeight;
 
     public transient EditBindingMap editBindingMap;
     private transient PropertyRenderer renderer;
-
-    protected Format format;
-    private Format defaultFormat;
 
     public boolean checkEquals;
 
@@ -130,11 +185,19 @@ public class ClientPropertyDraw extends ClientComponent implements ClientPropert
     protected String propertyFormName; // PropertyDrawEntity.sID
     protected String integrationSID;
 
-    public String toolTip;
-
     public ClientGroupObject groupObject;
     public String columnsName;
     public List<ClientGroupObject> columnGroupObjects = new ArrayList<>();
+
+    public boolean wrap;
+    public boolean wrapWordBreak;
+    public boolean collapse;
+    public boolean ellipsis;
+
+    public boolean captionWrap;
+    public boolean captionWrapWordBreak;
+    public boolean captionCollapse;
+    public boolean captionEllipsis;
 
     public boolean clearText;
     public boolean notSelectAll;
@@ -144,17 +207,30 @@ public class ClientPropertyDraw extends ClientComponent implements ClientPropert
     public boolean hide;
 
     public String customRenderFunction;
-    public String customEditorFunctions;
-    public boolean customTextEdit;
-    public boolean customReplaceEdit;
+    public boolean customCanBeRenderedInTD;
+    public boolean customNeedPlaceholder;
+    public boolean customNeedReadonly;
 
     public String creationScript;
     public String creationPath;
+    public String path;
     public String formPath;
     
     public boolean notNull;
 
+    public boolean sticky;
+
+    public boolean hasFooter;
+
     public ClientPropertyDraw() {
+    }
+
+    public Compare getDefaultCompare() {
+        return defaultCompare != null ? defaultCompare : Compare.EQUALS;
+    }
+
+    public Compare[] getFilterCompares() {
+        return baseType.getFilterCompares();
     }
 
     public KeyInputEvent getChangeKey() {
@@ -184,7 +260,7 @@ public class ClientPropertyDraw extends ClientComponent implements ClientPropert
     }
 
     public boolean isReadOnly() {
-        return editType == PropertyEditType.READONLY;
+        return editType == PropertyEditType.READONLY || editType == PropertyEditType.DISABLE;
     }
 
     public ClientGroupObject getGroupObject() {
@@ -195,8 +271,8 @@ public class ClientPropertyDraw extends ClientComponent implements ClientPropert
         return editBindingMap == null ? null : editBindingMap.getContextMenuItems();
     }
 
-    public PropertyEditor getValueEditorComponent(ClientFormController form, Object value) {
-        return baseType.getValueEditorComponent(form, this, value);
+    public PropertyEditor getValueEditorComponent(ClientFormController form, AsyncChangeInterface asyncChange, Object value) {
+        return baseType.getValueEditorComponent(form, this, asyncChange, value);
     }
 
     public PropertyRenderer getRendererComponent() {
@@ -206,28 +282,31 @@ public class ClientPropertyDraw extends ClientComponent implements ClientPropert
         return renderer;
     }
 
-    public PanelView getPanelView(ClientFormController form, ClientGroupObjectValue columnKey) {
-        return baseType.getPanelView(this, columnKey, form);
+    public PanelView getPanelView(ClientFormController form, ClientGroupObjectValue columnKey, LinearCaptionContainer captionContainer) {
+        return baseType.getPanelView(this, columnKey, form, captionContainer);
     }
-    
+
+    // padding has to be included for grid column for example, and not for panel property (since flex, width, min-width, etc. doesn't include padding)
+    public int getValueWidthWithPadding(JComponent component) {
+        return getValueWidth(component) + 1 * 2;
+    }
+    public int getValueHeightWithPadding(JComponent component) {
+        return getValueHeight(component) + 1 * 2;
+    }
+
     public int getValueWidth() {
-        if (valueSize != null) {
-            return valueSize.width;
-        }
-        return -1;
+        return valueWidth;
     }
 
     public int getValueWidth(JComponent comp) {
-        if (valueSize != null && valueSize.width > -1) {
-            return valueSize.width;
+        if (valueWidth > -1) {
+            return valueWidth;
         }
         FontMetrics fontMetrics = comp.getFontMetrics(design.getFont(comp));
 
         String widthString = null;
-        if(charWidth != 0)
-            widthString = BaseUtils.replicate('0', charWidth);
-        if(widthString != null)
-            return baseType.getFullWidthString(widthString, fontMetrics, this);
+        if(charWidth != -1)
+            return baseType.getFullWidthString(BaseUtils.replicate('0', charWidth), fontMetrics, this);
 
         return baseType.getDefaultWidth(fontMetrics, this);
     }
@@ -237,13 +316,13 @@ public class ClientPropertyDraw extends ClientComponent implements ClientPropert
     }
 
     public int getValueHeight(JComponent comp, Integer userFontSize) {
-        if (valueSize != null && valueSize.height > -1) {
-            return valueSize.height;
+        if (valueHeight > -1) {
+            return valueHeight;
         }
         
         Insets insets = SwingDefaults.getTableCellMargins(); // suppose buttons have the same padding. to have equal height
         int insetsHeight = insets.top + insets.bottom;
-        int lines = charHeight == 0 ? baseType.getDefaultCharHeight() : charHeight;
+        int lines = charHeight == -1 ? baseType.getDefaultCharHeight() : charHeight;
         int height;
         int fontSize = userFontSize != null && userFontSize > 0 ? userFontSize : (design.font != null ? design.font.fontSize : -1);
         if (fontSize > 0 || lines > 1) {
@@ -253,10 +332,24 @@ public class ClientPropertyDraw extends ClientComponent implements ClientPropert
             height = SwingDefaults.getValueHeight();
         }
         
-        ImageIcon image = ClientImages.getImage(design.getImageHolder());
+        ImageIcon image = ClientImages.getImage(this.image);
         if (image != null) // предпочитаемую высоту берем исходя из размера иконки
             height = Math.max(image.getIconHeight() + insetsHeight, height);
         return height;
+    }
+
+    public Integer getCaptionWidth() {
+        if(captionWidth >= 0)
+            return captionWidth;
+
+        return null;
+    }
+
+    public Integer getCaptionHeight() {
+        if(captionHeight >= 0)
+            return captionHeight;
+
+        return null;
     }
 
     @Override
@@ -272,9 +365,9 @@ public class ClientPropertyDraw extends ClientComponent implements ClientPropert
         return alignment;
     }
     
-    public Integer getSwingValueAlignment() {
-        if (valueAlignment != null) {
-            switch (valueAlignment) {
+    public Integer getSwingValueAlignmentHorz() {
+        if (valueAlignmentHorz != null) {
+            switch (valueAlignmentHorz) {
                 case CENTER:
                 case STRETCH:
                     return SwingConstants.CENTER;
@@ -292,7 +385,7 @@ public class ClientPropertyDraw extends ClientComponent implements ClientPropert
         if(formatType instanceof ClientObjectType)
             formatType = ClientLongClass.instance;
 
-        Format result = format;
+        Format result = getPatternFormat();
         if(formatType instanceof ClientFormatClass) {
             Format defaultFormat = ((ClientFormatClass) formatType).getDefaultFormat();
             if (result == null)
@@ -310,49 +403,15 @@ public class ClientPropertyDraw extends ClientComponent implements ClientPropert
         return format != null;
     }
 
-    public String getFormatPattern() {
-        if (format != null) {
-            if (format instanceof DecimalFormat)
-                return ((DecimalFormat) format).toPattern();
-            else if (format instanceof SimpleDateFormat)
-                return ((SimpleDateFormat) format).toPattern();
-        }
-        return null;
-    }
-
-    public void setUserFormat(String pattern) {
+    public void setUserPattern(String userPattern) {
         if(baseType instanceof ClientFormatClass) {
-            Format setFormat = null;
-            if (pattern != null && !pattern.isEmpty())
-                setFormat = ((ClientFormatClass) baseType).createUserFormat(pattern);
-            else
-                setFormat = defaultFormat;
-
-            format = setFormat;
+            this.userPattern = userPattern;
             PropertyRenderer renderer = getRendererComponent();
             if (renderer instanceof FormatPropertyRenderer) {
                 ((FormatPropertyRenderer) renderer).updateFormat();
             } else
                 assert false;
         }
-    }
-
-    public String getEditCaption(String caption) {
-        if (caption == null) {
-            caption = this.caption;
-        }
-
-        return showChangeKey && changeKey != null
-               ? caption + " (" + getChangeKeyCaption() + ")"
-               : caption;
-    }
-    
-    private String getChangeKeyCaption() {
-        return SwingUtils.getKeyStrokeCaption(changeKey.keyStroke);
-    }
-
-    public String getEditCaption() {
-        return getEditCaption(caption);
     }
 
     public String getNamespace() {
@@ -371,28 +430,52 @@ public class ClientPropertyDraw extends ClientComponent implements ClientPropert
         return integrationSID;
     }
 
-    public Object parseChangeValueOrNull(String s) {
-        if (changeWYSType == null) {
+    public Object parsePaste(String s) {
+        ClientType externalChangeType = this.externalChangeType;
+        if(externalChangeType == null)
+            externalChangeType = baseType;
+        return parsePaste(s, externalChangeType);
+    }
+    public Object parsePaste(String s, ClientType parseType) {
+        if(s == null)
+            return null;
+        if (parseType == null) {
             return null;
         }
         try {
-            return changeWYSType.parseString(s);
+            return parseType.parseString(s);
         } catch (ParseException pe) {
             return null;
         }
     }
 
-    public Object parseBaseValue(String s) throws ParseException {
+    public Object parseBasePaste(String s) throws ParseException {
         return baseType.parseString(s);
     }
 
     public boolean canUsePasteValueForRendering() {
-        return changeWYSType != null && baseType.getTypeClass() == changeWYSType.getTypeClass();
+        return externalChangeType != null && baseType.getTypeClass() == externalChangeType.getTypeClass();
     }
 
     public boolean canUseChangeValueForRendering() {
         ClientType changeType = getChangeType();
         return changeType != null && baseType.getTypeClass() == changeType.getTypeClass();
+    }
+
+    public boolean isCaptionLast() {
+        return captionLast;
+    }
+
+    public FlexAlignment getCaptionAlignmentHorz() {
+        return captionAlignmentHorz;
+    }
+
+    public boolean isPanelCommentFirst() {
+        return panelCommentFirst;
+    }
+
+    public FlexAlignment getPanelCommentAlignment() {
+        return panelCommentAlignment;
     }
 
     public String formatString(Object obj) throws ParseException {
@@ -405,16 +488,64 @@ public class ClientPropertyDraw extends ClientComponent implements ClientPropert
         return "";
     }
 
+    private Format format;
+    private String prevPattern;
+    private Format getPatternFormat() {
+        String curPattern = nvl(userPattern, pattern);
+        if(curPattern != null) {
+            if (baseType instanceof ClientFormatClass && (prevPattern == null || !prevPattern.equals(curPattern))) {
+                prevPattern = curPattern;
+                format = ((ClientFormatClass) baseType).createUserFormat(curPattern);
+            }
+        } else {
+            format = null;
+        }
+        return format;
+    }
+
     public byte getType() {
         return PropertyReadType.DRAW;
+    }
+
+    public Integer getInputActionIndex(KeyEvent editEvent) {
+        ClientInputListAction[] inputListActions = getInputListActions();
+        if (inputListActions != null) {
+            KeyStroke eventKeyStroke = KeyStroke.getKeyStrokeForEvent(editEvent);
+            for (int i = 0; i < inputListActions.length; i++) {
+                ClientInputListAction action = inputListActions[i];
+                if (eventKeyStroke.equals(action.keyStroke)) {
+                    return action.index;
+                }
+            }
+        }
+        return null;
+    }
+
+    public Integer getDialogInputActionIndex() {
+        ClientInputListAction[] inputListActions = getInputListActions();
+        if (inputListActions != null) {
+            return getDialogInputActionIndex(inputListActions);
+        }
+        return null;
+    }
+
+    public Integer getDialogInputActionIndex(ClientInputListAction[] actions) {
+        if (actions != null && disableInputList) {
+            for (int i = 0; i < actions.length; i++) {
+                ClientInputListAction action = actions[i];
+                //addDialogInputAProp from server
+                if (action.id != null && action.id.equals(AppImage.INPUT_DIALOG)) {
+                    return action.index;
+                }
+            }
+        }
+        return null;
     }
 
     public void customSerialize(ClientSerializationPool pool, DataOutputStream outStream) throws IOException {
         super.customSerialize(pool, outStream);
 
         pool.writeString(outStream, caption);
-        pool.writeString(outStream, regexp);
-        pool.writeString(outStream, regexpMessage);
         pool.writeLong(outStream, maxValue);
         outStream.writeBoolean(echoSymbols);
         outStream.writeBoolean(noSort);
@@ -423,24 +554,47 @@ public class ClientPropertyDraw extends ClientComponent implements ClientPropert
         outStream.writeInt(charHeight);
         outStream.writeInt(charWidth);
         
-        pool.writeObject(outStream, valueSize);
+        outStream.writeInt(valueWidth);
+        outStream.writeInt(valueHeight);
+
+        outStream.writeInt(captionWidth);
+        outStream.writeInt(captionHeight);
 
         pool.writeObject(outStream, changeKey);
         pool.writeInt(outStream, changeKeyPriority);
         outStream.writeBoolean(showChangeKey);
         pool.writeObject(outStream, changeMouse);
         pool.writeInt(outStream, changeMousePriority);
+        outStream.writeBoolean(showChangeMouse);
 
-        pool.writeObject(outStream, format);
         pool.writeObject(outStream, focusable);
 
-        outStream.writeBoolean(panelCaptionVertical);
-        outStream.writeBoolean(panelCaptionAfter);
+        outStream.writeBoolean(captionVertical);
+        pool.writeObject(outStream, captionLast);
+        pool.writeObject(outStream, captionAlignmentHorz);
+        pool.writeObject(outStream, captionAlignmentVert);
 
         outStream.writeBoolean(panelColumnVertical);
 
-        pool.writeObject(outStream, valueAlignment);
-        
+        pool.writeObject(outStream, valueAlignmentHorz);
+        pool.writeObject(outStream, valueAlignmentVert);
+
+        pool.writeString(outStream, valueOverflowHorz);
+        pool.writeString(outStream, valueOverflowVert);
+
+        pool.writeBoolean(outStream, valueShrinkHorz);
+        pool.writeBoolean(outStream, valueShrinkVert);
+
+        pool.writeString(outStream, comment);
+
+        pool.writeString(outStream, placeholder);
+        pool.writeString(outStream, pattern);
+        pool.writeString(outStream, regexp);
+        pool.writeString(outStream, regexpMessage);
+
+        pool.writeString(outStream, tooltip);
+        pool.writeString(outStream, valueTooltip);
+
         pool.writeObject(outStream, changeOnSingleClick);
         outStream.writeBoolean(hide);
 
@@ -451,8 +605,8 @@ public class ClientPropertyDraw extends ClientComponent implements ClientPropert
         super.customDeserialize(pool, inStream);
 
         caption = pool.readString(inStream);
-        regexp = pool.readString(inStream);
-        regexpMessage = pool.readString(inStream);
+        image = pool.readImageIcon(inStream);
+
         maxValue = pool.readLong(inStream);
         echoSymbols = inStream.readBoolean();
         noSort = inStream.readBoolean();
@@ -460,46 +614,79 @@ public class ClientPropertyDraw extends ClientComponent implements ClientPropert
         charHeight = inStream.readInt();
         charWidth = inStream.readInt();
 
-        valueSize = pool.readObject(inStream);
+        valueWidth = inStream.readInt();
+        valueHeight = inStream.readInt();
+
+        captionWidth = inStream.readInt();
+        captionHeight = inStream.readInt();
+        captionCharHeight = inStream.readInt();
 
         changeKey = pool.readObject(inStream);
         changeKeyPriority = pool.readInt(inStream);
         showChangeKey = inStream.readBoolean();
         changeMouse = pool.readObject(inStream);
         changeMousePriority = pool.readInt(inStream);
+        showChangeMouse = inStream.readBoolean();
 
         drawAsync = inStream.readBoolean();
 
-        format = pool.readObject(inStream);
-        defaultFormat = format;
-
+        inline = pool.readObject(inStream);
         isList = inStream.readBoolean();
 
         focusable = pool.readObject(inStream);
         editType = PropertyEditType.deserialize(inStream.readByte());
 
-        panelCaptionVertical = inStream.readBoolean();
-        panelCaptionAfter = inStream.readBoolean();
-
         panelColumnVertical = inStream.readBoolean();
 
-        valueAlignment = pool.readObject(inStream);
+        valueAlignmentHorz = pool.readObject(inStream);
+        valueAlignmentVert = pool.readObject(inStream);
+
+        valueOverflowHorz = pool.readString(inStream);
+        valueOverflowVert = pool.readString(inStream);
+
+        valueShrinkHorz = pool.readBoolean(inStream);
+        valueShrinkVert = pool.readBoolean(inStream);
+
+        comment = pool.readString(inStream);
+        commentElementClass = pool.readString(inStream);
+        panelCommentVertical = inStream.readBoolean();
+        panelCommentFirst = inStream.readBoolean();
+        panelCommentAlignment = pool.readObject(inStream);
+
+        placeholder = pool.readString(inStream);
+        pattern = pool.readString(inStream);
+        regexp = pool.readString(inStream);
+        regexpMessage = pool.readString(inStream);
+
+        tooltip = pool.readString(inStream);
+        valueTooltip = pool.readString(inStream);
 
         changeOnSingleClick = pool.readObject(inStream);
         hide = inStream.readBoolean();
 
         baseType = ClientTypeSerializer.deserializeClientType(inStream);
-        if (inStream.readBoolean()) {
-            changeWYSType = ClientTypeSerializer.deserializeClientType(inStream);
-        }
+        if(inStream.readBoolean())
+            valueType = ClientTypeSerializer.deserializeClientType(inStream);
 
+        tag = pool.readString(inStream);
+        inputType = pool.readString(inStream);
+        valueElementClass = pool.readString(inStream);
+        captionElementClass = pool.readString(inStream);
+        toolbar = pool.readBoolean(inStream);
+        toolbarActions = pool.readBoolean(inStream);
+
+        if (inStream.readBoolean()) {
+            externalChangeType = ClientTypeSerializer.deserializeClientType(inStream);
+        }
         asyncExecMap = new HashMap<>();
         int asyncExecSize = inStream.readInt();
         for (int i = 0; i < asyncExecSize; ++i) {
             String key = pool.readString(inStream);
-            ClientAsyncEventExec value = pool.deserializeObject(inStream);
+            ClientAsyncEventExec value = ClientAsyncSerializer.deserializeEventExec(inStream);
             asyncExecMap.put(key, value);
         }
+
+        ignoreHasHeaders = inStream.readBoolean();
 
         askConfirm = inStream.readBoolean();
         if(askConfirm)
@@ -508,6 +695,9 @@ public class ClientPropertyDraw extends ClientComponent implements ClientPropert
         hasEditObjectAction = inStream.readBoolean();
         hasChangeAction = inStream.readBoolean();
         hasDynamicImage = inStream.readBoolean();
+        hasDynamicCaption = inStream.readBoolean();
+
+        disableInputList = inStream.readBoolean();
 
         namespace = pool.readString(inStream);
         sID = pool.readString(inStream);
@@ -515,14 +705,23 @@ public class ClientPropertyDraw extends ClientComponent implements ClientPropert
         propertyFormName = pool.readString(inStream);
         integrationSID = pool.readString(inStream);
 
-        toolTip = pool.readString(inStream);
-
         groupObject = pool.deserializeObject(inStream);
 
         columnsName = pool.readString(inStream);
         columnGroupObjects = pool.deserializeList(inStream);
 
         checkEquals = inStream.readBoolean();
+
+        wrap = inStream.readBoolean();
+        wrapWordBreak = inStream.readBoolean();
+        collapse = inStream.readBoolean();
+        ellipsis = inStream.readBoolean();
+
+        captionWrap = inStream.readBoolean();
+        captionWrapWordBreak = inStream.readBoolean();
+        captionCollapse = inStream.readBoolean();
+        captionEllipsis = inStream.readBoolean();
+
         clearText = inStream.readBoolean();
         notSelectAll = inStream.readBoolean();
 
@@ -555,17 +754,18 @@ public class ClientPropertyDraw extends ClientComponent implements ClientPropert
                                  : null;
         }
 
-        returnClass = ClientTypeSerializer.deserializeClientClass(inStream);
+        returnClass = inStream.readBoolean() ? ClientTypeSerializer.deserializeClientClass(inStream) : null;
         
         customRenderFunction = pool.readString(inStream);
-        customEditorFunctions = pool.readString(inStream);
-        customTextEdit = pool.readBoolean(inStream);
-        customReplaceEdit = pool.readBoolean(inStream);
+        customCanBeRenderedInTD = pool.readBoolean(inStream);
+        customNeedPlaceholder = pool.readBoolean(inStream);
+        customNeedReadonly = pool.readBoolean(inStream);
 
         eventID = pool.readString(inStream);
 
         creationScript = pool.readString(inStream);
         creationPath = pool.readString(inStream);
+        path = pool.readString(inStream);
         formPath = pool.readString(inStream);
 
         String mouseBinding = pool.readString(inStream);
@@ -595,6 +795,14 @@ public class ClientPropertyDraw extends ClientComponent implements ClientPropert
         }
         
         notNull = inStream.readBoolean();
+
+        sticky = inStream.readBoolean();
+
+        hasFooter = inStream.readBoolean();
+    }
+
+    public boolean hasColumnGroupObjects() {
+        return columnGroupObjects != null && !columnGroupObjects.isEmpty();
     }
 
     public ClientAsyncEventExec getAsyncEventExec(String actionSID) {
@@ -603,8 +811,20 @@ public class ClientPropertyDraw extends ClientComponent implements ClientPropert
 
     public ClientType getChangeType() {
         ClientAsyncEventExec asyncExec = asyncExecMap.get(ServerResponse.CHANGE);
-        ClientAsyncChange changeType = asyncExec instanceof ClientAsyncChange ? (ClientAsyncChange) asyncExec : null;
+        ClientAsyncInput changeType = asyncExec instanceof ClientAsyncInput ? (ClientAsyncInput) asyncExec : null;
         return changeType != null ? changeType.changeType : null;
+    }
+
+    public ClientInputList getInputList() {
+        ClientAsyncEventExec asyncExec = asyncExecMap.get(ServerResponse.CHANGE);
+        ClientAsyncInput changeType = asyncExec instanceof ClientAsyncInput ? (ClientAsyncInput) asyncExec : null;
+        return changeType != null ? changeType.inputList : null;
+    }
+
+    public ClientInputListAction[] getInputListActions() {
+        ClientAsyncEventExec asyncExec = asyncExecMap.get(ServerResponse.CHANGE);
+        ClientAsyncInput changeType = asyncExec instanceof ClientAsyncInput ? (ClientAsyncInput) asyncExec : null;
+        return changeType != null ? changeType.inputListActions : null;
     }
 
     private void initEditBindingMap() {
@@ -622,16 +842,38 @@ public class ClientPropertyDraw extends ClientComponent implements ClientPropert
         return getPropertyCaption();
     }
 
+    public String getChangeCaption(String caption) {
+        if (caption == null) {
+            caption = getCaptionOrEmpty();
+        }
+
+        String eventCaption = getEventCaption(showChangeKey && changeKey != null ? getChangeKeyCaption() : null,
+                showChangeMouse && changeMouse != null ? changeMouse.mouseEvent : null);
+        return caption + (eventCaption != null ? " (" + eventCaption + ")" : "");
+    }
+
+    private String getChangeKeyCaption() {
+        return SwingUtils.getKeyStrokeCaption(changeKey.keyStroke);
+    }
+
+    public String getChangeCaption() {
+        return getChangeCaption(caption);
+    }
+
     public String getPropertyCaption() {
-        return caption;
+        return getCaptionOrEmpty();
     }
 
     public String getHTMLCaption() {
-        return caption == null ? null : escapeHTML(caption);
+        return escapeHTML(getCaptionOrEmpty());
     }
 
     public String getDynamicCaption(Object captionValue) {
         return BaseUtils.toCaption(captionValue);
+    }
+
+    public String getCaptionOrEmpty() {
+        return caption == null ? "" : caption;
     }
 
     @Override
@@ -640,10 +882,6 @@ public class ClientPropertyDraw extends ClientComponent implements ClientPropert
             return caption + " (" + getID() + ")";
 
         return getString("logics.undefined.property");
-    }
-
-    public String getFilterCaption(ClientGroupObject group) {
-        return caption + " (" + (groupObject != null ? groupObject.getCaption() : "") + ")";
     }
 
     public static final String TOOL_TIP_FORMAT =
@@ -673,31 +911,36 @@ public class ClientPropertyDraw extends ClientComponent implements ClientPropert
                     "<b>" + getString("logics.formpath") + ":</b> %7$s" +
                     "</html>";
 
-    public static final String EDIT_KEY_TOOL_TIP_FORMAT =
-            "<hr><b>" + getString("logics.property.edit.key") + ":</b> %1$s<br>";
+    public static final String hotkey = getString("logics.property.hotkey");
+    public static final String EDIT_KEY_TOOL_TIP_FORMAT = "<hr><b>" + hotkey + ":</b> %1$s<br>";
 
+    public String getQuickActionTooltipText(KeyStroke keyStroke) {
+        return keyStroke == null ? "" : String.format("<html><b>" + hotkey + ":</b> %1$s</html>", keyStroke);
+    }
     public String getTooltipText(String caption) {
-        String propCaption = nullTrim(!isRedundantString(toolTip) ? toolTip : caption);
-        String changeKeyText = changeKey == null ? "" : String.format(EDIT_KEY_TOOL_TIP_FORMAT, getChangeKeyCaption());
+        String propCaption = nullTrim(!isRedundantString(tooltip) ? tooltip : caption);
+
+        String eventCaption = getEventCaption(changeKey != null ? getChangeKeyCaption() : null, changeMouse != null ? changeMouse.mouseEvent : null);
+        String bindingText = eventCaption != null ? String.format(EDIT_KEY_TOOL_TIP_FORMAT, eventCaption) : "";
 
         if (!MainController.showDetailedInfo) {
-            return String.format(TOOL_TIP_FORMAT, propCaption, changeKeyText);
+            return propCaption.isEmpty() ? null : String.format(TOOL_TIP_FORMAT, propCaption, bindingText);
         } else {
             String ifaceObjects = BaseUtils.toString(", ", interfacesCaptions);
             String scriptPath = creationPath != null ? escapeLineBreakHTML(creationPath) : "";
-            String scriptFormPath = formPath != null ? escapeLineBreakHTML(formPath) : "";
+            String scriptFormPath = formPath != null ? escapeLineBreakHTML(formPath.substring(formPath.lastIndexOf("/") + 1).replace(".lsf", "")) : "";
             
-            if (baseType instanceof ClientActionClass) {
+            if (isAction()) {
                 return String.format(TOOL_TIP_FORMAT + DETAILED_ACTION_TOOL_TIP_FORMAT,
-                        propCaption, changeKeyText, canonicalName, ifaceObjects, scriptPath, propertyFormName, scriptFormPath);
+                        propCaption, bindingText, canonicalName, ifaceObjects, scriptPath, propertyFormName, scriptFormPath);
             } else {
                 String tableName = this.tableName != null ? this.tableName : "&lt;none&gt;";
                 String ifaceClasses = BaseUtils.toString(", ", interfacesTypes);
-                String returnClass = this.returnClass.toString();
+                String returnClass = this.returnClass != null ? this.returnClass.toString() : "";
                 String script = creationScript != null ? escapeLineBreakHTML(escapeHTML(creationScript)) : "";
                 
                 return String.format(TOOL_TIP_FORMAT + DETAILED_TOOL_TIP_FORMAT,
-                        propCaption, changeKeyText, canonicalName, tableName, ifaceObjects, ifaceClasses, returnClass,
+                        propCaption, bindingText, canonicalName, tableName, ifaceObjects, ifaceClasses, returnClass,
                         script, scriptPath, propertyFormName, scriptFormPath);
             }
         }
@@ -705,6 +948,14 @@ public class ClientPropertyDraw extends ClientComponent implements ClientPropert
 
     private String escapeHTML(String value) {
         return value.replace("<", "&lt;").replace(">", "&gt;");
+    }
+
+    public boolean isAutoDynamicHeight() {
+        return getRendererComponent().isAutoDynamicHeight();
+    }
+
+    public boolean isAction() {
+        return baseType instanceof ClientActionClass;
     }
 
     public class CaptionReader implements ClientPropertyReader {
@@ -803,6 +1054,40 @@ public class ClientPropertyDraw extends ClientComponent implements ClientPropert
         }
     }
 
+    public class ValueElementClassReader implements ClientPropertyReader {
+        public ClientGroupObject getGroupObject() {
+            return ClientPropertyDraw.this.getGroupObject();
+        }
+
+        public void update(Map<ClientGroupObjectValue, Object> readKeys, boolean updateKeys, TableController controller) {
+        }
+
+        public int getID() {
+            return ClientPropertyDraw.this.getID();
+        }
+
+        public byte getType() {
+            return PropertyReadType.CELL_VALUEELEMENTCLASS;
+        }
+    }
+
+    public class CaptionElementClassReader implements ClientPropertyReader {
+        public ClientGroupObject getGroupObject() {
+            return ClientPropertyDraw.this.getGroupObject();
+        }
+
+        public void update(Map<ClientGroupObjectValue, Object> readKeys, boolean updateKeys, TableController controller) {
+        }
+
+        public int getID() {
+            return ClientPropertyDraw.this.getID();
+        }
+
+        public byte getType() {
+            return PropertyReadType.CAPTIONELEMENTCLASS;
+        }
+    }
+
     public class BackgroundReader implements ClientPropertyReader {
         public ClientGroupObject getGroupObject() {
             return ClientPropertyDraw.this.getGroupObject();
@@ -854,6 +1139,29 @@ public class ClientPropertyDraw extends ClientComponent implements ClientPropert
 
         public byte getType() {
             return PropertyReadType.IMAGE;
+        }
+    }
+
+    public class ExtraPropReader implements ClientPropertyReader {
+        final byte type;
+
+        public ExtraPropReader(byte type) {
+            this.type = type;
+        }
+
+        public ClientGroupObject getGroupObject() {
+            return ClientPropertyDraw.this.getGroupObject();
+        }
+
+        public void update(Map<ClientGroupObjectValue, Object> readKeys, boolean updateKeys, TableController controller) {
+        }
+
+        public int getID() {
+            return ClientPropertyDraw.this.getID();
+        }
+
+        public byte getType() {
+            return type;
         }
     }
 }

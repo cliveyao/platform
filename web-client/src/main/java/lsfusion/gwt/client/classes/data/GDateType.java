@@ -2,57 +2,58 @@ package lsfusion.gwt.client.classes.data;
 
 import com.google.gwt.i18n.client.DateTimeFormat;
 import lsfusion.gwt.client.ClientMessages;
+import lsfusion.gwt.client.base.GwtClientUtils;
+import lsfusion.gwt.client.base.GwtSharedUtils;
 import lsfusion.gwt.client.form.property.GPropertyDraw;
-import lsfusion.gwt.client.form.property.cell.GEditBindingMap;
+import lsfusion.gwt.client.form.property.PValue;
+import lsfusion.gwt.client.form.property.async.GInputList;
+import lsfusion.gwt.client.form.property.async.GInputListAction;
 import lsfusion.gwt.client.form.property.cell.classes.GDateDTO;
 import lsfusion.gwt.client.form.property.cell.classes.controller.DateCellEditor;
-import lsfusion.gwt.client.form.property.cell.classes.view.DateCellRenderer;
+import lsfusion.gwt.client.form.property.cell.classes.controller.RequestValueCellEditor;
+import lsfusion.gwt.client.form.property.cell.controller.EditContext;
 import lsfusion.gwt.client.form.property.cell.controller.EditManager;
-import lsfusion.gwt.client.form.property.cell.controller.CellEditor;
-import lsfusion.gwt.client.form.property.cell.view.CellRenderer;
 
 import java.text.ParseException;
 import java.util.Date;
 
-import static lsfusion.gwt.client.base.GwtSharedUtils.getDateFormat;
-
-public class GDateType extends GFormatType<DateTimeFormat> {
+public class GDateType extends GADateType {
 
     public static GDateType instance = new GDateType();
 
     @Override
     public DateTimeFormat getFormat(String pattern) {
-        return getDateFormat(pattern, false);
+        return GwtSharedUtils.getDateFormat(pattern);
     }
 
     @Override
-    public CellEditor createGridCellEditor(EditManager editManager, GPropertyDraw editProperty) {
-        return new DateCellEditor(editManager, editProperty);
+    public RequestValueCellEditor createCellEditor(EditManager editManager, GPropertyDraw editProperty, GInputList inputList, GInputListAction[] inputListActions, EditContext editContext) {
+        return new DateCellEditor(this, editManager, editProperty);
     }
 
     @Override
-    public GDateDTO parseString(String value, String pattern) throws ParseException {
-        return value.isEmpty() ? null : GDateDTO.fromDate(parseDate(value, getDateFormat(pattern, true)));
+    protected DateTimeFormat[] getFormats(String pattern) {
+        return GwtClientUtils.add(super.getFormats(pattern), new DateTimeFormat[] { GwtSharedUtils.getDefaultDateFormat() }, DateTimeFormat[]::new);
     }
 
     @Override
-    public CellRenderer createGridCellRenderer(GPropertyDraw property) {
-        return new DateCellRenderer(property);
+    public DateTimeFormat getISOFormat() {
+        return DateTimeFormat.getFormat("yyyy-MM-dd");
     }
 
     @Override
-    protected Object getDefaultWidthValue() {
-        return GDateTimeType.getWideFormattableDateTime();
+    public PValue fromDate(Date date) {
+        return PValue.getPValue(GDateDTO.fromDate(date));
+    }
+
+    @Override
+    public Date toDate(PValue value) {
+        return PValue.getDateValue(value).toDate();
     }
 
     @Override
     public String toString() {
         return ClientMessages.Instance.get().typeDateCaption();
-    }
-
-    @Override
-    public GEditBindingMap.EditEventFilter getEditEventFilter() {
-        return GEditBindingMap.numberEventFilter;
     }
 
     public static Date parseDate(String value, DateTimeFormat... formats) throws ParseException {

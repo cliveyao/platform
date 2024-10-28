@@ -10,6 +10,7 @@ public class RoleSecurityPolicy {
     public ElementSecurityPolicy propertyView = new ElementSecurityPolicy<ActionOrProperty>();
     public ElementSecurityPolicy propertyChange = new ElementSecurityPolicy<ActionOrProperty>();
     public ElementSecurityPolicy propertyEditObjects = new ElementSecurityPolicy<ActionOrProperty>();
+    public ElementSecurityPolicy propertyGroupChange = new ElementSecurityPolicy<ActionOrProperty>();
 
     public final boolean isReadOnlyPolicy;
 
@@ -31,12 +32,16 @@ public class RoleSecurityPolicy {
     }
 
     public Boolean checkPropertyChangePermission(ActionOrProperty property, Action changeAction) {
-        if((isReadOnlyPolicy || !Settings.get().isDisableDefaultChangeOnReadOnlyChange()) && changeAction.ignoreReadOnlyPolicy()) // if event handler doesn't change anything (for example SELECTOR), consider this event to be binding (not edit)
+        if(((isReadOnlyPolicy || !Settings.get().isDisableDefaultChangeOnReadOnlyChange()) && changeAction.ignoreReadOnlyPolicy()) || changeAction.ignoreChangeSecurityPolicy) // if event handler doesn't change anything (for example SELECTOR), consider this event to be binding (not edit)
             return null;
         return this.propertyChange.checkPermission(property);
     }
 
     public Boolean checkPropertyEditObjectsPermission(ActionOrProperty property) {
         return this.propertyEditObjects.checkPermission(property);
+    }
+
+    public Boolean checkPropertyGroupChangePermission(ActionOrProperty property) {
+        return this.propertyGroupChange.checkPermission(property);
     }
 }

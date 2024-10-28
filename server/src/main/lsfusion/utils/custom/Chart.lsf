@@ -1,0 +1,10 @@
+MODULE Chart;
+
+REQUIRE SystemEvents;
+
+NAMESPACE Utils;
+
+onWebClientInit() + {
+    onWebClientInit('custom_chart.js') <- 1;
+    onWebClientInit('chart.js') <- 1;
+}

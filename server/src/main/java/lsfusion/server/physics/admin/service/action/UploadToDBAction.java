@@ -1,17 +1,15 @@
 package lsfusion.server.physics.admin.service.action;
 
 import lsfusion.base.ExceptionUtils;
-import lsfusion.interop.action.MessageClientAction;
-import lsfusion.server.data.sql.SQLSession;
 import lsfusion.server.data.sql.adapter.DataAdapter;
 import lsfusion.server.data.sql.adapter.PostgreDataAdapter;
 import lsfusion.server.data.sql.exception.SQLHandledException;
 import lsfusion.server.language.ScriptingErrorLog;
 import lsfusion.server.logics.action.controller.context.ExecutionContext;
 import lsfusion.server.logics.property.classes.ClassPropertyInterface;
-import lsfusion.server.physics.admin.service.RunService;
 import lsfusion.server.physics.admin.service.ServiceLogicsModule;
 import lsfusion.server.physics.dev.integration.internal.to.InternalAction;
+import lsfusion.server.physics.exec.db.controller.manager.DBManager;
 
 import java.sql.SQLException;
 
@@ -46,7 +44,7 @@ public class UploadToDBAction extends InternalAction {
                 throw ExceptionUtils.propagate(e, SQLException.class, SQLHandledException.class);
             }
     
-            ServiceDBAction.run(context, (session, isolatedTransaction) -> {
+            ServiceDBAction.run(context, DBManager.UPLOAD_TIL, (session, isolatedTransaction) -> {
                 try {
                     context.getDbManager().uploadToDB(session, isolatedTransaction, adapter);
                 } catch (Exception e) {
@@ -54,7 +52,7 @@ public class UploadToDBAction extends InternalAction {
                 }
             });
     
-            context.delayUserInterfaction(new MessageClientAction(localize("{logics.upload.was.completed}"), localize("{logics.upload.db}")));
+            context.messageSuccess(localize("{logics.upload.was.completed}"), localize("{logics.upload.db}"));
         } catch (ScriptingErrorLog.SemanticErrorException e) {
             throw ExceptionUtils.propagate(e, SQLException.class, SQLHandledException.class);
         }

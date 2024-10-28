@@ -21,8 +21,6 @@ public class Settings implements Cloneable {
     // будет ли компилятор вместо UNION (когда UNION ALL не удается построить) использовать FULL JOIN
     boolean useFJInsteadOfUnion = false;
 
-    private int innerGroupExprs = 0; // использовать Subquery Expressions
-
     private boolean cacheInnerHashes = true;
 
     private int mapInnerMaxIterations = 24;
@@ -67,11 +65,13 @@ public class Settings implements Cloneable {
     private boolean enableApplySingleStored = true;
     private boolean enableApplySingleRemoveClasses = true;
 
-    private Boolean editBooleanOnSingleClick;
+    private Boolean changeBooleanOnSingleClick;
 
-    private Boolean editActionOnSingleClick = true;
+    private Boolean changeActionOnSingleClick = true;
 
     private int freeConnections = 12;
+    private int freeAPISessions = 12;
+    private boolean reinitAPISession = false;
 
     private boolean commonUnique = true; // потому как в таком случае все common connection'ы начинают блокировать друг друга, поэтому схема с private pool'ом правильней
 
@@ -95,6 +95,8 @@ public class Settings implements Cloneable {
     private int averageIntervalStat = 1;
 
     private int barcodeLength = 13;
+
+    private int inlineClassThreshold = 6; // threshold, how many class tables will be wrapped into a subquery
 
     private boolean useSingleJoins = false;
 
@@ -136,6 +138,8 @@ public class Settings implements Cloneable {
 
     private boolean noExclusiveCompile = true;
 
+    private boolean noOrderTopSplit = false;
+
     private int limitExclusiveCount = 7; // когда вообще не пытаться строить exclusive (count)
 
     private int limitExclusiveComplexity = 100; // когда вообще не пытаться строить exclusive (complexity)
@@ -145,6 +149,10 @@ public class Settings implements Cloneable {
     private int limitExclusiveSimpleComplexity = 100; // когда строить exclusive без рекурсии (complexity)
 
     private int limitIncrementCoeff = 1;
+
+    private int limitHintComplexComplexity = 1000;
+
+    private int limitHintPrereadComplexity = 200;
 
     private int limitHintIncrementComplexity = 50; // есть проблема когда идет G(очень большого числа данных) = значение, статистика нормальная, сложность большая, начинает hint'ить что мешает проталкиванию
 
@@ -156,9 +164,9 @@ public class Settings implements Cloneable {
 
     private int limitHintNoUpdateComplexity = 10000;
 
-    // we'll make it pretty low, since WrapComplexityAspect uses isComplex (not isOrDependsCmplex) and thus complexity can grow significantly with properties using that complex property
-    // however maybe later it makes sense to change isComplex to isDependsOrComplex and make it 200 again (but it seems that in that case it's better to make 2 branches, one (the current) with low limit, the other with high)
-    private int limitWrapComplexity = 20;
+    // the problem is that now there is no class push down in SubQueryExpr (as well, as in PartitionExpr and RecursionExpr) + no value (and class) push down for expressions like SubQueryExpr = value (which can be crucial for not materialized abstract properties for example)
+    // so now we have to keep limit really high to avoid problems
+    private int limitWrapComplexity = 3000;
 
     private int limitMaterializeComplexity = 20;
 
@@ -184,7 +192,7 @@ public class Settings implements Cloneable {
 
     private boolean disableAutoHintCaches = true;
 
-    private boolean disableWrapComplexity = true;
+    private boolean disableWrapComplexity = false;
 
     private boolean enablePrevWrapComplexity = false;
 
@@ -211,7 +219,7 @@ public class Settings implements Cloneable {
 
     private boolean disableReadSingleValues = false; // определять ли конкретные значения при записи запроса в таблицы
 
-    private boolean disableReadClasses = false; // определять ли конкретные кдассы при записи запроса в таблицы
+    private int disableAdjustClassesCount = 10000; // temporary table size, exceeding which classes won't be adjusted
 
     private int reserveIDStep = 50; // по сколько ID'ков будут резервировать себе сервера приложений у сервера БД
 
@@ -297,14 +305,6 @@ public class Settings implements Cloneable {
 
     public Settings cloneSettings() throws CloneNotSupportedException {
         return (Settings) clone();
-    }
-
-    public int getInnerGroupExprs() {
-        return innerGroupExprs;
-    }
-
-    public void setInnerGroupExprs(int innerGroupExprs) {
-        this.innerGroupExprs = innerGroupExprs;
     }
 
     public int getPackOnCacheComplexity() {
@@ -413,20 +413,20 @@ public class Settings implements Cloneable {
         this.simpleCheckCompare = simpleCheckCompare;
     }
 
-    public Boolean getEditBooleanOnSingleClick() {
-        return editBooleanOnSingleClick;
+    public Boolean getChangeBooleanOnSingleClick() {
+        return changeBooleanOnSingleClick;
     }
 
-    public void setEditBooleanOnSingleClick(boolean editLogicalOnSingleClick) {
-        this.editBooleanOnSingleClick = editLogicalOnSingleClick;
+    public void setChangeBooleanOnSingleClick(boolean editLogicalOnSingleClick) {
+        this.changeBooleanOnSingleClick = editLogicalOnSingleClick;
     }
 
-    public Boolean getEditActionOnSingleClick() {
-        return editActionOnSingleClick;
+    public Boolean getChangeActionOnSingleClick() {
+        return changeActionOnSingleClick;
     }
 
-    public void setEditActionOnSingleClick(boolean editActionOnSingleClick) {
-        this.editActionOnSingleClick = editActionOnSingleClick;
+    public void setChangeActionOnSingleClick(boolean changeActionOnSingleClick) {
+        this.changeActionOnSingleClick = changeActionOnSingleClick;
     }
 
     public boolean isCheckFollowsWhenObjects() {
@@ -443,6 +443,14 @@ public class Settings implements Cloneable {
 
     public void setRestructWhereOnMeans(boolean restructWhereOnMeans) {
         this.restructWhereOnMeans = restructWhereOnMeans;
+    }
+
+    public int getInlineClassThreshold() {
+        return inlineClassThreshold;
+    }
+
+    public void setInlineClassThreshold(int inlineClassThreshold) {
+        this.inlineClassThreshold = inlineClassThreshold;
     }
 
     public boolean isSplitGroupSelectExprcases() {
@@ -483,6 +491,22 @@ public class Settings implements Cloneable {
 
     public void setFreeConnections(int freeConnections) {
         this.freeConnections = freeConnections;
+    }
+
+    public int getFreeAPISessions() {
+        return freeAPISessions;
+    }
+
+    public void setFreeAPISessions(int freeAPISessions) {
+        this.freeAPISessions = freeAPISessions;
+    }
+
+    public boolean isReinitAPISession() {
+        return reinitAPISession;
+    }
+
+    public void setReinitAPISession(boolean reinitAPISession) {
+        this.reinitAPISession = reinitAPISession;
     }
 
     public boolean isCommonUnique() {
@@ -629,6 +653,14 @@ public class Settings implements Cloneable {
         this.noExclusiveCompile = noExclusiveCompile;
     }
 
+    public boolean isNoOrderTopSplit() {
+        return noOrderTopSplit;
+    }
+
+    public void setNoOrderTopSplit(boolean noOrderTopSplit) {
+        this.noOrderTopSplit = noOrderTopSplit;
+    }
+
     public int getLimitWhereJoinsCount() {
         return limitWhereJoinsCount;
     }
@@ -699,6 +731,22 @@ public class Settings implements Cloneable {
 
     public void setLimitIncrementCoeff(int limitIncrementCoeff) {
         this.limitIncrementCoeff = limitIncrementCoeff;
+    }
+
+    public int getLimitHintPrereadComplexity() {
+        return limitHintPrereadComplexity;
+    }
+
+    public void setLimitHintPrereadComplexity(int limitHintPrereadComplexity) {
+        this.limitHintPrereadComplexity = limitHintPrereadComplexity;
+    }
+
+    public int getLimitHintComplexComplexity() {
+        return limitHintComplexComplexity;
+    }
+
+    public void setLimitHintComplexComplexity(int limitHintComplexComplexity) {
+        this.limitHintComplexComplexity = limitHintComplexComplexity;
     }
 
     public int getLimitHintIncrementComplexity() {
@@ -1033,12 +1081,12 @@ public class Settings implements Cloneable {
         this.disableReadSingleValues = disableReadSingleValues;
     }
 
-    public boolean isDisableReadClasses() {
-        return disableReadClasses;
+    public int getDisableAdjustClassesCount() {
+        return disableAdjustClassesCount;
     }
 
-    public void setDisableReadClasses(boolean disableReadClasses) {
-        this.disableReadClasses = disableReadClasses;
+    public void setDisableAdjustClassesCount(int disableAdjustClassesCount) {
+        this.disableAdjustClassesCount = disableAdjustClassesCount;
     }
 
     private byte enableUI = 1; // 2 - enable anonymous, 1 - enable authenticated, 0 - disabled
@@ -1232,6 +1280,16 @@ public class Settings implements Cloneable {
 
     public void setFlushPendingTransactionCleanersThreshold(int flushPendingTransactionCleanersThreshold) {
         this.flushPendingTransactionCleanersThreshold = flushPendingTransactionCleanersThreshold;
+    }
+
+    private int flushAsyncValuesCaches = 1;
+
+    public int getFlushAsyncValuesCaches() {
+        return flushAsyncValuesCaches;
+    }
+
+    public void setFlushAsyncValuesCaches(int flushAsyncValuesCaches) {
+        this.flushAsyncValuesCaches = flushAsyncValuesCaches;
     }
 
     private int tempTablesTimeThreshold = 240; // время сколько будет гарантированно жить таблица (в секундах), нужно для предотвращения ротации кэшей, должно быть соизмеримо со стандартным временем использования
@@ -1503,14 +1561,42 @@ public class Settings implements Cloneable {
         this.logTimeThreshold = logTimeThreshold;
     }
     
-    private long allocatedBytesThreshold = 100 * 1024 * 1024;
-    
-    public long getAllocatedBytesThreshold() {
-        return allocatedBytesThreshold;
+    private long explainTopAppThreshold = 0;
+    private long explainAppThreshold = 1000;
+
+    public long getExplainAppThreshold() {
+        return explainAppThreshold;
+    }
+
+    public void setExplainAppThreshold(long explainAppThreshold) {
+        this.explainAppThreshold = explainAppThreshold;
+    }
+
+    public long getExplainTopAppThreshold() {
+        return explainTopAppThreshold;
+    }
+
+    public void setExplainTopAppThreshold(long explainTopAppThreshold) {
+        this.explainTopAppThreshold = explainTopAppThreshold;
+    }
+
+    private long explainTopAllocatedBytesThreshold = 0;
+    private long explainAllocatedBytesThreshold = 0;
+
+    public long getExplainAllocatedBytesThreshold() {
+        return explainAllocatedBytesThreshold;
     }
     
-    public void setAllocatedBytesThreshold(long allocatedBytesThreshold) {
-        this.allocatedBytesThreshold = allocatedBytesThreshold;
+    public void setExplainAllocatedBytesThreshold(long explainAllocatedBytesThreshold) {
+        this.explainAllocatedBytesThreshold = explainAllocatedBytesThreshold;
+    }
+
+    public long getExplainTopAllocatedBytesThreshold() {
+        return explainTopAllocatedBytesThreshold;
+    }
+
+    public void setExplainTopAllocatedBytesThreshold(long explainTopAllocatedBytesThreshold) {
+        this.explainTopAllocatedBytesThreshold = explainTopAllocatedBytesThreshold;
     }
 
     // в перерасчете / проверке агрегаций можно использовать InconsistentExpr, но тогда появляются лишние join'ы (а значит нужно еще больше памяти)
@@ -1661,6 +1747,7 @@ public class Settings implements Cloneable {
         this.subQueriesPessQueryCoeff = subQueriesPessQueryCoeff;
     }
 
+    private int explainTopThreshold = 0;
     private int explainThreshold = 100;
 
     public int getExplainThreshold() {
@@ -1669,6 +1756,14 @@ public class Settings implements Cloneable {
 
     public void setExplainThreshold(int explainThreshold) {
         this.explainThreshold = explainThreshold;
+    }
+
+    public int getExplainTopThreshold() {
+        return explainTopThreshold;
+    }
+
+    public void setExplainTopThreshold(int explainTopThreshold) {
+        this.explainTopThreshold = explainTopThreshold;
     }
 
     private boolean useMaxDivisionLength = true;
@@ -2224,16 +2319,6 @@ public class Settings implements Cloneable {
     public void setClassOptimizationActionCasesCount(int classOptimizationActionCasesCount) {
         this.classOptimizationActionCasesCount = classOptimizationActionCasesCount;
     }
-    
-    private boolean extendedSQLConnectionLog = false;
-
-    public boolean isExtendedSQLConnectionLog() {
-        return extendedSQLConnectionLog;
-    }
-
-    public void setExtendedSQLConnectionLog(boolean extendedSQLConnectionLog) {
-        this.extendedSQLConnectionLog = extendedSQLConnectionLog;
-    }
 
     private int closeConfirmedDelay = 5000; // 5 seconds
     private int closeNotConfirmedDelay = 300000; // 5 minutes, if after 5 minutes there is no response from client close the form anyway
@@ -2407,6 +2492,26 @@ public class Settings implements Cloneable {
         this.useGroupLastOpt = useGroupLastOpt;
     }
 
+    private boolean inputListSearchInsteadOfContains = true;
+
+    public boolean isInputListSearchInsteadOfContains() {
+        return inputListSearchInsteadOfContains;
+    }
+
+    public void setInputListSearchInsteadOfContains(boolean inputListSearchInsteadOfContains) {
+        this.inputListSearchInsteadOfContains = inputListSearchInsteadOfContains;
+    }
+
+    private boolean defaultCompareSearchInsteadOfContains = true;
+
+    public boolean isDefaultCompareSearchInsteadOfContains() {
+        return defaultCompareSearchInsteadOfContains;
+    }
+
+    public void setDefaultCompareSearchInsteadOfContains(boolean defaultCompareSearchInsteadOfContains) {
+        this.defaultCompareSearchInsteadOfContains = defaultCompareSearchInsteadOfContains;
+    }
+
     private boolean defaultCompareForStringContains = false;
 
     public boolean isDefaultCompareForStringContains() {
@@ -2416,7 +2521,17 @@ public class Settings implements Cloneable {
     public void setDefaultCompareForStringContains(boolean defaultCompareForStringContains) {
         this.defaultCompareForStringContains = defaultCompareForStringContains;
     }
-    
+
+    private String matchSearchSeparator = ",";
+
+    public String getMatchSearchSeparator() {
+        return matchSearchSeparator;
+    }
+
+    public void setMatchSearchSeparator(String matchSearchSeparator) {
+        this.matchSearchSeparator = matchSearchSeparator;
+    }
+
     // should be enabled only when there will be constraint that AGGR property should not be changed
     private boolean disableCorrelations = true; // enable onl;y when sinpleApplyRemoveClasses is on (if singleApply is on), otherwise when singleApply is on, aggregation property changes (correlations) are applied, and in changes where this aggregation properties are used, no one refresh their values
 
@@ -2460,7 +2575,7 @@ public class Settings implements Cloneable {
         this.enableInteractiveAssertLog = enableInteractiveAssertLog;
     }
 
-    private double cacheNextEventActionRatio = 0.001; // if the percent of changes is lower that this percent of events - cache them
+    private double cacheNextEventActionRatio = 0.05; // if the percent of changes is lower that this percent of events - cache them
 
     public double getCacheNextEventActionRatio() {
         return cacheNextEventActionRatio;
@@ -2577,6 +2692,46 @@ public class Settings implements Cloneable {
         return updateSavePointsMinMultiplier;
     }
 
+    private String checkStatementSubstring = null;
+    private String checkExcludeStatementSubstring = null;
+
+    public String getCheckStatementSubstring() {
+        return checkStatementSubstring;
+    }
+
+    public void setCheckStatementSubstring(String checkStatementSubstring) {
+        this.checkStatementSubstring = checkStatementSubstring;
+    }
+
+    public String getCheckExcludeStatementSubstring() {
+        return checkExcludeStatementSubstring;
+    }
+
+    public void setCheckExcludeStatementSubstring(String checkExcludeStatementSubstring) {
+        this.checkExcludeStatementSubstring = checkExcludeStatementSubstring;
+    }
+
+    private boolean onlyUniqueObjectEvents = false;
+
+    public boolean isOnlyUniqueObjectEvents() {
+        return onlyUniqueObjectEvents;
+    }
+
+    public void setOnlyUniqueObjectEvents(boolean onlyUniqueObjectEvents) {
+        this.onlyUniqueObjectEvents = onlyUniqueObjectEvents;
+    }
+
+    // temporary fallback
+    private boolean removeClassesFallback = false;
+
+    public boolean isRemoveClassesFallback() {
+        return removeClassesFallback;
+    }
+
+    public void setRemoveClassesFallback(boolean removeClassesFallback) {
+        this.removeClassesFallback = removeClassesFallback;
+    }
+
     public void setUpdateSavePointsMinMultiplier(double updateSavePointsMinMultiplier) {
         this.updateSavePointsMinMultiplier = updateSavePointsMinMultiplier;
     }
@@ -2613,6 +2768,55 @@ public class Settings implements Cloneable {
         this.minSizeForReportExportToCSV = minSizeForReportExportToCSV;
     }
 
+    // 0 - use in excel and bootstrap theme
+    // 1 - use only in bootstrap theme
+    // 2 - never use
+    private int useInputTagForTextBasedInPanel = 1;
+    private boolean noToolbarForInputTagInPanel = false;
+    private boolean noToolbarForSelectDropdownInPanel = false;
+    private boolean noToolbarForBoolean = true;
+    private boolean defaultFlexInGrid = true;
+
+    public int getUseInputTagForTextBasedInPanel() {
+        return useInputTagForTextBasedInPanel;
+    }
+
+    public void setUseInputTagForTextBasedInPanel(int useInputTagForTextBasedInPanel) {
+        this.useInputTagForTextBasedInPanel = useInputTagForTextBasedInPanel;
+    }
+
+    public boolean isNoToolbarForInputTagInPanel() {
+        return noToolbarForInputTagInPanel;
+    }
+
+    public void setNoToolbarForInputTagInPanel(boolean noToolbarForInputTagInPanel) {
+        this.noToolbarForInputTagInPanel = noToolbarForInputTagInPanel;
+    }
+
+    public boolean isNoToolbarForSelectDropdownInPanel() {
+        return noToolbarForSelectDropdownInPanel;
+    }
+
+    public void setNoToolbarForSelectDropdownInPanel(boolean noToolbarForSelectDropdownInPanel) {
+        this.noToolbarForSelectDropdownInPanel = noToolbarForSelectDropdownInPanel;
+    }
+
+    public boolean isNoToolbarForBoolean() {
+        return noToolbarForBoolean;
+    }
+
+    public void setNoToolbarForBoolean(boolean noToolbarForBoolean) {
+        this.noToolbarForBoolean = noToolbarForBoolean;
+    }
+
+    public boolean isDefaultFlexInGrid() {
+        return defaultFlexInGrid;
+    }
+
+    public void setDefaultFlexInGrid(boolean defaultFlexInGrid) {
+        this.defaultFlexInGrid = defaultFlexInGrid;
+    }
+
     private int authTokenExpiration = 60 * 24; // in minutes
 
     public int getAuthTokenExpiration() {
@@ -2632,6 +2836,80 @@ public class Settings implements Cloneable {
 
     public void setGroupIntegrationHierarchyOldOrder(boolean groupIntegrationHierarchyOldOrder) {
         this.groupIntegrationHierarchyOldOrder = groupIntegrationHierarchyOldOrder;
+    }
+
+    private int asyncValuesLongCacheThreshold = 4;
+    private double asyncValuesExtraReadCoeff = 1.5;
+    private int asyncValuesNeededCount = 15;
+    private int asyncValuesMaxReadCount = 1000;
+    private int asyncValuesMaxReadOrderCount = 1000;
+    private int asyncValuesMaxReadDataCompletionCount = 100000;
+    private int asyncValuesTooShortDataCompletionCount = 100000;
+
+    private int asyncValuesTooShortThreshold = -1;
+
+    public int getAsyncValuesTooShortThreshold() {
+        return asyncValuesTooShortThreshold;
+    }
+
+    public void setAsyncValuesTooShortThreshold(int asyncValuesTooShortThreshold) {
+        this.asyncValuesTooShortThreshold = asyncValuesTooShortThreshold;
+    }
+
+    public int getAsyncValuesTooShortDataCompletionCount() {
+        return asyncValuesTooShortDataCompletionCount;
+    }
+
+    public void setAsyncValuesTooShortDataCompletionCount(int asyncValuesTooShortDataCompletionCount) {
+        this.asyncValuesTooShortDataCompletionCount = asyncValuesTooShortDataCompletionCount;
+    }
+
+    public int getAsyncValuesLongCacheThreshold() {
+        return asyncValuesLongCacheThreshold;
+    }
+
+    public void setAsyncValuesLongCacheThreshold(int asyncValuesLongCacheThreshold) {
+        this.asyncValuesLongCacheThreshold = asyncValuesLongCacheThreshold;
+    }
+
+    public double getAsyncValuesExtraReadCoeff() {
+        return asyncValuesExtraReadCoeff;
+    }
+
+    public void setAsyncValuesExtraReadCoeff(double asyncValuesExtraReadCoeff) {
+        this.asyncValuesExtraReadCoeff = asyncValuesExtraReadCoeff;
+    }
+
+    public int getAsyncValuesNeededCount() {
+        return asyncValuesNeededCount;
+    }
+
+    public void setAsyncValuesNeededCount(int asyncValuesNeededCount) {
+        this.asyncValuesNeededCount = asyncValuesNeededCount;
+    }
+
+    public int getAsyncValuesMaxReadCount() {
+        return asyncValuesMaxReadCount;
+    }
+
+    public void setAsyncValuesMaxReadCount(int asyncValuesMaxReadCount) {
+        this.asyncValuesMaxReadCount = asyncValuesMaxReadCount;
+    }
+
+    public int getAsyncValuesMaxReadOrderCount() {
+        return asyncValuesMaxReadOrderCount;
+    }
+
+    public void setAsyncValuesMaxReadOrderCount(int asyncValuesMaxReadOrderCount) {
+        this.asyncValuesMaxReadOrderCount = asyncValuesMaxReadOrderCount;
+    }
+
+    public int getAsyncValuesMaxReadDataCompletionCount() {
+        return asyncValuesMaxReadDataCompletionCount;
+    }
+
+    public void setAsyncValuesMaxReadDataCompletionCount(int asyncValuesMaxReadDataCompletionCount) {
+        this.asyncValuesMaxReadDataCompletionCount = asyncValuesMaxReadDataCompletionCount;
     }
 
     private int externalHttpServerThreadCount = 10;
@@ -2674,13 +2952,492 @@ public class Settings implements Cloneable {
         this.sessionConfigTimeout = sessionConfigTimeout;
     }
 
-    private String filterMatchLanguages = "english"; //comma separated
+    private String filterMatchLanguage = "english";
 
-    public String getFilterMatchLanguages() {
-        return filterMatchLanguages;
+    public String getFilterMatchLanguage() {
+        return filterMatchLanguage;
     }
 
-    public void setFilterMatchLanguages(String filterMatchLanguages) {
-        this.filterMatchLanguages = filterMatchLanguages;
+    public void setFilterMatchLanguage(String filterMatchLanguage) {
+        this.filterMatchLanguage = filterMatchLanguage;
+    }
+
+    private String tsVectorDictionaryLanguage = "english";
+
+    public String getTsVectorDictionaryLanguage() {
+        return tsVectorDictionaryLanguage;
+    }
+
+    public void setTsVectorDictionaryLanguage(String tsVectorDictionaryLanguage) {
+        this.tsVectorDictionaryLanguage = tsVectorDictionaryLanguage;
+    }
+    
+    private int trueSerializableAttempts = 0;
+    private boolean recalculateMaterializationsMixedSerializable = false; // when running not in transaction - first read in READ_COMMITED mismatched materialization, and then read + update in REPEATABLE_READ only mismatched
+
+    public int getTrueSerializableAttempts() {
+        return trueSerializableAttempts;
+    }
+
+    public void setTrueSerializableAttempts(int trueSerializableAttempts) {
+        this.trueSerializableAttempts = trueSerializableAttempts;
+    }
+
+    public boolean isRecalculateMaterializationsMixedSerializable() {
+        return recalculateMaterializationsMixedSerializable;
+    }
+
+    public void setRecalculateMaterializationsMixedSerializable(boolean recalculateMaterializationsMixedSerializable) {
+        this.recalculateMaterializationsMixedSerializable = recalculateMaterializationsMixedSerializable;
+    }
+
+    public int minInterfaceStatForValueUnique = 100;
+    public int maxInterfaceStatForValueList = 3;
+    public int maxInterfaceStatForValueDropdown = 20;
+    public int maxLengthForValueButton = 40;
+    public int maxLengthForValueButtonGrid = 10;
+
+    public int getMinInterfaceStatForValueUnique() {
+        return minInterfaceStatForValueUnique;
+    }
+
+    public void setMinInterfaceStatForValueUnique(int minInterfaceStatForValueUnique) {
+        this.minInterfaceStatForValueUnique = minInterfaceStatForValueUnique;
+    }
+
+    public int getMaxInterfaceStatForValueList() {
+        return maxInterfaceStatForValueList;
+    }
+
+    public void setMaxInterfaceStatForValueList(int maxInterfaceStatForValueList) {
+        this.maxInterfaceStatForValueList = maxInterfaceStatForValueList;
+    }
+
+    public int getMaxLengthForValueButtonGrid() {
+        return maxLengthForValueButtonGrid;
+    }
+
+    public void setMaxLengthForValueButtonGrid(int maxLengthForValueButtonGrid) {
+        this.maxLengthForValueButtonGrid = maxLengthForValueButtonGrid;
+    }
+
+    public int getMaxInterfaceStatForValueDropdown() {
+        return maxInterfaceStatForValueDropdown;
+    }
+
+    public void setMaxInterfaceStatForValueDropdown(int maxInterfaceStatForValueDropdown) {
+        this.maxInterfaceStatForValueDropdown = maxInterfaceStatForValueDropdown;
+    }
+
+    public int getMaxLengthForValueButton() {
+        return maxLengthForValueButton;
+    }
+
+    public void setMaxLengthForValueButton(int maxLengthForValueButton) {
+        this.maxLengthForValueButton = maxLengthForValueButton;
+    }
+
+    // 0 - on the client using BroadcastChannel - the most reliable and fast, however relies on the odd browser features
+    // 1 - on the server without pending request (redirect using notification parameter)
+    // 2 - on the server with pending request
+
+    private int externalUINotificationMode = 0;
+
+    public int getExternalUINotificationMode() {
+        return externalUINotificationMode;
+    }
+
+    public void setExternalUINotificationMode(int externalUINotificationMode) {
+        this.externalUINotificationMode = externalUINotificationMode;
+    }
+
+    private boolean disableCombineFilters = false;
+
+    public boolean isDisableCombineFilters() {
+        return disableCombineFilters;
+    }
+
+    public void setDisableCombineFilters(boolean disableCombineFilters) {
+        this.disableCombineFilters = disableCombineFilters;
+    }
+
+    private int useGroupFiltersInAsyncFilterCompletion = 2;
+    // 0 - do not use
+    // 1 - use (but with probable optimization of not using)
+    // 2 - always use
+
+    public int getUseGroupFiltersInAsyncFilterCompletion() {
+        return useGroupFiltersInAsyncFilterCompletion;
+    }
+
+    public void setUseGroupFiltersInAsyncFilterCompletion(int useGroupFiltersInAsyncFilterCompletion) {
+        this.useGroupFiltersInAsyncFilterCompletion = useGroupFiltersInAsyncFilterCompletion;
+    }
+
+    //http://jasperreports.freeideas.cz/subdom/jasperreports/how-prevent-infinite-loop-in-jasper-server-run-how-to-limit-timeout-for-report-run/
+    private int jasperReportsGovernorMaxPages = 500;
+    private long jasperReportsGovernorTimeout = 0;
+
+    public int getJasperReportsGovernorMaxPages() {
+        return jasperReportsGovernorMaxPages;
+    }
+
+    public void setJasperReportsGovernorMaxPages(int jasperReportsGovernorMaxPages) {
+        this.jasperReportsGovernorMaxPages = jasperReportsGovernorMaxPages;
+    }
+
+    public long getJasperReportsGovernorTimeout() {
+        return jasperReportsGovernorTimeout;
+    }
+
+    public void setJasperReportsGovernorTimeout(long jasperReportsGovernorTimeout) {
+        this.jasperReportsGovernorTimeout = jasperReportsGovernorTimeout;
+    }
+
+    //option IGNORE_PAGE_MARGINS for default jasper export
+    private boolean jasperReportsIgnorePageMargins = true;
+
+    public boolean isJasperReportsIgnorePageMargins() {
+        return jasperReportsIgnorePageMargins;
+    }
+
+    public void setJasperReportsIgnorePageMargins(boolean jasperReportsIgnorePageMargins) {
+        this.jasperReportsIgnorePageMargins = jasperReportsIgnorePageMargins;
+    }
+
+    private boolean logFromExternalSystemRequestsDetail = false;
+
+    public boolean isLogFromExternalSystemRequestsDetail() {
+        return logFromExternalSystemRequestsDetail;
+    }
+
+    public void setLogFromExternalSystemRequestsDetail(boolean logFromExternalSystemRequestsDetail) {
+        this.logFromExternalSystemRequestsDetail = logFromExternalSystemRequestsDetail;
+    }
+
+    private boolean logFromExternalSystemRequests = false;
+
+    public boolean isLogFromExternalSystemRequests() {
+        return logFromExternalSystemRequests;
+    }
+
+    public void setLogFromExternalSystemRequests(boolean logFromExternalSystemRequests) {
+        this.logFromExternalSystemRequests = logFromExternalSystemRequests;
+    }
+
+    private boolean logToExternalSystemRequestsDetail = false;
+
+    public boolean isLogToExternalSystemRequestsDetail() {
+        return logToExternalSystemRequestsDetail;
+    }
+
+    public void setLogToExternalSystemRequestsDetail(boolean logToExternalSystemRequestsDetail) {
+        this.logToExternalSystemRequestsDetail = logToExternalSystemRequestsDetail;
+    }
+
+    private boolean logToExternalSystemRequests = false;
+
+    public boolean isLogToExternalSystemRequests() {
+        return logToExternalSystemRequests;
+    }
+
+    public void setLogToExternalSystemRequests(boolean logToExternalSystemRequests) {
+        this.logToExternalSystemRequests = logToExternalSystemRequests;
+    }
+
+    private boolean disableAsyncValuesInterrupt = false;
+
+    public boolean isDisableAsyncValuesInterrupt() {
+        return disableAsyncValuesInterrupt;
+    }
+
+    public void setDisableAsyncValuesInterrupt(boolean disableAsyncValuesInterrupt) {
+        this.disableAsyncValuesInterrupt = disableAsyncValuesInterrupt;
+    }
+
+    private int mailReceiveTimeout = 5000; //ms
+
+    public int getMailReceiveTimeout() {
+        return mailReceiveTimeout;
+    }
+
+    public void setMailReceiveTimeout(int mailReceiveTimeout) {
+        this.mailReceiveTimeout = mailReceiveTimeout;
+    }
+    
+    // makes FILTERS container vertical 3-column by default 
+    private boolean verticalColumnsFiltersContainer = true;
+    
+    public boolean isVerticalColumnsFiltersContainer() {
+        return verticalColumnsFiltersContainer;
+    }
+    
+    public void setVerticalColumnsFiltersContainer(boolean verticalColumnsFiltersContainer) {
+        this.verticalColumnsFiltersContainer = verticalColumnsFiltersContainer;
+    }
+    
+    private boolean userFiltersManualApplyMode = false;
+    
+    public boolean isUserFiltersManualApplyMode() {
+        return userFiltersManualApplyMode;
+    }
+    
+    public void setUserFiltersManualApplyMode(boolean userFiltersManualApplyMode) {
+        this.userFiltersManualApplyMode = userFiltersManualApplyMode;
+    }
+
+    //use AND/OR text instead of vertical line as filter separator
+    private boolean useTextAsFilterSeparator = false;
+
+    public boolean isUseTextAsFilterSeparator() {
+        return useTextAsFilterSeparator;
+    }
+
+    public void setUseTextAsFilterSeparator(boolean useTextAsFilterSeparator) {
+        this.useTextAsFilterSeparator = useTextAsFilterSeparator;
+    }
+
+    private float defaultImagePathRankingThreshold = 0.0f;
+
+    private float defaultAutoImageRankingThreshold = 0.0f;
+
+    private float defaultNavigatorImageRankingThreshold = 0.1f;
+    private boolean defaultNavigatorImage = true;
+
+    private float defaultContainerImageRankingThreshold = 0.6f;
+    private boolean defaultContainerImage = false;
+
+    private float defaultPropertyImageRankingThreshold = 0.8f;
+    private boolean defaultPropertyImage = false;
+
+    public float getDefaultImagePathRankingThreshold() {
+        return defaultImagePathRankingThreshold;
+    }
+
+    public void setDefaultImagePathRankingThreshold(float defaultImagePathRankingThreshold) {
+        this.defaultImagePathRankingThreshold = defaultImagePathRankingThreshold;
+    }
+
+    public float getDefaultAutoImageRankingThreshold() {
+        return defaultAutoImageRankingThreshold;
+    }
+
+    public void setDefaultAutoImageRankingThreshold(float defaultAutoImageRankingThreshold) {
+        this.defaultAutoImageRankingThreshold = defaultAutoImageRankingThreshold;
+    }
+
+    public float getDefaultNavigatorImageRankingThreshold() {
+        return defaultNavigatorImageRankingThreshold;
+    }
+
+    public void setDefaultNavigatorImageRankingThreshold(float defaultNavigatorImageRankingThreshold) {
+        this.defaultNavigatorImageRankingThreshold = defaultNavigatorImageRankingThreshold;
+    }
+
+    public boolean isDefaultNavigatorImage() {
+        return defaultNavigatorImage;
+    }
+
+    public void setDefaultNavigatorImage(boolean defaultNavigatorImage) {
+        this.defaultNavigatorImage = defaultNavigatorImage;
+    }
+
+    public float getDefaultContainerImageRankingThreshold() {
+        return defaultContainerImageRankingThreshold;
+    }
+
+    public void setDefaultContainerImageRankingThreshold(float defaultContainerImageRankingThreshold) {
+        this.defaultContainerImageRankingThreshold = defaultContainerImageRankingThreshold;
+    }
+
+    public boolean isDefaultContainerImage() {
+        return defaultContainerImage;
+    }
+
+    public void setDefaultContainerImage(boolean defaultContainerImage) {
+        this.defaultContainerImage = defaultContainerImage;
+    }
+
+    public float getDefaultPropertyImageRankingThreshold() {
+        return defaultPropertyImageRankingThreshold;
+    }
+
+    public void setDefaultPropertyImageRankingThreshold(float defaultPropertyImageRankingThreshold) {
+        this.defaultPropertyImageRankingThreshold = defaultPropertyImageRankingThreshold;
+    }
+
+    public boolean isDefaultPropertyImage() {
+        return defaultPropertyImage;
+    }
+
+    public void setDefaultPropertyImage(boolean defaultPropertyImage) {
+        this.defaultPropertyImage = defaultPropertyImage;
+    }
+
+    private int maxRequestQueueSize = 0;
+
+    public int getMaxRequestQueueSize() {
+        return maxRequestQueueSize;
+    }
+
+    public void setMaxRequestQueueSize(int maxRequestQueueSize) {
+        this.maxRequestQueueSize = maxRequestQueueSize;
+    }
+
+    private boolean disableCollapsibleContainers = false;
+
+    public boolean isDisableCollapsibleContainers() {
+        return disableCollapsibleContainers;
+    }
+
+    public void setDisableCollapsibleContainers(boolean disableCollapsibleContainers) {
+        this.disableCollapsibleContainers = disableCollapsibleContainers;
+    }
+
+    private int tooltipDelay = 1500;
+
+    public int getTooltipDelay() {
+        return tooltipDelay;
+    }
+
+    public void setTooltipDelay(int tooltipDelay) {
+        this.tooltipDelay = tooltipDelay;
+    }
+
+    private boolean suppressOnFocusChange = false;
+
+    public boolean isSuppressOnFocusChange() {
+        return suppressOnFocusChange;
+    }
+
+    public void setSuppressOnFocusChange(boolean suppressOnFocusChange) {
+        this.suppressOnFocusChange = suppressOnFocusChange;
+    }
+
+    private boolean contentWordWrap = false;
+
+    public boolean isContentWordWrap() {
+        return contentWordWrap;
+    }
+
+    public void setContentWordWrap(boolean contentWordWrap) {
+        this.contentWordWrap = contentWordWrap;
+    }
+
+    private int maxColumnsInPlainImportExport = 256;
+
+    public int getMaxColumnsInPlainImportExport() {
+        return maxColumnsInPlainImportExport;
+    }
+
+    public void setMaxColumnsInPlainImportExport(int maxColumnsInPlainImportExport) {
+        this.maxColumnsInPlainImportExport = maxColumnsInPlainImportExport;
+    }
+
+    //option for upgrading from version 5 to version 6. READONLY actions will look like DISABLE actions
+    private boolean disableActionsIfReadonly;
+
+    public boolean isDisableActionsIfReadonly() {
+        return disableActionsIfReadonly;
+    }
+
+    public void setDisableActionsIfReadonly(boolean disableActionsIfReadonly) {
+        this.disableActionsIfReadonly = disableActionsIfReadonly;
+    }
+
+    //option enables showing recently log messages
+    private boolean enableShowingRecentlyLogMessages;
+
+    public boolean isEnableShowingRecentlyLogMessages() {
+        return enableShowingRecentlyLogMessages;
+    }
+
+    public void setEnableShowingRecentlyLogMessages(boolean enableShowingRecentlyLogMessages) {
+        this.enableShowingRecentlyLogMessages = enableShowingRecentlyLogMessages;
+    }
+
+    //show TOOLBARBOX container on the top and switch TOOLBARLEFT and TOOLBARRIGHT containers
+    private boolean toolbarTopLeft;
+
+    public boolean isToolbarTopLeft() {
+        return toolbarTopLeft;
+    }
+
+    public void setToolbarTopLeft(boolean toolbarTopLeft) {
+        this.toolbarTopLeft = toolbarTopLeft;
+    }
+
+    //max percent of table for sticky columns
+    private double maxStickyLeft = 0.33;
+
+    public double getMaxStickyLeft() {
+        return maxStickyLeft;
+    }
+
+    public void setMaxStickyLeft(double maxStickyLeft) {
+        this.maxStickyLeft = maxStickyLeft;
+    }
+
+    //default size is Tiny if screen width x height is not more than maxPixelTinySize
+    private int maxPixelTinySize = 748800; //1280x585
+
+    public int getMaxPixelTinySize() {
+        return maxPixelTinySize;
+    }
+
+    public void setMaxPixelTinySize(int maxPixelTinySize) {
+        this.maxPixelTinySize = maxPixelTinySize;
+    }
+
+    //default size is Mini if screen width x height is not more than maxPixelMiniSize
+    private int maxPixelMiniSize = 1121280; //1536x730
+
+    public int getMaxPixelMiniSize() {
+        return maxPixelMiniSize;
+    }
+
+    public void setMaxPixelMiniSize(int maxPixelMiniSize) {
+        this.maxPixelMiniSize = maxPixelMiniSize;
+    }
+
+    private boolean createSessionObjects = true;
+    public boolean isCreateSessionObjects() {
+        return createSessionObjects;
+    }
+    public void setCreateSessionObjects(boolean createSessionObjects) {
+        this.createSessionObjects = createSessionObjects;
+    }
+
+    //backward compatibility for camelCases css rules refactoring
+    public double cssBackwardCompatibilityLevel = -1;
+
+    public double getCssBackwardCompatibilityLevel() {
+        return cssBackwardCompatibilityLevel;
+    }
+
+    public void setCssBackwardCompatibilityLevel(double cssBackwardCompatibilityLevel) {
+        this.cssBackwardCompatibilityLevel = cssBackwardCompatibilityLevel;
+    }
+
+    //set ignoreBodyStructureSize true and cut last two bytes 0d0a if received
+    //https://javaee.github.io/javamail/docs/api/com/sun/mail/imap/package-summary.html
+    public boolean ignoreBodyStructureSizeFix = false;
+
+    public boolean isIgnoreBodyStructureSizeFix() {
+        return ignoreBodyStructureSizeFix;
+    }
+
+    public void setIgnoreBodyStructureSizeFix(boolean ignoreBodyStructureSizeFix) {
+        this.ignoreBodyStructureSizeFix = ignoreBodyStructureSizeFix;
+    }
+
+    public boolean exportDBFNumericMandatoryZeroes = false;
+
+    public boolean isExportDBFNumericMandatoryZeroes() {
+        return exportDBFNumericMandatoryZeroes;
+    }
+
+    public void setExportDBFNumericMandatoryZeroes(boolean exportDBFNumericMandatoryZeroes) {
+        this.exportDBFNumericMandatoryZeroes = exportDBFNumericMandatoryZeroes;
     }
 }

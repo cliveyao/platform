@@ -8,23 +8,27 @@ When a [property](Properties.md) is declared in the [`=` statement](=_statement.
 
 Options are listed one after another in arbitrary order, separated by spaces or line feeds:
 
-    propertyOption1 ... propertyOptionN
+```
+propertyOption1 ... propertyOptionN
+```
 
 The following set of options is supported (the syntax of each option is indicated on a separate line):
 
-    IN groupName
-    viewType
-    ON eventType { actionOperator }
-    CHANGEKEY key [SHOW | HIDE]
-    MATERIALIZED
-    TABLE tableName
-    INDEXED
-    NONULL [DELETE] eventClause
-    AUTOSET
-    CHARWIDTH width [FLEX | NOFLEX]
-    REGEXP rexpr [message] 
-    ECHO
-    DEFAULTCOMPARE [compare]
+```
+IN groupName
+viewType
+ON eventType { actionOperator }
+CHANGEKEY key [SHOW | HIDE]
+MATERIALIZED
+TABLE tableName
+INDEXED [LIKE | MATCH]
+NONULL [DELETE] eventClause
+AUTOSET
+CHARWIDTH width [FLEX | NOFLEX]
+REGEXP rexpr [message] 
+ECHO
+DEFAULTCOMPARE [compare]
+```
 
 ## Description and parameters
 
@@ -55,6 +59,14 @@ The following set of options is supported (the syntax of each option is indicate
 - `INDEXED`
 
     Keyword. If specified, an [index](Indexes.md) by this property is created. Similar to using the [`INDEX` statement](INDEX_statement.md). 
+
+    - `LIKE`
+
+        Keyword. If specified, creates GIN index instead of the usual index.
+
+    - `MATCH`
+
+        Keyword. If specified, creates GIN index and GIN index with to_tsvector instead of the usual index.
 
 - `NONULL [DELETE] eventClause`
 
@@ -154,14 +166,20 @@ The following set of options is supported (the syntax of each option is indicate
 
     - `compare`
 
-        Default filter type. [String literal](Literals.md#strliteral). Can be one the following values: `=`, `>`, `<`, `>=`, `<=`, `!=`, `START_WITH`, `CONTAINS`, `ENDS_WITH`, `LIKE`. The default value is `=` for all data types except case-insensitive string types, for which the default value is `CONTAINS`. If `System.defaultCompareForStringContains` is enabled, default value is `CONTAINS` for all string data regardless of case sensitivity. Can be overridden in the `DESIGN` statement.
+        Default filter type. [String literal](Literals.md#strliteral). Can be one the following values: `=`, `>`, `<`, `>=`, `<=`, `!=`, `CONTAINS`, `LIKE`. The default value is `=` for all data types except case-insensitive string types, for which the default value is `CONTAINS`. If `System.defaultCompareForStringContains` is enabled, default value is `CONTAINS` for all string data regardless of case sensitivity. Can be overridden in the `DESIGN` statement.
 
 ## Examples
 
 ```lsf
-cost 'Cost' (i) = DATA NUMERIC[12,3] (Item);		// property defined by the context-independent DATA property operator
-weightedSum 'Weighted amount' (a, b) = 2*a + 3*b; 		// property defined by expression
-diff = a - b; 											// the caption of this property will be 'diff' and the parameters will be (a, b)
+// property defined by the context-independent DATA property operator
+cost 'Cost' (i) = DATA NUMERIC[12,3] (Item);
 
-teamName 'Team name' = DATA BPSTRING[30](Team) IN baseGroup TABLE team; // property defined by DATA operator with additional property options
+// property defined by expression
+weightedSum 'Weighted amount' (a, b) = 2*a + 3*b;
+
+// the caption of this property will be 'diff' and the parameters will be (a, b)
+diff = a - b;
+
+// property defined by DATA operator with additional property options
+teamName 'Team name' = DATA BPSTRING[30](Team) IN baseGroup TABLE team; 
 ```

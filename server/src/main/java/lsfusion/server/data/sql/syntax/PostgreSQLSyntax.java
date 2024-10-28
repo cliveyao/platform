@@ -2,8 +2,10 @@ package lsfusion.server.data.sql.syntax;
 
 import lsfusion.base.BaseUtils;
 import lsfusion.base.col.interfaces.immutable.ImList;
+import lsfusion.server.base.controller.thread.ThreadLocalContext;
 import lsfusion.server.data.expr.formula.SQLSyntaxType;
 import lsfusion.server.data.query.exec.MStaticExecuteEnvironment;
+import lsfusion.server.data.sql.adapter.PostgreDataAdapter;
 import lsfusion.server.data.type.ConcatenateType;
 import lsfusion.server.data.type.FunctionType;
 import lsfusion.server.data.type.Type;
@@ -53,8 +55,8 @@ public class PostgreSQLSyntax extends DefaultSQLSyntax {
         return "COALESCE(" + exprs + ")";
     }
 
-    public String getSelect(String from, String exprs, String where, String orderBy, String groupBy, String having, String top) {
-        return "SELECT " + exprs + " FROM " + from + BaseUtils.clause("WHERE", where) + BaseUtils.clause("GROUP BY", groupBy) + BaseUtils.clause("HAVING", having) + BaseUtils.clause("ORDER BY", orderBy) + BaseUtils.clause("LIMIT", top);
+    public String getSelect(String from, String exprs, String where, String orderBy, String groupBy, String having, String top, boolean distinct) {
+        return "SELECT " + (distinct ? "DISTINCT " : "") + exprs + " FROM " + from + BaseUtils.clause("WHERE", where) + BaseUtils.clause("GROUP BY", groupBy) + BaseUtils.clause("HAVING", having) + BaseUtils.clause("ORDER BY", orderBy) + BaseUtils.clause("LIMIT", top);
     }
 
     public String getUnionOrder(String union, String orderBy, String top) {
@@ -137,6 +139,12 @@ public class PostgreSQLSyntax extends DefaultSQLSyntax {
     public String getTypeChange(Type oldType, Type type, String name, MStaticExecuteEnvironment env) {
         String newType = type.getDB(this, env);
         return "TYPE " + newType + " USING " + name + "::" + newType;
+    }
+
+    @Override
+    public String getPrefixSearchQuery() {
+        int dbMajorVersion = ((PostgreDataAdapter) ThreadLocalContext.getDbManager().getAdapter()).getDbMajorVersion();
+        return dbMajorVersion >= 11 ? super.getPrefixSearchQuery() : "prefixSearchOld";
     }
 
     @Override
@@ -267,11 +275,6 @@ public class PostgreSQLSyntax extends DefaultSQLSyntax {
     }
 
     @Override
-    public String getArrayAgg(String s, ClassReader classReader, TypeEnvironment typeEnv) {
-        return "AGGAR_SETADD(" + s + ")";
-    }
-
-    @Override
     public boolean orderTopProblem() {
         return true;
     }
@@ -319,6 +322,11 @@ public class PostgreSQLSyntax extends DefaultSQLSyntax {
     @Override
     public boolean supportsDisableNestedLoop() {
         return true;
+    }
+
+    @Override
+    public boolean supportsDeadLockPriority() {
+        return false;
     }
 
     @Override
@@ -436,6 +444,7 @@ public class PostgreSQLSyntax extends DefaultSQLSyntax {
 
     @Override
     public String getDeadlockPriority(Long priority) {
+        assert false; // actually this approach doesn't work
         return "SET LOCAL deadlock_timeout to " + (priority != null ? ("'" + Math.round(BaseUtils.pow(2.0, priority) * 1000.0) + "ms'") : "DEFAULT");
     }
 

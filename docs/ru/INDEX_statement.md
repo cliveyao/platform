@@ -6,15 +6,21 @@ title: 'Инструкция INDEX'
 
 ### Синтаксис
 
-    INDEX field1, ..., fieldN;
+```
+INDEX field1, ..., fieldN;
+```
 
 Каждое поле [таблицы](Tables.md) `fieldi`, по которому должен быть построен индекс, может быть описано либо с помощью указания [свойства](Properties.md), хранящегося в этой таблице:
 
-    propertyId(param1, ..., paramN)
+```
+propertyId(param1, ..., paramN)
+```
 
 либо с помощью указания типизированного параметра, указывающего на соответствующее ключевое поле: 
 
-    param
+```
+param
+```
 
 ### Описание
 
@@ -42,5 +48,5 @@ INDEX customer(Order o);
 date = DATA DATE (Order);
 INDEX date(Order o), o;
 
-INDEX name(Sku s), price(s, DATE d), d;
+INDEX supplier(Sku s, DATE d), s, price(s, d), d;
 ```

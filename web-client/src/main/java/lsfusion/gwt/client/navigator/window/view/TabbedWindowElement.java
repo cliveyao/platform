@@ -1,24 +1,48 @@
 package lsfusion.gwt.client.navigator.window.view;
 
-import com.google.gwt.dom.client.Style;
+import com.google.gwt.dom.client.Element;
+import com.google.gwt.dom.client.NativeEvent;
 import com.google.gwt.storage.client.Storage;
 import com.google.gwt.user.client.ui.Widget;
+import lsfusion.gwt.client.form.design.view.flex.FlexTabbedPanel;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 
 public class TabbedWindowElement extends WindowElement {
     private List<WindowElement> children = new ArrayList<>();
+    private List<WindowElement> visibleChildren = new ArrayList<>();
 
-    private TabLayoutPanel tabPanel = new TabLayoutPanel(21, Style.Unit.PX, null);
+    private Panel tabPanel;
 
-    public TabbedWindowElement(WindowsController main, int x, int y, int width, int height) {
-        super(main, x, y, width, height);
+    public static class Panel extends FlexTabbedPanel {
+        public Panel() {
+        }
+
+        @Override
+        public void checkResizeEvent(NativeEvent event, Element cursorElement) {
+            // do nothing as it clashes with resize in CustomSplitLayoutPanel
+        }
+    }
+
+    public TabbedWindowElement(WindowsController controller, int x, int y, int width, int height) {
+        super(controller, x, y, width, height);
+
+        tabPanel = new Panel();
     }
 
     public Widget getView() {
         return tabPanel;
+    }
+
+    @Override
+    public boolean isAutoSize(boolean vertical) {
+        for (WindowElement child : children) {
+            if (child.isAutoSize(vertical)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override
@@ -35,29 +59,47 @@ public class TabbedWindowElement extends WindowElement {
     }
 
     @Override
-    public Widget initializeView() {
+    public void initializeView(WindowsController controller) {
         for (WindowElement child : children) {
-            tabPanel.add(child.initializeView(), child.getCaption());    
+            child.initializeView(controller);
+
+            Widget windowView = child.getView();
+
+            tabPanel.addTab(windowView, child.getCaption());
+            visibleChildren.add(child);
+            tabPanel.selectTab(visibleChildren.indexOf(child));
         }
-        return super.initializeView();
+    }
+
+    @Override
+    public void onAddView(WindowsController controller) {
+        for (WindowElement child : children) {
+            child.onAddView(controller);
+        }
     }
 
     @Override
     public void setWindowVisible(WindowElement window) {
         Widget windowView = window.getView();
-        if (tabPanel.getWidgetIndex(windowView) == -1) {
+        if (!visibleChildren.contains(window)) {
             String caption = window.getCaption();
             if (children.indexOf(window) != children.size() - 1 && tabPanel.getWidgetCount() != 0) {
                 for (int i = children.indexOf(window) + 1; i < children.size(); i++) {
-                    int beforeIndex = tabPanel.getWidgetIndex(children.get(i).getView());
+                    int beforeIndex = visibleChildren.indexOf(children.get(i));
                     if (beforeIndex != -1) {
-                        tabPanel.insert(windowView, caption, beforeIndex);
+                        tabPanel.addTab(windowView, beforeIndex, caption);
+                        visibleChildren.add(beforeIndex, window);
+                        tabPanel.selectTab(beforeIndex);
                         return;
                     }
                 }
             }
-            tabPanel.add(windowView, caption);
-            if (tabPanel.getWidgetCount() == 1) {
+            
+            tabPanel.addTab(windowView, caption);
+            visibleChildren.add(window);
+            tabPanel.selectTab(visibleChildren.indexOf(window));
+            
+            if (tabPanel.getTabCount() == 1) {
                 setVisible(true);
             }
         }
@@ -65,30 +107,23 @@ public class TabbedWindowElement extends WindowElement {
 
     @Override
     public void setWindowInvisible(WindowElement window) {
-        if (tabPanel.getWidgetIndex(window.getView()) != -1) {
-            tabPanel.remove(window.getView());
+        int index = -1;
+        if (visibleChildren.contains(window)) {
+            index = visibleChildren.indexOf(window);
+            tabPanel.removeTab(index);
+            visibleChildren.remove(window);
         }
-        if (tabPanel.getWidgetCount() == 0) {
+        
+        if (tabPanel.getTabCount() == 0) {
             setVisible(false);
+        } else if (index != -1) {
+            tabPanel.selectTab(Math.min(index, tabPanel.getTabCount() - 1));
         }
     }
 
     @Override
     public String getSID() {
-        List<String> childrenSIDs = new ArrayList<>();
-        for (WindowElement child : children) {
-            childrenSIDs.add(child.getSID());
-        }
-        Collections.sort(childrenSIDs, String.CASE_INSENSITIVE_ORDER);
-        
-        StringBuilder sid = new StringBuilder();
-        for (String childSID : childrenSIDs) {
-            sid.append(childSID);
-            if (childrenSIDs.indexOf(childSID) < childrenSIDs.size() - 1) {
-                sid.append("_");
-            }
-        }
-        return sid.toString();
+        return getSID(children);
     }
 
     @Override

@@ -1,6 +1,5 @@
 ---
 title: 'Properties'
-sidebar_label: Overview
 ---
 
 A *property* is an element of the system that takes a set of objects (*parameters*) and returns exactly one object (the *return value*). 
@@ -20,9 +19,15 @@ To create properties, use the [`=` statement](=_statement.md).
 ### Examples
 
 ```lsf
-cost 'Cost' (i) = DATA NUMERIC[12,3] (Item);		// property defined by the context-independent DATA property operator
-weightedSum 'Weighted amount' (a, b) = 2*a + 3*b; 		// property defined by expression
-diff = a - b; 											// the caption of this property will be 'diff' and the parameters will be (a, b)
+// property defined by the context-independent DATA property operator
+cost 'Cost' (i) = DATA NUMERIC[12,3] (Item);
 
-teamName 'Team name' = DATA BPSTRING[30](Team) IN baseGroup TABLE team; // property defined by DATA operator with additional property options
+// property defined by expression
+weightedSum 'Weighted amount' (a, b) = 2*a + 3*b;
+
+// the caption of this property will be 'diff' and the parameters will be (a, b)
+diff = a - b;
+
+// property defined by DATA operator with additional property options
+teamName 'Team name' = DATA BPSTRING[30](Team) IN baseGroup TABLE team; 
 ```

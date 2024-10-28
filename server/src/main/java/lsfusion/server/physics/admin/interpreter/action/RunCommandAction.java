@@ -1,57 +1,53 @@
 package lsfusion.server.physics.admin.interpreter.action;
 
 import com.google.common.base.Throwables;
-import lsfusion.interop.action.MessageClientAction;
-import lsfusion.server.data.sql.exception.SQLHandledException;
+import lsfusion.interop.action.RunCommandActionResult;
 import lsfusion.server.logics.UtilsLogicsModule;
 import lsfusion.server.logics.action.controller.context.ExecutionContext;
 import lsfusion.server.logics.classes.ValueClass;
 import lsfusion.server.logics.property.classes.ClassPropertyInterface;
+import lsfusion.server.physics.dev.integration.external.to.file.FileUtils;
 import lsfusion.server.physics.dev.integration.internal.to.InternalAction;
 
-import java.io.BufferedInputStream;
-import java.sql.SQLException;
 import java.util.Iterator;
 
 public class RunCommandAction extends InternalAction {
     private final ClassPropertyInterface commandInterface;
+    private final ClassPropertyInterface directoryInterface;
     private final ClassPropertyInterface isClientInterface;
+    private final ClassPropertyInterface waitInterface;
 
     public RunCommandAction(UtilsLogicsModule LM, ValueClass... classes) {
         super(LM, classes);
 
-        Iterator<ClassPropertyInterface> i = interfaces.iterator();
+        Iterator<ClassPropertyInterface> i = getOrderInterfaces().iterator();
         commandInterface = i.next();
+        directoryInterface = i.next();
         isClientInterface = i.next();
+        waitInterface = i.next();
     }
 
     @Override
     public void executeInternal(ExecutionContext<ClassPropertyInterface> context) {
         String command = (String) context.getKeyValue(commandInterface).getValue();
+        String directory = (String) context.getKeyValue(directoryInterface).getValue();
         boolean isClient = context.getKeyValue(isClientInterface).getValue() != null;
+        boolean wait = context.getKeyValue(waitInterface).getValue() != null;
         if(command != null) {
-            if (isClient) {
-                String result = (String) context.requestUserInteraction(new RunCommandClientAction(command));
+            try {
+                RunCommandActionResult result = isClient
+                        ? (RunCommandActionResult) context.requestUserInteraction(new RunCommandClientAction(command, directory, wait))
+                        : FileUtils.runCmd(command, directory, wait);
+
                 if (result != null) {
-                    context.requestUserInteraction(new MessageClientAction(result, "Ошибка"));
+                    findProperty("cmdOut[]").change(result.getCmdOut(), context);
+                    findProperty("cmdErr[]").change(result.getCmdErr(), context);
+
+                    if (!result.isCompletedSuccessfully())
+                        throw new RuntimeException(result.getErrorMessage());
                 }
-            } else {
-                try {
-                    Process p = Runtime.getRuntime().exec(command);
-                    BufferedInputStream err = new BufferedInputStream(p.getErrorStream());
-                    StringBuilder errS = new StringBuilder();
-                    byte[] b = new byte[1024];
-                    while (err.read(b) != -1) {
-                        errS.append(new String(b, "cp866").trim()).append("\n");
-                    }
-                    err.close();
-                    String result = errS.toString();
-                    if (!result.isEmpty()) {
-                        throw new RuntimeException(result);
-                    }
-                } catch (Exception e) {
-                    throw Throwables.propagate(e);
-                }
+            } catch (Exception e) {
+                throw Throwables.propagate(e);
             }
         }
     }

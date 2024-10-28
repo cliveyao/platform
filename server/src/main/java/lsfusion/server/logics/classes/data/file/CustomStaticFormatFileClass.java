@@ -15,23 +15,23 @@ import java.util.*;
 
 public class CustomStaticFormatFileClass extends StaticFormatFileClass {
 
-    private String filterDescription;
-    private ImSet<String> filterExtensions;
+    private final String filterDescription;
+    private final ImSet<String> filterExtensions;
 
     protected String getFileSID() {
-        if(filterExtensions.isEmpty())
-            return "RAWFILE";
-        return "FILE";
+        return isRawFile() ? "RAWFILE" : "FILE";
     }
 
+    @Deprecated
     public static CustomStaticFormatFileClass get(String description, String extensions) {
         return get(false, false, description, extensions);
     }
+    @Deprecated
     public static CustomStaticFormatFileClass get(boolean multiple, boolean storeName, String description, String extensions) {
         return get(multiple, storeName, description, SetFact.toExclSet(extensions.split(" ")));
     }
 
-    private static List<CustomStaticFormatFileClass> instances = new ArrayList<>();
+    private static final List<CustomStaticFormatFileClass> instances = new ArrayList<>();
     
     public static CustomStaticFormatFileClass get() { // RAWFILE
         return get(false, false);
@@ -60,18 +60,21 @@ public class CustomStaticFormatFileClass extends StaticFormatFileClass {
     }
 
     @Override
-    public String getOpenExtension(RawFileData file) {
+    public String getExtension() {
         return filterExtensions.get(0);
     }
 
     @Override
-    protected ImSet<String> getExtensions() {
-        return filterExtensions;
+    public String getSID() {
+        if (isRawFile()) {
+            return super.getSID();
+        } else {
+            return super.getSID() + "_filterDescription=" + filterDescription + "_" + Arrays.toString(filterExtensions.toArray(new String[filterExtensions.size()]));
+        }
     }
 
-    @Override
-    public String getSID() {
-        return super.getSID() + "_filterDescription=" + filterDescription + "_" + Arrays.toString(filterExtensions.toArray(new String[filterExtensions.size()])) + "]";
+    private boolean isRawFile() {
+        return filterExtensions.isEmpty() || filterExtensions.size() == 1 && filterExtensions.get(0).isEmpty();
     }
 
     @Override
@@ -104,7 +107,7 @@ public class CustomStaticFormatFileClass extends StaticFormatFileClass {
             int cnt = inStream.readInt();
             for (int i = 0; i < cnt; i++) {
                 int length = inStream.readInt();
-                byte temp[] = new byte[length];
+                byte[] temp = new byte[length];
                 inStream.readFully(temp);
                 result.add(new RawFileData(temp));
             }
@@ -133,7 +136,7 @@ public class CustomStaticFormatFileClass extends StaticFormatFileClass {
                 byte[] nameTemp = new byte[nameLength];
                 inStream.readFully(nameTemp);
                 int length = inStream.readInt();
-                byte temp[] = new byte[length];
+                byte[] temp = new byte[length];
                 inStream.readFully(temp);
                 result.put(new String(nameTemp), new RawFileData(temp));
             }

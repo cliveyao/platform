@@ -2,42 +2,36 @@ package lsfusion.gwt.client.form.design.view.flex;
 
 import com.google.gwt.core.client.Scheduler;
 import com.google.gwt.user.client.ui.*;
-import lsfusion.gwt.client.base.view.FlexPanel;
+import lsfusion.gwt.client.base.GwtClientUtils;
 import lsfusion.gwt.client.base.view.GFlexAlignment;
+import lsfusion.gwt.client.base.view.SizedFlexPanel;
 
 import java.util.function.Consumer;
 
-public class FlexTabbedPanel extends FlexPanel implements IndexedPanel, RequiresResize, ProvidesResize {
-    public final FlexPanel panel;
+public class FlexTabbedPanel extends SizedFlexPanel implements IndexedPanel, RequiresResize, ProvidesResize {
+
     protected TabBar tabBar;
-    protected TabbedDeckPanel deck;
+    public final boolean tabEnd;
 
     public FlexTabbedPanel() {
-        this(null, null);
+        this(null, false);
     }
-    public FlexTabbedPanel(String tabBarClass, Widget extraTabWidget) {
-        super(true);
-        FlexTabBar tabBar = new FlexTabBar(extraTabWidget);
-        if (tabBarClass != null) {
-            tabBar.addStyleName(tabBarClass);
-        }
-        
-        TabbedDeckPanel deck = new TabbedDeckPanel();
+    public FlexTabbedPanel(Widget extraTabWidget, boolean end) {
+        this(extraTabWidget, true, end);
+    }
 
-        panel = new FlexPanel(true);
-        panel.add(tabBar, GFlexAlignment.STRETCH);
-        panel.addFill(deck);
+    public FlexTabbedPanel(Widget extraTabWidget, boolean vertical, boolean end) {
+        super(vertical);
 
-        this.tabBar = tabBar;
-        this.deck = deck;
-
+        FlexTabBar tabBar = new FlexTabBar(extraTabWidget, !vertical, end);
+        add(tabBar, GFlexAlignment.STRETCH);
         tabBar.setBeforeSelectionHandler(this::onBeforeTabSelected);
-        tabBar.setSelectionHandler(index -> FlexTabbedPanel.this.onTabSelected(index));
+        tabBar.setSelectionHandler(FlexTabbedPanel.this::onTabSelected);
+        this.tabBar = tabBar;
 
-        addFill(panel);
-
-        setStyleName("gwt-TabPanel");
-        deck.setStyleName("gwt-TabPanelBottom");
+       GwtClientUtils.addClassName(this, "tab-panel");
+       GwtClientUtils.addClassName(this, end ? "tab-panel-end" : "tab-panel-start");
+        tabEnd = end;
     }
 
     private void onBeforeTabSelected(Integer index) {
@@ -47,7 +41,7 @@ public class FlexTabbedPanel extends FlexPanel implements IndexedPanel, Requires
 
     private void onTabSelected(Integer tabIndex) {
 
-        deck.showWidget(tabIndex);
+        showTab(tabIndex);
 
         if(selectionHandler != null)
             selectionHandler.accept(tabIndex);
@@ -57,12 +51,7 @@ public class FlexTabbedPanel extends FlexPanel implements IndexedPanel, Requires
 
     public static void scheduleOnResize(final Widget widget) {
         if (widget instanceof RequiresResize) {
-            Scheduler.get().scheduleDeferred(new Scheduler.ScheduledCommand() {
-                @Override
-                public void execute() {
-                    ((RequiresResize) widget).onResize();
-                }
-            });
+            Scheduler.get().scheduleDeferred(() -> ((RequiresResize) widget).onResize());
         }
     }
 
@@ -80,8 +69,8 @@ public class FlexTabbedPanel extends FlexPanel implements IndexedPanel, Requires
 
     @Override
     public void onResize() {
-        if (isVisible()) {
-            deck.onResize();
+        if (isVisible() && visibleWidget instanceof RequiresResize) {
+            ((RequiresResize) visibleWidget).onResize();
         }
     }
 
@@ -91,75 +80,106 @@ public class FlexTabbedPanel extends FlexPanel implements IndexedPanel, Requires
      * @param w       the widget to be added
      * @param tabText the text to be shown on its tab
      */
-    public void add(Widget w, String tabText) {
-        add(w, new Label(tabText, false));
+
+    public interface AddToDeck {
+        void add(int beforeIndex);
+    }
+    public interface RemoveFromDeck {
+        void remove(int index);
     }
 
-    public void add(Widget w, Widget tabWidget) {
-        insert(w, tabWidget, getWidgetCount());
+    private Label createTab(String tabText, boolean wordWrap) {
+        return new Label(tabText, wordWrap);
     }
 
-    public void insert(Widget widget, String tabText, int beforeIndex) {
-        insert(widget, new Label(tabText, false), beforeIndex);
+    // used only in error dialog
+    public void addTab(Widget w, String tabText) {
+        addTab(w, null, tabText);
     }
 
-    public void insert(Widget widget, Widget tabWidget, int beforeIndex) {
-        // Check to see if the TabPanel already contains the Widget. If so,
-        // remove it and see if we need to shift the position to the left.
-        int ind = getWidgetIndex(widget);
-        if (ind != -1) {
-            remove(ind);
-            if (ind < beforeIndex) {
-                beforeIndex--;
-            }
-        }
+    public void addTab(Widget w, Integer index, String tabText) {
+        addTab(w, index, createTab(tabText, false));
+    }
+
+    public void addTab(Widget w, Integer index, Widget tabWidget) {
+        GwtClientUtils.addClassName(w, "tab-pane");
+        insertTab(tabWidget, index != null ? index : getTabCount(), (beforeIndex) -> addFillShrink(w, beforeIndex));
+    }
+
+    public void insertTab(Widget tabWidget, int beforeIndex, AddToDeck addToDeck) {
         tabBar.insertTab(tabWidget, beforeIndex);
 
-        widget.setVisible(false);
-        deck.addFill(widget, beforeIndex);
+        int tabIndex = getTabIndex(beforeIndex);
+        addToDeck.add(tabIndex);
+        getWidget(tabIndex).setVisible(false);
     }
 
-    @Override
-    public boolean remove(int index) {
-        if (index != -1) {
-            if(index == getSelectedTab() && beforeSelectionHandler != null)
-                beforeSelectionHandler.accept(-1);
-            tabBar.removeTab(index);
-            return deck.remove(index);
+    public void removeTab(int removeIndex) {
+        removeTab(removeIndex, this::removeSized);
+    }
+
+    public void removeTab(int index, RemoveFromDeck removeFromDeck) {
+        if(index == getSelectedTab() && beforeSelectionHandler != null)
+            beforeSelectionHandler.accept(-1);
+        tabBar.removeTab(index);
+
+        int tabIndex = getTabIndex(index);
+        if (visibleWidget == getWidget(tabIndex)) {
+            visibleWidget = null;
         }
-
-        return false;
+        removeFromDeck.remove(tabIndex);
     }
 
-    @Override
-    public Widget getWidget(int index) {
-        return deck.getWidget(index);
+    private int getTabIndex(int index) {
+        return tabEnd ? index : index + 1; // if tab bar is first then shifting the index
     }
 
-    @Override
-    public int getWidgetCount() {
-        return deck.getWidgetCount();
-    }
-
-    @Override
-    public int getWidgetIndex(Widget widget) {
-        return deck.getWidgetIndex(widget);
+    public int getTabCount() {
+        return getWidgetCount() - 1; // tab bar is included
     }
 
     public int getSelectedTab() {
         return tabBar.getSelectedTab();
     }
 
-    public void selectTab(int index) {
-        tabBar.selectTab(index);
+    public Widget getTabBar() {
+        return tabBar.asWidget();
     }
 
-    public void setTabCaption(int index, String caption) {
-        tabBar.setTabText(index, caption);
+    public void selectTab(int index) {
+        tabBar.selectTab(index);
     }
 
     @SuppressWarnings("UnusedDeclaration")
     public int getTabBarHeight() {
         return tabBar.asWidget().getOffsetHeight() + 5; //little extra for borders, etc.
+    }
+
+    private Widget visibleWidget;
+
+    public void showTab(int index) {
+        Widget oldWidget = visibleWidget;
+
+        Widget newWidget;
+        if(index >= 0) {
+            index = getTabIndex(index); // adding flex tab bar
+            checkIndexBoundsForAccess(index);
+
+            newWidget = getWidget(index);
+        } else
+            newWidget = null;
+
+        visibleWidget = newWidget;
+
+        if (visibleWidget != oldWidget) {
+            if(visibleWidget != null)
+                visibleWidget.setVisible(true);
+            if (oldWidget != null)
+                oldWidget.setVisible(false);
+        }
+    }
+
+    public void fixFlexBasis(boolean vertical) {
+        impl.fixFlexBasis(this, vertical, false);
     }
 }

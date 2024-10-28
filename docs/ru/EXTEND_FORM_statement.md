@@ -6,11 +6,13 @@ title: 'Инструкция EXTEND FORM'
 
 ### Синтаксис
 
-    EXTEND FORM formName 
-        formBlock1
-        ...
-        formBlockN
-    ;
+```
+EXTEND FORM formName 
+    formBlock1
+    ...
+    formBlockN
+;
+```
 
 ### Описание
 
@@ -39,6 +41,7 @@ EXTEND FORM items
 
     OBJECTS g = ItemGroup BEFORE i // добавляем на форму объект группы товаров перед товаром
     PROPERTIES(g) READONLY name
-    FILTERS itemGroup(i) == g // если бы объект был добавлен после объекта с товарами, то фильтрация шла бы по группе товаров, а не по товарам
+    // если бы объект был добавлен после объекта с товарами, то фильтрация шла бы по группе товаров, а не по товарам
+    FILTERS itemGroup(i) == g 
 ;
 ```

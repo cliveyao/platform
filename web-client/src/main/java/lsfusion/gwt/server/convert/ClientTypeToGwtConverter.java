@@ -1,6 +1,5 @@
 package lsfusion.gwt.server.convert;
 
-import lsfusion.base.MIMETypeUtils;
 import lsfusion.client.classes.ClientActionClass;
 import lsfusion.client.classes.ClientObjectClass;
 import lsfusion.client.classes.ClientObjectType;
@@ -60,7 +59,7 @@ public class ClientTypeToGwtConverter extends ObjectConverter {
 
     @Converter(from = ClientLogicalClass.class)
     public GLogicalType convertLogicalClass(ClientLogicalClass clientLogicalClass) {
-        return GLogicalType.instance;
+        return clientLogicalClass.threeState ? GLogicalType.threeStateInstance : GLogicalType.instance;
     }
 
     @Converter(from = ClientTimeClass.class)
@@ -88,6 +87,11 @@ public class ClientTypeToGwtConverter extends ObjectConverter {
         return GIntervalType.getInstance(clientTimeIntervalClass.getIntervalType());
     }
 
+    @Converter(from = ClientZDateTimeIntervalClass.class)
+    public GIntervalType convertIntervalClass(ClientZDateTimeIntervalClass clientZDateTimeIntervalClass) {
+        return GIntervalType.getInstance(clientZDateTimeIntervalClass.getIntervalType());
+    }
+
     @Converter(from = ClientZDateTimeClass.class)
     public GZDateTimeType convertDateTimeClass(ClientZDateTimeClass clientDateTimeClass) {
         return GZDateTimeType.instance;
@@ -96,23 +100,31 @@ public class ClientTypeToGwtConverter extends ObjectConverter {
     private <T extends GFileType> T initializeFileClass(ClientFileClass clientFileClass, T fileClass) {
         fileClass.multiple = clientFileClass.multiple;
         fileClass.storeName = clientFileClass.storeName;
-        if (clientFileClass instanceof ClientStaticFormatFileClass) { 
-            ArrayList<String> validContentTypes = new ArrayList<>();
+        if (clientFileClass instanceof ClientStaticFormatFileClass) {
+            ArrayList<String> validExtensions = new ArrayList<>();
             for (String extension : ((ClientStaticFormatFileClass) clientFileClass).getExtensions()) {
-                if (extension != null && !extension.isEmpty() && !extension.equals("*.*") && !extension.equals("*")) {
-                    validContentTypes.add(MIMETypeUtils.MIMETypeForFileExtension(extension.toLowerCase()));
-                } else {
-                    validContentTypes.add(extension);
-                }
+                validExtensions.add(extension.toLowerCase());
             }
-            fileClass.validContentTypes = validContentTypes;
+            fileClass.validExtensions = validExtensions;
+
         }
+        fileClass.named = clientFileClass instanceof ClientNamedFileClass;
         return fileClass;
     }
 
     @Converter(from = ClientPDFClass.class)
     public GPDFType convertPDFClass(ClientPDFClass pdfClass) {
         return initializeFileClass(pdfClass, new GPDFType());
+    }
+
+    @Converter(from = ClientVideoClass.class)
+    public GVideoType convertVideoClass(ClientVideoClass videoClass) {
+        return initializeFileClass(videoClass, new GVideoType());
+    }
+
+    @Converter(from = ClientDBFClass.class)
+    public GDBFType convertDBFClass(ClientDBFClass dbfClass) {
+        return initializeFileClass(dbfClass, new GDBFType());
     }
 
     @Converter(from = ClientImageClass.class)
@@ -145,9 +157,9 @@ public class ClientTypeToGwtConverter extends ObjectConverter {
         return initializeFileClass(htmlClass, new GHTMLType());
     }
     
-    @Converter(from = ClientJSONClass.class)
-    public GJSONType convertJSONClass(ClientJSONClass jsonClass) {
-        return initializeFileClass(jsonClass, new GJSONType());
+    @Converter(from = ClientJSONFileClass.class)
+    public GJSONFileType convertJSONClass(ClientJSONFileClass jsonClass) {
+        return initializeFileClass(jsonClass, new GJSONFileType());
     }
 
     @Converter(from = ClientXMLClass.class)
@@ -167,6 +179,11 @@ public class ClientTypeToGwtConverter extends ObjectConverter {
         return customFormatFileType;
     }
 
+    @Converter(from = ClientNamedFileClass.class)
+    public GNamedFileType convertNamedFileClass(ClientNamedFileClass customClass) {
+        return initializeFileClass(customClass, new GNamedFileType());
+    }
+
     @Converter(from = ClientDynamicFormatFileClass.class)
     public GCustomDynamicFormatFileType convertCustomDynamicFormatClass(ClientDynamicFormatFileClass customClass) {
         return initializeFileClass(customClass, new GCustomDynamicFormatFileType());
@@ -175,6 +192,16 @@ public class ClientTypeToGwtConverter extends ObjectConverter {
     @Converter(from = ClientPDFLinkClass.class)
     public GPDFLinkType convertPDFClass(ClientPDFLinkClass pdfClass) {
         return initializeLinkClass(pdfClass, new GPDFLinkType());
+    }
+
+    @Converter(from = ClientVideoLinkClass.class)
+    public GVideoLinkType convertVideoClass(ClientVideoLinkClass videoClass) {
+        return initializeLinkClass(videoClass, new GVideoLinkType());
+    }
+
+    @Converter(from = ClientDBFLinkClass.class)
+    public GDBFLinkType convertDBFClass(ClientDBFLinkClass dbfClass) {
+        return initializeLinkClass(dbfClass, new GDBFLinkType());
     }
 
     @Converter(from = ClientImageLinkClass.class)
@@ -246,7 +273,17 @@ public class ClientTypeToGwtConverter extends ObjectConverter {
 
     @Converter(from = ClientTextClass.class)
     public GTextType convertTextClass(ClientTextClass clientTextClass) {
-        return new GTextType(clientTextClass.rich);
+        return new GTextType();
+    }
+
+    @Converter(from = ClientRichTextClass.class)
+    public GRichTextType convertTextClass(ClientRichTextClass clientTextClass) {
+        return new GRichTextType();
+    }
+
+    @Converter(from = ClientHTMLTextClass.class)
+    public GHTMLTextType convertTextClass(ClientHTMLTextClass clientTextClass) {
+        return new GHTMLTextType();
     }
 
     @Converter(from = ClientDateClass.class)
@@ -257,6 +294,26 @@ public class ClientTypeToGwtConverter extends ObjectConverter {
     @Converter(from = ClientColorClass.class)
     public GColorType convertColorClass(ClientColorClass clientColorClass) {
         return GColorType.instance;
+    }
+
+    @Converter(from = ClientJSONClass.class)
+    public GJSONType convertJSONClass(ClientJSONClass clientJSONClass) {
+        return GJSONType.instance;
+    }
+
+    @Converter(from = ClientJSONTextClass.class)
+    public GJSONTextType convertJSONTextClass(ClientJSONTextClass clientJSONTextClass) {
+        return GJSONTextType.instance;
+    }
+
+    @Converter(from = ClientTSVectorClass.class)
+    public GTSVectorType convertTSVectorClass(ClientTSVectorClass clientTSVectorClass) {
+        return GTSVectorType.instance;
+    }
+
+    @Converter(from = ClientHTMLStringClass.class)
+    public GHTMLStringType convertHTMLStringClass(ClientHTMLStringClass clientHTMLStringClass) {
+        return GHTMLStringType.instance;
     }
 
     @Converter(from = ClientObjectType.class)

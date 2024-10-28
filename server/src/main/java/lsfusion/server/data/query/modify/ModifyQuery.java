@@ -2,8 +2,10 @@ package lsfusion.server.data.query.modify;
 
 import lsfusion.base.BaseUtils;
 import lsfusion.base.Result;
+import lsfusion.base.col.MapFact;
 import lsfusion.base.col.SetFact;
 import lsfusion.base.col.interfaces.immutable.ImCol;
+import lsfusion.base.col.interfaces.immutable.ImOrderMap;
 import lsfusion.base.col.interfaces.immutable.ImOrderSet;
 import lsfusion.base.col.interfaces.immutable.ImSet;
 import lsfusion.server.data.OperationOwner;
@@ -26,7 +28,7 @@ import lsfusion.server.physics.admin.Settings;
 import lsfusion.server.physics.admin.monitor.sql.SQLDebugInfo;
 
 public class ModifyQuery {
-    public final NamedTable table;
+    public final StoredTable table;
     private final IQuery<KeyField, PropertyField> change;
     public final QueryEnvironment env;
     public final TableOwner owner;
@@ -35,11 +37,11 @@ public class ModifyQuery {
         return env.getOpOwner();
     }
 
-    public ModifyQuery(NamedTable table, IQuery<KeyField, PropertyField> change, OperationOwner owner, TableOwner tableOwner) {
+    public ModifyQuery(StoredTable table, IQuery<KeyField, PropertyField> change, OperationOwner owner, TableOwner tableOwner) {
         this(table, change, DataSession.emptyEnv(owner), tableOwner);
     }
 
-    public ModifyQuery(NamedTable table, IQuery<KeyField, PropertyField> change, QueryEnvironment env, TableOwner owner) {
+    public ModifyQuery(StoredTable table, IQuery<KeyField, PropertyField> change, QueryEnvironment env, TableOwner owner) {
         this.table = table;
         this.change = change;
         this.env = env;
@@ -66,14 +68,14 @@ public class ModifyQuery {
 
                 Result<ImOrderSet<KeyField>> keyOrder = new Result<>();
                 Result<ImOrderSet<PropertyField>> propertyOrder = new Result<>();
-                String selectString = syntax.getSelect(fromSelect, SQLSession.stringExpr(
+                String selectString = "(" + SQLSession.getSelect(syntax, fromSelect,
                         SQLSession.mapNames(changeCompile.keySelect,changeCompile.keyNames,keyOrder),
-                        SQLSession.mapNames(changeCompile.propertySelect,changeCompile.propertyNames,propertyOrder)),
-                        whereSelect.toString(" AND "),"","","", "");
+                        SQLSession.mapNames(changeCompile.propertySelect,changeCompile.propertyNames,propertyOrder),
+                        whereSelect) + ")";
 
                 setString = SetFact.addOrderExcl(keyOrder.result, propertyOrder.result).toString(Field.<Field>nameGetter(syntax), ",");
 
-                update = "UPDATE " + table.getName(syntax) + " SET ("+setString+") = ("+selectString+") WHERE EXISTS ("+selectString+")";
+                update = "UPDATE " + table.getName(syntax) + " SET ("+setString+") = "+selectString+" WHERE EXISTS "+selectString;
                 break;
             case 1:
                 // SQL-серверная модель когда она подхватывает первый JoinSelect и старую таблицу уже не вилит
@@ -174,13 +176,13 @@ public class ModifyQuery {
         return leftKeysQuery.getQuery();
     }
 
-    public static SQLExecute getInsertSelect(String name, IQuery<KeyField, PropertyField> query, QueryEnvironment env, TableOwner owner, SQLSyntax syntax, SQLSessionContextProvider userProvider, Table table, RegisterChange change) {
-        return getInsertSelect(name, query, env, owner, syntax, userProvider, table, change, 0);
+    public static SQLExecute getInsertSelect(String name, IQuery<KeyField, PropertyField> query, QueryEnvironment env, TableOwner owner, SQLSyntax syntax, SQLSessionContextProvider userProvider, StoredTable table, RegisterChange change) {
+        return getInsertSelect(name, query, env, owner, syntax, userProvider, table, change, MapFact.EMPTYORDER(), 0);
     }
 
-    public static SQLExecute getInsertSelect(String name, IQuery<KeyField, PropertyField> query, QueryEnvironment env, TableOwner owner, SQLSyntax syntax, SQLSessionContextProvider userProvider, Table table, RegisterChange change, int selectTop) {
+    public static SQLExecute getInsertSelect(String name, IQuery<KeyField, PropertyField> query, QueryEnvironment env, TableOwner owner, SQLSyntax syntax, SQLSessionContextProvider userProvider, StoredTable table, RegisterChange change, ImOrderMap<PropertyField, Boolean> ordersTop, int selectTop) {
         CompileOptions<PropertyField> options = new CompileOptions<>(syntax, table != null ? table.getPropTypes() : null, selectTop);
-        CompiledQuery<KeyField, PropertyField> changeCompile = query.compile(options);
+        CompiledQuery<KeyField, PropertyField> changeCompile = query.compile(ordersTop, options);
 
         SQLDML dml = changeCompile.sql.getInsertDML(name, changeCompile.keyOrder, changeCompile.propertyOrder, true, changeCompile.keyOrder.mapOrder(changeCompile.keyNames), changeCompile.propertyOrder.mapOrder(changeCompile.propertyNames), syntax);
         return new SQLExecute(dml, changeCompile.getQueryParams(env, selectTop), changeCompile.getQueryExecEnv(userProvider), env.getTransactTimeout(), env.getOpOwner(), owner, change, new SQLDebugInfo<>(query, options));

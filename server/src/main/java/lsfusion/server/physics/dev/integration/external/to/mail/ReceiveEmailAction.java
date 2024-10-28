@@ -10,32 +10,28 @@ import lsfusion.server.data.query.build.QueryBuilder;
 import lsfusion.server.data.sql.exception.SQLHandledException;
 import lsfusion.server.data.value.DataObject;
 import lsfusion.server.data.value.ObjectValue;
-import lsfusion.server.language.ScriptingErrorLog;
 import lsfusion.server.logics.action.controller.context.ExecutionContext;
 import lsfusion.server.logics.property.classes.ClassPropertyInterface;
 import lsfusion.server.physics.admin.log.ServerLoggers;
 import lsfusion.server.physics.dev.integration.internal.to.InternalAction;
 import org.apache.log4j.Logger;
 
-import javax.mail.MessagingException;
-import java.io.IOException;
-import java.security.GeneralSecurityException;
 import java.sql.SQLException;
 
-import static lsfusion.base.BaseUtils.nullTrim;
+import static lsfusion.base.BaseUtils.trim;
+import static lsfusion.base.BaseUtils.trimToEmpty;
 import static lsfusion.server.base.controller.thread.ThreadLocalContext.localize;
 
 public class ReceiveEmailAction extends InternalAction {
     private final static Logger logger = ServerLoggers.mailLogger;
     EmailLogicsModule emailLM;
 
-
     public ReceiveEmailAction(EmailLogicsModule LM) {
         super(LM);
         this.emailLM = LM;
 
         drawOptions.setAskConfirm(true);
-        drawOptions.setImage("email.png");
+        SendEmailAction.setDrawOptions(this);
     }
 
     public void executeInternal(ExecutionContext<ClassPropertyInterface> context) throws SQLException, SQLHandledException {
@@ -51,9 +47,11 @@ public class ReceiveEmailAction extends InternalAction {
             accountQuery.addProperty("nameAccount", emailLM.nameAccount.getExpr(accountExpr));
             accountQuery.addProperty("passwordAccount", emailLM.passwordAccount.getExpr(accountExpr));
             accountQuery.addProperty("nameReceiveAccountTypeAccount", emailLM.nameReceiveAccountTypeAccount.getExpr(accountExpr));
+            accountQuery.addProperty("startTLS", emailLM.startTLS.getExpr(accountExpr));
             accountQuery.addProperty("deleteMessagesAccount", emailLM.deleteMessagesAccount.getExpr(accountExpr));
             accountQuery.addProperty("lastDaysAccount", emailLM.lastDaysAccount.getExpr(accountExpr));
             accountQuery.addProperty("maxMessagesAccount", emailLM.maxMessagesAccount.getExpr(accountExpr));
+            accountQuery.addProperty("insecureSSLAccount", emailLM.insecureSSLAccount.getExpr(accountExpr));
             accountQuery.and(emailLM.receiveHostAccount.getExpr(accountExpr).getWhere());
             accountQuery.and(emailLM.disableAccount.getExpr(accountExpr).getWhere().not());
 
@@ -63,25 +61,29 @@ public class ReceiveEmailAction extends InternalAction {
                 logError(context, localize("{mail.disabled}"));
 
             for (int i = 0, size = accountResult.size(); i < size; i++) {
-                String nameAccount = null;
+                String user = null;
                 try {
                     DataObject accountObject = accountResult.getKey(i).get("account");
                     ImMap<Object, ObjectValue> accountValues = accountResult.getValue(i);
-                    String receiveHostAccount = (String) accountValues.get("receiveHostAccount").getValue();
-                    Integer receivePortAccount = (Integer) accountValues.get("receivePortAccount").getValue();
-                    nameAccount = (String) accountValues.get("nameAccount").getValue();
-                    String passwordAccount = (String) accountValues.get("passwordAccount").getValue();
-                    String nameReceiveAccountTypeAccount = (String) accountValues.get("nameReceiveAccountTypeAccount").getValue();
-                    boolean isPop3Account = nameReceiveAccountTypeAccount == null || nullTrim(nameReceiveAccountTypeAccount).equals("POP3");
-                    boolean deleteMessagesAccount = accountValues.get("deleteMessagesAccount").getValue() != null;
-                    Integer lastDaysAccount = (Integer) accountValues.get("lastDaysAccount").getValue();
-                    Integer maxMessagesAccount = (Integer) accountValues.get("maxMessagesAccount").getValue();
+                    String receiveHost = trim((String) accountValues.get("receiveHostAccount").getValue());
+                    if (receiveHost == null) {
+                        logError(context, localize("{mail.pop3.host.not.specified.letters.will.not.be.received}"));
+                        return;
+                    }
+                    Integer receivePort = (Integer) accountValues.get("receivePortAccount").getValue();
+                    user = trimToEmpty((String) accountValues.get("nameAccount").getValue());
+                    String password = trimToEmpty((String) accountValues.get("passwordAccount").getValue());
+                    AccountType accountType = AccountType.get((String) accountValues.get("nameReceiveAccountTypeAccount").getValue());
+                    boolean startTLS = accountValues.get("startTLS").getValue() != null;
+                    boolean deleteMessages = accountValues.get("deleteMessagesAccount").getValue() != null;
+                    Integer lastDays = (Integer) accountValues.get("lastDaysAccount").getValue();
+                    Integer maxMessages = (Integer) accountValues.get("maxMessagesAccount").getValue();
+                    boolean insecureSSL = accountValues.get("insecureSSLAccount").getValue() != null;
 
-                    receiveEmail(context, accountObject, receiveHostAccount, receivePortAccount, nameAccount, passwordAccount,
-                            isPop3Account, deleteMessagesAccount, lastDaysAccount, maxMessagesAccount);
+                    EmailReceiver.receiveEmail(context, emailLM, accountObject, receiveHost, receivePort, user, password, accountType, startTLS, deleteMessages, lastDays, maxMessages, insecureSSL);
 
                 } catch (Exception e) {
-                    String message = localize("{mail.failed.to.receive.mail}") + ", account: " + nameAccount;
+                    String message = localize("{mail.failed.to.receive.mail}") + ", account: " + user;
                     logger.error(message, e);
                     throw new RuntimeException(message, e);
                 }
@@ -91,23 +93,8 @@ public class ReceiveEmailAction extends InternalAction {
         }
     }
 
-    private void receiveEmail(ExecutionContext context, DataObject accountObject, String receiveHostAccount, Integer receivePortAccount,
-                              String nameAccount, String passwordAccount, boolean isPop3, boolean deleteMessagesAccount, Integer lastDaysAccount,
-                              Integer maxMessagesAccount)
-            throws MessagingException, IOException, ScriptingErrorLog.SemanticErrorException, SQLException, SQLHandledException, GeneralSecurityException {
-        if (receiveHostAccount == null) {
-            logError(context, localize("{mail.pop3.host.not.specified.letters.will.not.be.received}"));
-            return;
-        }
-
-        EmailReceiver receiver = new EmailReceiver(emailLM, accountObject, nullTrim(receiveHostAccount),
-                receivePortAccount, nullTrim(nameAccount), nullTrim(passwordAccount), isPop3, deleteMessagesAccount, lastDaysAccount, maxMessagesAccount);
-
-        receiver.receiveEmail(context);
-    }
-
     private void logError(ExecutionContext context, String errorMessage) {
         logger.error(errorMessage);
-        context.delayUserInterfaction(new MessageClientAction(errorMessage, localize("{mail.receiving}")));
+        context.messageError(errorMessage, localize("{mail.receiving}"));
     }
 }

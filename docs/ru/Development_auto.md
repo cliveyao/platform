@@ -1,5 +1,5 @@
 ---
-title: 'Разработка (авто)'
+title: 'Для разработки'
 ---
 
 На этой странице можно скачать программы установки, которые установят все необходимое для разработки в один клик. Помимо lsFusion эти программы также устанавливают OpenJDK, PostgreSQL, Tomcat и IntelliJ IDEA Community Edition со встроенным lsFusion плагином. Если какие-то из этих программ уже есть на вашем компьютере, то их можно будет исключить в процессе установки.
@@ -8,15 +8,15 @@ title: 'Разработка (авто)'
 
 ### Windows
 
-**lsFusion 4.1** (OpenJDK **11.0.9**, PostgreSQL **13.1**(x64)/**10.8**(x32), Tomcat **9.0.21**, IntelliJ IDEA Community Edition **2020.3.1**)
+**lsFusion 6.0-beta0** (OpenJDK **21.0.3**, PostgreSQL **16.3**, Tomcat **9.0.89**, IntelliJ IDEA Community Edition **2024.1.4**)
 
-- [x32](http://download.lsfusion.org/exe/lsfusion-dev-4.1.exe)
-- [x64](http://download.lsfusion.org/exe/lsfusion-dev-4.1-x64.exe)
+- [x64](https://download.lsfusion.org/exe/lsfusion-dev-6.0-beta0-x64.exe)
 
-<details><summary><strong>Предыдущие версии</strong></summary>
-<br/>
+<details>
+<summary><strong>Предыдущие версии</strong></summary>
 
-- lsFusion 4.0 ([x32](https://download.lsfusion.org/exe/lsfusion-dev-4.0.exe) / [x64](https://download.lsfusion.org/exe/lsfusion-dev-4.0-x64.exe))
+- lsFusion 5.1 ([x64](https://download.lsfusion.org/exe/lsfusion-dev-5.1-x64.exe))
+- lsFusion 4.1 ([x32](https://download.lsfusion.org/exe/lsfusion-dev-4.1.exe) / [x64](https://download.lsfusion.org/exe/lsfusion-dev-4.1-x64.exe))
 - lsFusion 3.1 ([x32](https://download.lsfusion.org/exe/lsfusion-dev-3.1.exe) / [x64](https://download.lsfusion.org/exe/lsfusion-dev-3.1-x64.exe))
 - lsFusion 2.4 ([x32](https://download.lsfusion.org/exe/lsfusion-dev-2.4.exe) / [x64](https://download.lsfusion.org/exe/lsfusion-dev-2.4-x64.exe))
 

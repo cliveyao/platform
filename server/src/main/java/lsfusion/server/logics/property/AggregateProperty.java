@@ -2,6 +2,7 @@ package lsfusion.server.logics.property;
 
 import lsfusion.base.BaseUtils;
 import lsfusion.base.Pair;
+import lsfusion.base.Result;
 import lsfusion.base.col.ListFact;
 import lsfusion.base.col.MapFact;
 import lsfusion.base.col.interfaces.immutable.*;
@@ -17,7 +18,6 @@ import lsfusion.server.data.OperationOwner;
 import lsfusion.server.data.QueryEnvironment;
 import lsfusion.server.data.expr.Expr;
 import lsfusion.server.data.expr.join.classes.IsClassField;
-import lsfusion.server.data.expr.key.KeyExpr;
 import lsfusion.server.data.expr.key.NullableKeyExpr;
 import lsfusion.server.data.expr.query.AggrType;
 import lsfusion.server.data.query.Query;
@@ -25,9 +25,6 @@ import lsfusion.server.data.query.build.QueryBuilder;
 import lsfusion.server.data.query.modify.ModifyQuery;
 import lsfusion.server.data.sql.SQLSession;
 import lsfusion.server.data.sql.exception.SQLHandledException;
-import lsfusion.server.data.stat.Stat;
-import lsfusion.server.data.stat.StatKeys;
-import lsfusion.server.data.stat.StatType;
 import lsfusion.server.data.table.TableOwner;
 import lsfusion.server.data.value.DataObject;
 import lsfusion.server.data.value.ObjectValue;
@@ -38,19 +35,19 @@ import lsfusion.server.logics.action.session.DataSession;
 import lsfusion.server.logics.action.session.change.PropertyChange;
 import lsfusion.server.logics.action.session.change.PropertyChanges;
 import lsfusion.server.logics.action.session.change.StructChanges;
+import lsfusion.server.logics.action.session.table.PropertyChangeTableUsage;
 import lsfusion.server.logics.classes.user.BaseClass;
+import lsfusion.server.logics.property.cases.CaseUnionProperty;
 import lsfusion.server.logics.property.classes.infer.*;
 import lsfusion.server.logics.property.implement.PropertyInterfaceImplement;
 import lsfusion.server.logics.property.oraction.PropertyInterface;
 import lsfusion.server.physics.admin.Settings;
-import lsfusion.server.physics.admin.SystemProperties;
 import lsfusion.server.physics.dev.i18n.LocalizedString;
 import lsfusion.server.physics.exec.db.controller.manager.DBManager;
 
 import java.sql.SQLException;
 import java.time.LocalDateTime;
-
-import static lsfusion.server.logics.classes.data.time.DateTimeConverter.getWriteDateTime;
+import java.util.Set;
 
 public abstract class AggregateProperty<T extends PropertyInterface> extends Property<T> {
 
@@ -70,20 +67,38 @@ public abstract class AggregateProperty<T extends PropertyInterface> extends Pro
                 used.size() + (ordersNotNull ? orders.size() : 0), skipNotNull, inferType, false);
     }
 
-    protected <I extends PropertyInterface> ExClassSet inferInnerValueClass(ImList<PropertyInterfaceImplement<I>> used, ImMap<I, ExClassSet> inferred, AggrType aggrType, InferType inferType) {
-        ExClassSet valueClass = used.get(aggrType.getMainIndex()).mapInferValueClass(inferred, inferType);
+    protected <I extends PropertyInterface> ExClassSet inferInnerValueClass(ImList<PropertyInterfaceImplement<I>> props, ImOrderMap<PropertyInterfaceImplement<I>,Boolean> orders, ImMap<I, ExClassSet> inferred, AggrType aggrType, InferType inferType) {
+        ExClassSet valueClass = aggrType.getMain(props, orders).mapInferValueClass(inferred, inferType);
         if(aggrType.isSelect())
             return valueClass;
+        assert valueClass != null || inferType == InferType.resolve();
 
-        if(valueClass == null) {
-            assert inferType == InferType.resolve();
-            return null;
-        }
         return ExClassSet.toExType(aggrType.getType(ExClassSet.fromExType(valueClass)));
+    }
+
+    protected boolean calculateHasGlobalPreread(boolean events) {
+        for(Property property : getDepends(events))
+            if(property.hasGlobalPreread(events))
+                return true;
+        return false;
     }
 
     public ImSet<Property> calculateUsedChanges(StructChanges propChanges) {
         return propChanges.getUsedChanges(getDepends());
+    }
+
+    protected boolean calculateHasPreread(StructChanges structChanges) {
+        for (Property property : getDepends())
+            if (property.hasPreread(structChanges))
+                return true;
+        return false;
+    }
+
+    public boolean calculateCheckRecursions(ImSet<CaseUnionProperty> abstractPath, ImSet<Property> path, Set<Property> marks) {
+        for(Property depend : getDepends())
+            if(depend.checkRecursions(abstractPath, path, marks))
+                return true;
+        return false;
     }
 
     public boolean isStored() {
@@ -95,18 +110,16 @@ public abstract class AggregateProperty<T extends PropertyInterface> extends Pro
         super(caption,interfaces);
     }
 
-    public String checkAggregation(SQLSession session, BaseClass baseClass) throws SQLException, SQLHandledException {
-        return checkAggregation(session, null, baseClass, null);
-    }
-
-    public String checkAggregation(SQLSession session, BaseClass baseClass, ProgressBar progressBar) throws SQLException, SQLHandledException {
-        return checkAggregation(session, null, baseClass, progressBar);
+    public String checkMaterialization(SQLSession session, BaseClass baseClass, boolean runInTransaction) throws SQLException, SQLHandledException {
+        return checkMaterialization(session, baseClass, null, runInTransaction);
     }
 
     // проверяет агрегацию для отладки
     @ThisMessage
     @StackProgress
-    public String checkAggregation(SQLSession session, QueryEnvironment env, BaseClass baseClass, @StackProgress ProgressBar progressBar) throws SQLException, SQLHandledException {
+    public String checkMaterialization(SQLSession session, BaseClass baseClass, @StackProgress ProgressBar progressBar, boolean runInTransaction) throws SQLException, SQLHandledException {
+        QueryEnvironment env = DataSession.emptyEnv(OperationOwner.unknown);
+
         session.pushVolatileStats(OperationOwner.unknown);
         
         try {
@@ -117,12 +130,15 @@ public abstract class AggregateProperty<T extends PropertyInterface> extends Pro
 
             String checkClasses = "";
             if(useRecalculate)
-                checkClasses = env == null ? DataSession.checkClasses(this, session, baseClass) : DataSession.checkClasses(this, session, env, baseClass);
-    
-            ImOrderMap<ImMap<T, Object>, ImMap<String, Object>> checkResult = env == null ? getRecalculateQuery(true, baseClass, !useRecalculate).execute(session, OperationOwner.unknown)
-                    : getRecalculateQuery(true, baseClass, !useRecalculate).execute(session, env);
-            if(checkResult.size() > 0 || !checkClasses.isEmpty()) {
-                message += "---- Checking Aggregations : " + this + "-----" + '\n';
+                checkClasses = checkClasses(session, runInTransaction, env, baseClass);
+
+            Query<T, String> checkQuery = getCheckQuery(baseClass, !useRecalculate);
+
+            Result<ImOrderMap<ImMap<T, Object>, ImMap<String, Object>>> rCheckResult = new Result<>();
+            DBManager.run(session, runInTransaction, DBManager.CHECK_MAT_TIL, sql -> rCheckResult.set(checkQuery.execute(sql, env)));
+            ImOrderMap<ImMap<T, Object>, ImMap<String, Object>> checkResult = rCheckResult.result;
+            if(!checkResult.isEmpty() || !checkClasses.isEmpty()) {
+                message += "---- Checking Materializations : " + this + "-----" + '\n';
                 message += checkClasses;
                 for(int i=0,size=checkResult.size();i<size;i++)
                     message += "Keys : " + checkResult.getKey(i) + " : " + checkResult.getValue(i) + '\n';
@@ -134,70 +150,11 @@ public abstract class AggregateProperty<T extends PropertyInterface> extends Pro
         }
     }
 
-//    public List<Double> checkStats(SQLSession session, BaseClass baseClass) throws SQLException, SQLHandledException {
-//
-//        QueryBuilder<Object, Object> query = new QueryBuilder<Object, Object>(SetFact.EMPTY());
-//        Where where = getExpr(getMapKeys()).getWhere();
-//        try {
-//            Stat statRows = where.getStatRows();
-//            Stat maxStat = new Stat(5, true);
-//            boolean timeouted = false;
-//            if(!where.isFalse() && statRows.lessEquals(maxStat)) {
-//                ValueExpr one = new ValueExpr(1, IntegerClass.instance);
-//                query.addProperty("count", GroupExpr.create(MapFact.<Integer, Expr>EMPTY(), one,
-//                        where, GroupType.SUM, MapFact.<Integer, Expr>EMPTY()));
-//                Integer cnt;
-//                try {
-//                    cnt = (Integer)query.execute(session, DataSession.emptyEnv(OperationOwner.debug)).singleValue().singleValue();
-//                    if(cnt == null)
-//                        cnt = 0;
-//                } catch (SQLTimeoutException e) {
-//                    cnt = maxStat.getWeight();
-//                    timeouted = true;
-//                }
-//
-//                List<Double> list = new ArrayList<Double>();
-//                for(int i=0;i<4;i++) {
-//                    Settings.get().setPessStatType(i);
-//                    
-//                    Stat iStat = where.getStatRows();
-//                    if(timeouted)
-//                        iStat = iStat.min(maxStat);
-//                    
-//                    Stat calcStat = new Stat(cnt);
-//                    double diff = calcStat.getWeight() - (double) iStat.getWeight();
-//                    if (diff > 5.0)
-//                        diff = 5.0;
-//                    if (diff < -5.0)
-//                        diff = -5.0;
-//                    list.add(diff);
-//                }
-//                return list;
-//            }
-//        } catch (RuntimeException r) {
-//            assert r.getMessage().contains("no classes") || r.getMessage().contains("not supported");
-//            return null;
-//        }
-//        return null;
-//    }
-//
-    public Expr calculateExpr(ImMap<T, ? extends Expr> joinImplement) {
-        return calculateExpr(joinImplement, CalcType.EXPR, PropertyChanges.EMPTY, null);
+    private Query<T, String> getCheckQuery(BaseClass baseClass, boolean checkInconsistence) {
+        return getRecalculateQuery(true, true, baseClass, checkInconsistence, null);
     }
 
-    public Expr calculateStatExpr(ImMap<T, ? extends Expr> joinImplement, boolean alotHeur) { // вызывается до stored, поэтому чтобы не было проблем с кэшами, сделано так
-        return calculateExpr(joinImplement, alotHeur ? CalcType.STAT_ALOT : CalcType.STAT, PropertyChanges.EMPTY, null);
-    }
-
-    public Expr calculateInconsistentExpr(ImMap<T, ? extends Expr> joinImplement) { // вызывается до stored, поэтому чтобы не было проблем с кэшами, сделано так
-        return calculateExpr(joinImplement, CalcType.RECALC, PropertyChanges.EMPTY, null);
-    }
-
-    private Query<T, String> getRecalculateQuery(boolean outDB, BaseClass baseClass, boolean checkInconsistence) {
-        return getRecalculateQuery(outDB, baseClass, checkInconsistence, null);
-    }
-
-    private Query<T, String> getRecalculateQuery(boolean outDB, BaseClass baseClass, boolean checkInconsistence, PropertyChange<T> where) {
+    private Query<T, String> getRecalculateQuery(boolean outDB, boolean onlyChanges, BaseClass baseClass, boolean checkInconsistence, PropertyChange<T> where) {
         assert isStored();
         
         QueryBuilder<T, String> query = new QueryBuilder<>(this);
@@ -205,13 +162,13 @@ public abstract class AggregateProperty<T extends PropertyInterface> extends Pro
             query.and(where.getWhere(query.getMapExprs()));
 
         Expr dbExpr = checkInconsistence ? getInconsistentExpr(query.getMapExprs(), baseClass) : getExpr(query.getMapExprs());
-        Expr calculateExpr = isFullProperty() ? calculateInconsistentExpr(query.getMapExprs()) : calculateExpr(query.getMapExprs());  // оптимизация - только для FULL свойств, так как в остальных лучше использовать кэш по EXPR
+        Expr calculateExpr = aspectCalculateExpr(query.getMapExprs(), isFullProperty() ? CalcType.RECALC : CalcType.EXPR, PropertyChanges.EMPTY, null);  // оптимизация - только для FULL свойств, так как в остальных лучше использовать кэш по EXPR
         if(outDB)
             query.addProperty("dbvalue", dbExpr);
-        query.addProperty("calcvalue", calculateExpr);
+        query.addProperty(onlyChanges && !outDB ? "value" : "calcvalue", calculateExpr); // value - the same as in PropertyChangeTable
         query.and(dbExpr.getWhere().or(calculateExpr.getWhere()));
         
-        if(outDB || !DBManager.RECALC_REUPDATE)
+        if(onlyChanges || !DBManager.RECALC_REUPDATE)
             query.and(dbExpr.compare(calculateExpr, Compare.EQUALS).not().and(dbExpr.getWhere().or(calculateExpr.getWhere())));
         return query.getQuery();
     }
@@ -223,33 +180,50 @@ public abstract class AggregateProperty<T extends PropertyInterface> extends Pro
 
     public static AggregateProperty recalculate = null;
 
-    public void recalculateAggregation(BusinessLogics BL, DataSession session, SQLSession sql, BaseClass baseClass) throws SQLException, SQLHandledException {
-        recalculateAggregation(BL, session, sql, baseClass, null, true);
+    public void recalculateMaterialization(BusinessLogics BL, DataSession session, SQLSession sql, boolean runInTransaction, BaseClass baseClass) throws SQLException, SQLHandledException {
+        recalculateMaterialization(BL, session, sql, baseClass, null, true, runInTransaction);
     }
 
-    public void recalculateAggregation(BusinessLogics BL, DataSession session, SQLSession sql, BaseClass baseClass, PropertyChange<T> where, boolean recalculateClasses) throws SQLException, SQLHandledException {
-        recalculateAggregation(sql, null, baseClass, where, recalculateClasses);
+    public void recalculateMaterialization(BusinessLogics BL, DataSession session, SQLSession sql, BaseClass baseClass, PropertyChange<T> where, boolean recalculateClasses, boolean runInTransaction) throws SQLException, SQLHandledException {
+        recalculateMaterialization(sql, runInTransaction, DataSession.emptyEnv(OperationOwner.unknown), baseClass, where, recalculateClasses);
 
         ObjectValue propertyObject = BL.reflectionLM.propertyCanonicalName.readClasses(session, new DataObject(getCanonicalName()));
         if (propertyObject instanceof DataObject)
-            BL.reflectionLM.lastRecalculateProperty.change(getWriteDateTime(LocalDateTime.now()), session, (DataObject) propertyObject);
+            BL.reflectionLM.lastRecalculateProperty.change(LocalDateTime.now(), session, (DataObject) propertyObject);
     }
 
-    @StackMessage("{logics.info.recalculation.of.aggregated.property}")
+    @StackMessage("{logics.info.recalculation.of.materialized.property}")
     @ThisMessage
-    public void recalculateAggregation(SQLSession session, QueryEnvironment env, BaseClass baseClass, PropertyChange<T> where, boolean recalculateClasses) throws SQLException, SQLHandledException {
-        boolean useRecalculate = recalculateClasses && (Settings.get().isUseRecalculateClassesInsteadOfInconsisentExpr() || where != null);
-        if(useRecalculate)
-            recalculateClasses(session, env, baseClass);
+    public void recalculateMaterialization(SQLSession sql, boolean runInTransaction, QueryEnvironment env, BaseClass baseClass, PropertyChange<T> where, boolean recalculateClasses) throws SQLException, SQLHandledException {
+        OperationOwner opOwner = env.getOpOwner();
+        sql.pushVolatileStats(opOwner);
 
-        session.pushVolatileStats(OperationOwner.unknown);
+        PropertyChangeTableUsage<T> table = null;
         try {
-            session.modifyRecords(
-                    new ModifyQuery(mapTable.table, getRecalculateQuery(false, baseClass, !useRecalculate, where).map(
-                            mapTable.mapKeys.reverse(), MapFact.singletonRev(field, "calcvalue")), env == null ? DataSession.emptyEnv(OperationOwner.unknown) : env, TableOwner.global)
-                    );
+            boolean useRecalculate = recalculateClasses && (Settings.get().isUseRecalculateClassesInsteadOfInconsisentExpr() || where != null);
+
+            if (useRecalculate)
+                recalculateClasses(sql, runInTransaction, env, baseClass);
+
+            boolean serializable = DBManager.RECALC_MAT_TIL;
+            boolean mixedSerializable = runInTransaction && !serializable && Settings.get().isRecalculateMaterializationsMixedSerializable();
+
+            Query<T, String> recalculateQuery = getRecalculateQuery(false, mixedSerializable, baseClass, !useRecalculate, where);
+
+            if(mixedSerializable) {
+                table = createChangeTable("recmt");
+                table.writeRows(sql, recalculateQuery, baseClass, env, false);
+                recalculateQuery = getRecalculateQuery(false, false, baseClass, !useRecalculate, PropertyChangeTableUsage.getChange(table));
+                serializable = true;
+            }
+
+            ModifyQuery modifyQuery = new ModifyQuery(mapTable.table, recalculateQuery.map(mapTable.mapKeys.reverse(), MapFact.singletonRev(field, "calcvalue")), env, TableOwner.global);
+            DBManager.run(sql, runInTransaction, serializable, session -> session.modifyRecords(modifyQuery));
         } finally {
-            session.popVolatileStats(OperationOwner.unknown);
+            if(table != null)
+                table.drop(sql, opOwner);
+
+            sql.popVolatileStats(opOwner);
         }
     }
     
@@ -280,44 +254,4 @@ public abstract class AggregateProperty<T extends PropertyInterface> extends Pro
     public boolean calcEmpty(CalcInfoType calcType) {
         return calculateQueryExpr(calcType).second.getWhere().isFalse();
     }
-
-    private ImRevMap<T, NullableKeyExpr> getMapNotNullKeys() {
-        return interfaces.mapRevValues((i, value) -> new NullableKeyExpr(i));
-    }
-
-    public StatKeys<T> getInterfaceClassStats() {
-        return getInterfaceClassStats(false);
-    }
-    
-    @IdentityStartLazy
-    @StackMessage("{message.core.property.get.interface.class.stats}")
-    @ThisMessage
-    public StatKeys<T> getInterfaceClassStats(boolean alotHeur) {
-        ImRevMap<T,KeyExpr> mapKeys = getMapKeys();
-        Where where = calculateStatExpr(mapKeys, alotHeur).getWhere();
-        mapKeys = mapKeys.filterInclValuesRev(BaseUtils.<ImSet<KeyExpr>>immutableCast(where.getOuterKeys()));
-        return where.getFullStatKeys(mapKeys.valuesSet(), StatType.PROP_STATS).mapBack(mapKeys);
-    }
-
-    public boolean hasAlotKeys() {
-//        if(1==1) return false;
-        if(SystemProperties.lightStart) {
-            if (!isFull(AlgType.statAlotType))
-                return true;
-            if (isStored())
-                return false;
-            return aspectDebugHasAlotKeys();
-        }
-        return hasAlotKeys(getInterfaceClassStats().getRows());
-    }
-
-    public boolean aspectDebugHasAlotKeys() {
-        return hasAlotKeys(getInterfaceClassStats(true).getRows());
-    }
-
-    private final static Stat ALOT_THRESHOLD = Stat.ALOT.reduce(2); // ALOT stat can be reduced a little bit, but there still will be ALOT keys, so will take sqrt
-    private static boolean hasAlotKeys(Stat stat) {
-        return ALOT_THRESHOLD.lessEquals(stat);
-    }
-
 }

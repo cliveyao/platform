@@ -1,0 +1,264 @@
+
+.opposite-size-css-fix-panel {
+}
+
+.intr-shrink-width,.prop-value-shrink-horz > *:not(.property-toolbar) { /* toolbar has max-width: 50% and in general it's own layouting */
+    max-width: -webkit-fill-available;
+    max-width: -moz-available;
+}
+.intr-stretch-width {
+    min-width: -webkit-fill-available;
+    min-width: -moz-available;
+}
+.intr-shrink-height,.prop-value-shrink-vert > *:not(.property-toolbar) { /* see width */
+    max-height: -webkit-fill-available;
+    max-height: -moz-available;
+}
+.intr-stretch-height {
+    min-height: -webkit-fill-available;
+    min-height: -moz-available;
+}
+
+/* ---------- FOR ALL GRID ELEMENTS ---------- */
+
+/*, .remove-all-pmb.form-control, .remove-all-pmb.form-control:focus, .remove-all-pmb.form-control:hover */
+.remove-all-pmb {
+    padding: 0 !important;
+    margin: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+    outline: none !important;
+
+    /* for example text-area.form-control sets the minimum height */
+    /* and when there is minimum height the content overflow it's parent, which leads to unpredictable scrolls (for example if textarea is removed, and new text is set, there can be some scroll left after that. It's not crucial but nevertheless not that pretty)*/
+    min-height: 0 !important;
+    min-width: 0 !important;
+}
+
+.remove-btn-all-mb > .btn {
+    margin: 0 !important;
+    border: none !important;
+    border-radius: 0 !important;
+}
+/* ********** SINGLE SELECT  ********** */
+
+.remove-all-pmb:not(.is-editing) {
+    background-color: transparent !important;
+}
+
+/*  do not show arrow in dropdown select lists when there is in grid cell and no focus. arrow in <select> element is background-image  */
+:not(.focused-cell) > .form-select.remove-all-pmb {
+    /* bootstrap */
+    background-image: none;
+
+    /* excel */
+    -webkit-appearance: none; /* chrome */
+    -moz-appearance: none; /* firefox */
+}
+
+/* ********** MULTI SELECT  ********** */
+
+/* ********** BOOTSTRAP ********** */
+
+/* do not show arrow in bootstrap multiple dropdown select when there is no focus */
+:not(.focused-cell) > .remove-all-pmb .dropdown-toggle:after {
+    content: none;
+}
+
+.remove-all-pmb:not(.is-editing) .dropdown-toggle {
+    border: none;
+    border-radius: unset;
+    background-color: transparent !important;
+}
+
+/* ********** EXCEL ********** */
+
+/* because focus event comes to <select> element, but MultipleSelect displays <button>, we write css rule with "+" */
+/* excel. multiple select. since the MultipleSelect draws this component as <button>, this component needs to remove the border  */
+.remove-all-pmb:not(.is-editing) .ms-choice {
+    border: none;
+    border-radius: unset;
+    background-color: transparent !important;
+}
+
+/* excel. multiple select. remove arrow. */
+:not(.focused-cell) > .remove-all-pmb .ms-choice .icon-caret{
+    display: none;
+}
+
+/* ---------- --- --- ---- -------- ---------- */
+
+.remove-all-p, .remove-all-p.modal-body {
+    padding: 0 !important;
+}
+
+.comp-shrink-horz-auto {
+    overflow-x : auto
+}
+
+.comp-shrink-horz-clip {
+    overflow-x : clip
+}
+
+.comp-shrink-vert-auto {
+    overflow-y : auto
+}
+
+.comp-shrink-vert-clip {
+    overflow-y : clip
+}
+
+.fill-parent-absolute {
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    right: 0;
+}
+
+.fill-parent-position {
+    position: relative;
+}
+
+@supports (-moz-appearance: none) {
+    /* in firefox event the height: fit-content doesn't help to extend div to td, but setting td height to 100% helps somewhy (but table height: fit-content also should be set)*/
+    td:has(> .fill-parent-perc),
+    th:has(> .fill-parent-perc) {
+        height: 100%;
+    }
+}
+
+.fill-parent-perc {
+    width: 100%;
+    height: 100%;
+    box-sizing: border-box;
+}
+
+.fill-parent-flex-cont {
+    display: flex !important; /* form-control for example sets display:block*/
+    /* we need column because of intrinistic width in prop-size-value.fill-parent-flex*/
+    flex-direction: column;
+}
+
+.fill-parent-flex {
+    flex: 1 1 auto;
+    align-self: stretch;
+}
+
+.display-flex,
+.display-flex.nav-link /* nov-link sets display: block somewhy*/
+{
+    display : flex;
+}
+
+.display-grid {
+    display : grid;
+}
+
+.flex-content-start {
+    justify-content: flex-start;
+}
+.flex-content-center {
+    justify-content: center;
+}
+.flex-content-end {
+    justify-content: flex-end;
+}
+.flex-content-stretch {
+    justify-content: stretch;
+}
+
+.flex-start {
+    align-self: flex-start;
+}
+.flex-center {
+    align-self: center;
+}
+.flex-end {
+    align-self: flex-end;
+}
+.flex-stretch {
+    align-self: stretch;
+}
+
+.grid-content-vert-start {
+    justify-content: start;
+}
+.grid-content-vert-center {
+    justify-content: center;
+}
+.grid-content-vert-end {
+    justify-content: end;
+}
+.grid-content-vert-stretch {
+    justify-content: stretch;
+}
+.grid-content-horz-start {
+    align-content: start;
+}
+.grid-content-horz-center {
+    align-content: center;
+}
+.grid-content-horz-end {
+    align-content: end;
+}
+.grid-content-horz-stretch {
+    align-content: stretch;
+}
+
+.grid-horz-start {
+    justify-self: start;
+}
+.grid-horz-center {
+    justify-self: center;
+}
+.grid-horz-end {
+    justify-self: end;
+}
+.grid-horz-stretch {
+    justify-self: stretch;
+}
+.grid-vert-start {
+    align-self: start;
+}
+.grid-vert-center {
+    align-self: center;
+}
+.grid-vert-end {
+    align-self: end;
+}
+.grid-vert-stretch {
+    align-self: stretch;
+}
+
+.flex-wrap {
+    flex-wrap: wrap;
+}
+
+.flex-dir-vert {
+    flex-direction: column;
+}
+.flex-dir-horz {
+    flex-direction: row;
+}
+.grid-dir-vert {
+    grid-auto-flow: row;
+}
+.grid-dir-horz {
+    grid-auto-flow: column;
+}
+
+.root-layout-panel {
+    z-index: 0 !important;
+}
+.modal-form {
+    /* actually needed only for bootstrap because it has no position, but for z-index position should be different from static */
+    position: fixed;
+}
+.popup-partner {
+    z-index: 1 !important;
+}
+/* actually z-index can be also 1, but some dropdowns, like selectize, create dropdown before showing it, so it's the easiest way to achieve what we want */
+.dropdown-partner {
+    z-index: 2 !important;
+}

@@ -1,11 +1,11 @@
 package lsfusion.server.logics.classes.user;
 
 import lsfusion.base.BaseUtils;
-import lsfusion.base.Pair;
 import lsfusion.base.col.MapFact;
 import lsfusion.base.col.SetFact;
 import lsfusion.base.col.interfaces.immutable.*;
 import lsfusion.base.col.interfaces.mutable.MSet;
+import lsfusion.server.base.AppServerImage;
 import lsfusion.server.base.controller.thread.ThreadLocalContext;
 import lsfusion.server.base.version.NFFact;
 import lsfusion.server.base.version.Version;
@@ -20,26 +20,30 @@ import lsfusion.server.data.sql.SQLSession;
 import lsfusion.server.data.sql.exception.SQLHandledException;
 import lsfusion.server.data.sql.lambda.SQLCallable;
 import lsfusion.server.data.value.DataObject;
+import lsfusion.server.language.ScriptedStringUtils;
 import lsfusion.server.language.property.LP;
 import lsfusion.server.logics.classes.ConcreteClass;
 import lsfusion.server.logics.classes.ConcreteValueClass;
 import lsfusion.server.logics.classes.StaticClass;
 import lsfusion.server.logics.classes.user.set.*;
+import lsfusion.server.logics.form.interactive.controller.remote.serialization.ConnectionContext;
+import lsfusion.server.logics.navigator.controller.env.ChangesController;
 import lsfusion.server.logics.property.Property;
 import lsfusion.server.logics.property.classes.user.ClassDataProperty;
 import lsfusion.server.physics.dev.i18n.LocalizedString;
 import lsfusion.server.physics.exec.db.controller.manager.DBManager;
+import lsfusion.server.physics.exec.db.table.ImplementTable;
 
 import java.sql.SQLException;
 import java.util.*;
 
 public class ConcreteCustomClass extends CustomClass implements ConcreteValueClass, ConcreteObjectClass, ObjectValueClassSet, StaticClass {
-    public ConcreteCustomClass(String canonicalName, LocalizedString caption, Version version, ImList<CustomClass> parents) {
-        super(canonicalName, caption, version, parents);
+    public ConcreteCustomClass(String canonicalName, LocalizedString caption, String image, Version version, ImList<CustomClass> parents) {
+        super(canonicalName, caption, image, version, parents);
     }
 
-    public static void fillObjectClass(ConcreteCustomClass objectClass, List<String> names, List<LocalizedString> captions, Version version) {
-        objectClass.addStaticObjects(names, captions, version);
+    public static void fillObjectClass(ConcreteCustomClass objectClass, List<String> names, List<LocalizedString> captions, List<String> images, Version version) {
+        objectClass.addStaticObjects(names, captions, images, version);
         for (ObjectInfo info : objectClass.getNFStaticObjectsInfoIt(version))
             info.sid = info.name;
     }
@@ -114,6 +118,7 @@ public class ConcreteCustomClass extends CustomClass implements ConcreteValueCla
 
     @Override
     public int getCount() {
+        assert ImplementTable.checkStatProps(null);
         return BaseUtils.max(stat != null ? stat : 0, 1);
     }
     
@@ -122,16 +127,18 @@ public class ConcreteCustomClass extends CustomClass implements ConcreteValueCla
     }
 
     public static class ObjectInfo {
-        public ObjectInfo(String sid, String name, LocalizedString caption, Long id) {
+        public ObjectInfo(String sid, String name, LocalizedString caption, String image) {
             this.sid = sid;
             this.name = name;
             this.caption = (caption != null ? caption : LocalizedString.create(name, false));
-            this.id = id;
+            this.image = (image != null ? image : name);
         }
 
         public String sid;
         public String name;
         public LocalizedString caption;
+        public String image;
+
         public Long id;
     }
 
@@ -191,10 +198,10 @@ public class ConcreteCustomClass extends CustomClass implements ConcreteValueCla
         throw new RuntimeException("name not found");
     }
 
-    public final void addStaticObjects(List<String> names, List<LocalizedString> captions, Version version) {
+    public final void addStaticObjects(List<String> names, List<LocalizedString> captions, List<String> images, Version version) {
         assert names.size() == captions.size();
         for (int i = 0; i < names.size(); i++) {
-            staticObjectsInfo.add(new ObjectInfo(createStaticObjectSID(names.get(i)), names.get(i), captions.get(i), null), version);
+            staticObjectsInfo.add(new ObjectInfo(createStaticObjectSID(names.get(i)), names.get(i), captions.get(i), images.get(i)), version);
         }
     }
 
@@ -213,28 +220,46 @@ public class ConcreteCustomClass extends CustomClass implements ConcreteValueCla
         }
         return names;
     }
+    private static class PrevClass {
+        public final long ID;
+        public final String caption;
+        public final String image;
 
-    public void fillIDs(SQLSession sql, QueryEnvironment env, SQLCallable<Long> idGen, LP name, LP staticName, Map<String, ConcreteCustomClass> usedSIds, Set<Long> usedIds, Map<String, String> sidChanges, DBManager.IDChanges dbChanges) throws SQLException, SQLHandledException {
+        public PrevClass(long ID, String caption, String image) {
+            this.ID = ID;
+            this.caption = caption;
+            this.image = image;
+        }
+    }
+
+    public void fillIcons(MSet<String> mImages, ConnectionContext context) {
+        String searchName = AppServerImage.Style.PROPERTY.getSearchName(context);
+        for(ObjectInfo object : getStaticObjectsInfoIt())
+            mImages.add(object.image + "," + searchName);
+    }
+
+    public void fillIDs(SQLSession sql, QueryEnvironment env, SQLCallable<Long> idGen, LP caption, LP image, LP name, Map<String, ConcreteCustomClass> usedSIds, Set<Long> usedIds, Map<String, String> sidChanges, DBManager.IDChanges dbChanges) throws SQLException, SQLHandledException {
 
         // Получаем старые sid и name
         QueryBuilder<String, String> allClassesQuery = new QueryBuilder<>(SetFact.singleton("key"));
         Expr key = allClassesQuery.getMapExprs().singleValue();
-        Expr sidExpr = staticName.getExpr(key);
+        Expr sidExpr = name.getExpr(key);
         allClassesQuery.and(sidExpr.getWhere());
         allClassesQuery.and(key.isClass(this));
         allClassesQuery.addProperty("sid", sidExpr);
-        allClassesQuery.addProperty("name", name.getExpr(key));
+        allClassesQuery.addProperty("caption", caption.getExpr(key));
+        allClassesQuery.addProperty("image", image.getExpr(key));
         ImOrderMap<ImMap<String, Object>, ImMap<String, Object>> qResult = allClassesQuery.execute(sql, env);
 
         // Забрасываем результат запроса в map: sid -> <id, name>
-        Map<String, Pair<Long, String>> oldClasses = new HashMap<>();
+        Map<String, PrevClass> oldClasses = new HashMap<>();
         for (int i = 0, size = qResult.size(); i < size; i++) {
             ImMap<String, Object> resultKey = qResult.getKey(i);
             ImMap<String, Object> resultValue = qResult.getValue(i);
             String sid = ((String) resultValue.get("sid")).trim();
-            Pair<Long, String> prevValue = oldClasses.put(sid, new Pair<>((Long) resultKey.singleValue(), BaseUtils.nullTrim((String) resultValue.get("name"))));
+            PrevClass prevValue = oldClasses.put(sid, new PrevClass((Long) resultKey.singleValue(), BaseUtils.nullTrim((String) resultValue.get("caption")), BaseUtils.nullTrim((String) resultValue.get("image"))));
             if(prevValue != null) // temporary, CONSTRAINT on static name change, it should not happen
-                dbChanges.removed.add(new DBManager.IDRemove(new DataObject(prevValue.first, this), sid));
+                dbChanges.removed.add(new DBManager.IDRemove(new DataObject(prevValue.ID, this), sid));
         }
 
         // new sid -> old sid
@@ -244,34 +269,38 @@ public class ConcreteCustomClass extends CustomClass implements ConcreteValueCla
             String newSID = info.sid; // todo [dale]: Тут (и вообще при синхронизации) мы используем SID (с подчеркиванием), хотя, наверное, можно уже переходить на канонические имена 
             ConcreteCustomClass usedClass;
             if ((usedClass = usedSIds.put(newSID, this)) != null)
-                throw new RuntimeException(ThreadLocalContext.localize(LocalizedString.createFormatted("{classes.objects.have.the.same.id}", newSID, caption, usedClass.caption)));
+                throw new RuntimeException(ThreadLocalContext.localize(LocalizedString.createFormatted("{classes.objects.have.the.same.id}", newSID, this.caption, usedClass.caption)));
 
-            Pair<Long, String> oldObject;
+            PrevClass oldObject;
             if (reversedChanges.containsKey(newSID)) {
                 oldObject = oldClasses.remove(reversedChanges.get(newSID));
                 if (oldObject != null) {
-                    dbChanges.modifiedSIDs.put(new DataObject(oldObject.first, this), newSID);
+                    dbChanges.modifiedSIDs.put(new DataObject(oldObject.ID, this), newSID);
                 }
             } else
                 oldObject = oldClasses.remove(newSID);
 
             String staticObjectCaption = ThreadLocalContext.localize(info.caption);
+            String staticObjectImage = ScriptedStringUtils.wrapImage(info.image);
             if (oldObject != null) {
-                if (!staticObjectCaption.equals(oldObject.second)) {
-                    dbChanges.modifiedCaptions.put(new DataObject(oldObject.first, this), staticObjectCaption);
+                if (!staticObjectCaption.equals(oldObject.caption)) {
+                    dbChanges.modifiedCaptions.put(new DataObject(oldObject.ID, this), staticObjectCaption);
                 }
-                info.id = oldObject.first;
+                if (!BaseUtils.nullEquals(staticObjectImage, oldObject.image)) {
+                    dbChanges.modifiedImages.put(new DataObject(oldObject.ID, this), staticObjectImage);
+                }
+                info.id = oldObject.ID;
             } else {
                 Long id = idGen.call();
-                dbChanges.added.add(new DBManager.IDAdd(id, this, newSID, staticObjectCaption));
+                dbChanges.added.add(new DBManager.IDAdd(id, this, newSID, staticObjectCaption, staticObjectImage));
                 info.id = id;
             }
 
             usedIds.add(info.id);
         }
-        for(Map.Entry<String, Pair<Long, String>> oldClass : oldClasses.entrySet())
-            if(!ID.equals(oldClass.getValue().first)) // need this for objectClass
-                dbChanges.removed.add(new DBManager.IDRemove(new DataObject(oldClass.getValue().first, this), oldClass.getKey()));
+        for(Map.Entry<String, PrevClass> oldClass : oldClasses.entrySet())
+            if(!ID.equals(oldClass.getValue().ID)) // need this for objectClass
+                dbChanges.removed.add(new DBManager.IDRemove(new DataObject(oldClass.getValue().ID, this), oldClass.getKey()));
     }
 
     private String createStaticObjectSID(String objectName) {
@@ -292,8 +321,8 @@ public class ConcreteCustomClass extends CustomClass implements ConcreteValueCla
     }
 
     public ClassDataProperty dataProperty;
-    public Long readData(Long data, SQLSession sql, QueryEnvironment env) throws SQLException, SQLHandledException {
-        return (Long) dataProperty.read(sql, MapFact.singleton(dataProperty.interfaces.single(), new DataObject(data, this)), Property.defaultModifier, env);
+    public Long readData(Long data, SQLSession sql, QueryEnvironment env, ChangesController changesController) throws SQLException, SQLHandledException {
+        return (Long) dataProperty.read(sql, MapFact.singleton(dataProperty.interfaces.single(), new DataObject(data, this)), Property.defaultModifier, env, changesController);
     }
 
     public ImRevMap<ObjectClassField, ObjectValueClassSet> getObjectClassFields() {
@@ -337,10 +366,6 @@ public class ConcreteCustomClass extends CustomClass implements ConcreteValueCla
         return ThreadLocalContext.localize(getCaption());
     }
 
-    public boolean isZero(Object object) {
-        return false;
-    }
-    
     public void updateStat(ImMap<Long, Integer> classStats) {
         stat = classStats.get(ID);
     }

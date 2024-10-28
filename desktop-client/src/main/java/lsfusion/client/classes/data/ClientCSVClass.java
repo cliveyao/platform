@@ -2,9 +2,7 @@ package lsfusion.client.classes.data;
 
 import lsfusion.client.ClientResourceBundle;
 import lsfusion.client.form.property.ClientPropertyDraw;
-import lsfusion.client.form.property.cell.classes.controller.FilePropertyEditor;
-import lsfusion.client.form.property.cell.classes.controller.PropertyEditor;
-import lsfusion.client.form.property.cell.classes.view.CSVPropertyRenderer;
+import lsfusion.client.form.property.cell.classes.view.FilePropertyRenderer;
 import lsfusion.client.form.property.cell.view.PropertyRenderer;
 import lsfusion.interop.classes.DataType;
 
@@ -21,8 +19,13 @@ public class ClientCSVClass extends ClientStaticFormatFileClass {
         return new String[] {"csv"};
     }
 
+    @Override
+    public String getDescription() {
+        return ClientResourceBundle.getString("logics.classes.csv");
+    }
+
     public PropertyRenderer getRendererComponent(ClientPropertyDraw property) {
-        return new CSVPropertyRenderer(property);
+        return new FilePropertyRenderer(property, "csv");
     }
 
     @Override
@@ -32,11 +35,6 @@ public class ClientCSVClass extends ClientStaticFormatFileClass {
 
     public byte getTypeId() {
         return DataType.CSV;
-    }
-
-    @Override
-    public PropertyEditor getDataClassEditorComponent(Object value, ClientPropertyDraw property) {
-        return new FilePropertyEditor(multiple, storeName, ClientResourceBundle.getString("logics.classes.csv"), getExtensions());
     }
 
     @Override

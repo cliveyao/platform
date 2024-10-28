@@ -1,0 +1,14 @@
+.btn-toolbar .btn,
+.btn-toolbar .btn:hover:not(:focus) {
+    border: 0;
+    padding: 0 0.25em;
+}
+
+.btn-toolbar {
+    display: flex;
+    justify-content: flex-start;
+}
+
+.btn-toolbar .wrap-text-img {
+    padding: 0.25em;
+}

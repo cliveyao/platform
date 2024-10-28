@@ -1,28 +1,19 @@
 package lsfusion.server.logics.form.open.stat;
 
-import lsfusion.base.col.SetFact;
 import lsfusion.base.col.interfaces.immutable.ImList;
-import lsfusion.base.col.interfaces.immutable.ImMap;
 import lsfusion.base.col.interfaces.immutable.ImOrderSet;
-import lsfusion.base.col.interfaces.mutable.MExclSet;
-import lsfusion.base.col.interfaces.mutable.MSet;
-import lsfusion.base.file.FileData;
+import lsfusion.base.col.interfaces.immutable.ImSet;
 import lsfusion.base.file.RawFileData;
 import lsfusion.interop.form.print.FormStaticType;
 import lsfusion.server.data.sql.exception.SQLHandledException;
-import lsfusion.server.data.value.DataObject;
 import lsfusion.server.language.property.LP;
 import lsfusion.server.logics.action.controller.context.ExecutionContext;
 import lsfusion.server.logics.classes.ValueClass;
-import lsfusion.server.logics.classes.data.file.StaticFormatFileClass;
 import lsfusion.server.logics.form.open.FormAction;
 import lsfusion.server.logics.form.open.FormSelector;
 import lsfusion.server.logics.form.open.ObjectSelector;
-import lsfusion.server.logics.form.struct.FormEntity;
+import lsfusion.server.logics.form.stat.SelectTop;
 import lsfusion.server.logics.form.struct.filter.ContextFilterSelector;
-import lsfusion.server.logics.form.struct.property.PropertyDrawEntity;
-import lsfusion.server.logics.form.struct.property.PropertyReaderEntity;
-import lsfusion.server.logics.property.Property;
 import lsfusion.server.logics.property.classes.ClassPropertyInterface;
 import lsfusion.server.logics.property.oraction.PropertyInterface;
 import lsfusion.server.physics.dev.i18n.LocalizedString;
@@ -33,28 +24,24 @@ public abstract class FormStaticAction<O extends ObjectSelector, T extends FormS
 
     protected final T staticType;
     
-    protected int selectTop;
+    protected SelectTop<ValueClass> selectTop;
 
     public FormStaticAction(LocalizedString caption,
                             FormSelector<O> form,
                             ImList<O> objectsToSet,
                             ImList<Boolean> nulls,
                             ImOrderSet<PropertyInterface> orderContextInterfaces,
-                            ImList<ContextFilterSelector<?, PropertyInterface, O>> contextFilters,
+                            ImSet<ContextFilterSelector<PropertyInterface, O>> contextFilters,
                             T staticType,
-                            Integer selectTop,
+                            SelectTop<ValueClass> selectTop,
                             ValueClass... extraValueClasses) {
-        super(caption, form, objectsToSet, nulls, orderContextInterfaces, contextFilters, extraValueClasses);
+        super(caption, form, objectsToSet, nulls, orderContextInterfaces, contextFilters, null, extraValueClasses);
 
         this.staticType = staticType;
-        this.selectTop = selectTop == null ? 0 : selectTop;
+        this.selectTop = selectTop;
     }
 
-    protected static void writeResult(LP<?> exportFile, FormStaticType staticType, ExecutionContext<ClassPropertyInterface> context, RawFileData singleFile, DataObject... params) throws SQLException, SQLHandledException {
-        if (exportFile.property.getType() instanceof StaticFormatFileClass) {
-            exportFile.change(singleFile, context, params);
-        } else {
-            exportFile.change(singleFile != null ? new FileData(singleFile, staticType.getExtension()) : null, context, params);
-        }
+    protected static void writeResult(LP<?> exportFile, FormStaticType staticType, ExecutionContext<ClassPropertyInterface> context, RawFileData singleFile, String charset) throws SQLException, SQLHandledException {
+        exportFile.change(exportFile.property.getType().parseFile(singleFile, staticType.getExtension(), charset), context);
     }
 }

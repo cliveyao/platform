@@ -1,10 +1,13 @@
 package lsfusion.gwt.client.form.property.table.view;
 
-import com.google.gwt.core.client.Scheduler;
+import com.google.gwt.core.client.JavaScriptObject;
 import com.google.gwt.user.client.ui.MenuBar;
 import com.google.gwt.user.client.ui.MenuItem;
+import lsfusion.gwt.client.base.EscapeUtils;
 import lsfusion.gwt.client.base.GwtClientUtils;
-import lsfusion.gwt.client.base.view.PopupDialogPanel;
+import lsfusion.gwt.client.base.GwtSharedUtils;
+import lsfusion.gwt.client.base.Result;
+import lsfusion.gwt.client.base.view.PopupOwner;
 import lsfusion.gwt.client.form.property.GPropertyDraw;
 
 import java.util.LinkedHashMap;
@@ -15,7 +18,7 @@ public class GPropertyContextMenuPopup {
         void onMenuItemSelected(String actionSID);
     }
 
-    public static void show(GPropertyDraw property, int x, int y, final ItemSelectionListener selectionListener) {
+    public static void show(PopupOwner popupOwner, GPropertyDraw property, final ItemSelectionListener selectionListener) {
         if (property == null) {
             return;
         }
@@ -25,23 +28,33 @@ public class GPropertyContextMenuPopup {
             return;
         }
 
-        final PopupDialogPanel popup = new PopupDialogPanel();
+        final Result<JavaScriptObject> popup = new Result<>();
 
         final MenuBar menuBar = new MenuBar(true);
         for (final Map.Entry<String, String> item : contextMenuItems.entrySet()) {
             final String actionSID = item.getKey();
-            String caption = item.getValue();
-            MenuItem menuItem = new MenuItem(caption, new Scheduler.ScheduledCommand() {
+            MenuItem menuItem = new MenuItem(ensureMenuItemCaption(item.getValue()), () -> {
+                GwtClientUtils.hideAndDestroyTippyPopup(popup.result);
+                selectionListener.onMenuItemSelected(actionSID);
+            }) {
                 @Override
-                public void execute() {
-                    popup.hide();
-                    selectionListener.onMenuItemSelected(actionSID);
+                protected void setSelectionStyle(boolean selected) {
+                    if(selected) {
+                       GwtClientUtils.addClassName(this, "context-menu-item-selected");
+                    } else {
+                       GwtClientUtils.removeClassName(this, "context-menu-item-selected");
+                    }
                 }
-            });
+            };
+            GwtClientUtils.addClassName(menuItem, "context-menu-item");
 
             menuBar.addItem(menuItem);
         }
 
-        GwtClientUtils.showPopupInWindow(popup, menuBar, x, y);
+        popup.result = GwtClientUtils.showTippyPopup(popupOwner, menuBar);
+    }
+    
+    private static String ensureMenuItemCaption(String caption) {
+        return !GwtSharedUtils.isRedundantString(caption) ? caption : EscapeUtils.UNICODE_NBSP; 
     }
 }

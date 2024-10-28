@@ -6,9 +6,11 @@ title: 'Оператор IF ... THEN'
 
 ### Синтаксис
 
-    IF condition 
-        THEN value
-        [ELSE alternativeValue]
+```
+IF condition 
+    THEN value
+    [ELSE alternativeValue]
+```
 
 ### Описание
 
@@ -35,7 +37,8 @@ price1 = DATA NUMERIC[10,2] (Book);
 price2 = DATA NUMERIC[10,2] (Book);
 maxPrice (Book b) = IF price1(b) > price2(b) THEN price1(b) ELSE price2(b);
 
-sex (Human h) = IF h IS Male THEN 'Male' ELSE ('Female' IF h IS Female); // если h будет другого класса, то будет NULL
+// если h будет другого класса, то будет NULL
+sex (Human h) = IF h IS Male THEN 'Male' ELSE ('Female' IF h IS Female); 
 
 isDifferent(a, b) = IF a != b THEN TRUE;
 ```

@@ -3,7 +3,7 @@
     <parent>
         <groupId>lsfusion.platform.build</groupId>
         <artifactId>platform-assemble</artifactId>
-        <version>5.0-SNAPSHOT</version>
+        <version>7.0-SNAPSHOT</version>
         <relativePath>../build/platform-assemble/pom.xml</relativePath>
     </parent>
 
@@ -15,7 +15,18 @@
     <properties>
         <assemble.mainClass>lsfusion.client.controller.MainController</assemble.mainClass>
         <assemble.finalName>lsfusion-client-${project.version}</assemble.finalName>
+        <sign.jar>false</sign.jar>
     </properties>
+    
+    <profiles>
+        <profile>
+            <!-- activated in settings.xml -->
+            <id>sign-desktop-jar</id>
+            <properties>
+                <sign.jar>true</sign.jar>
+            </properties>
+        </profile>
+    </profiles>
     
     <build>
         <plugins>
@@ -24,13 +35,13 @@
                 <artifactId>maven-antrun-plugin</artifactId>
                 <executions>
                     <execution>
-                        <id>ant-sign-pack</id>
+                        <id>ant-sign</id>
                         <phase>package</phase>
                         <goals>
                             <goal>run</goal>
                         </goals>
                         <configuration>
-                            <target>
+                            <target if="${sign.jar}">
                                 <echo message="Repacking jar ${assemble.jar}" />
                                 <exec executable="pack200">
                                     <arg value="--repack" />
@@ -39,8 +50,19 @@
                                     <arg value="${assemble.jar}" />
                                 </exec>
 
+                                <!-- settings.xml -->
                                 <signjar jar="${assemble.jar}" keystore="${keystore.file}" alias="${keystore.alias}" storepass="${keystore.pass}" />
-
+                            </target>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>ant-pack</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                        <configuration>
+                            <target>
                                 <echo message="Pack200-ing jar ${assemble.jar}" />
                                 <exec executable="pack200">
                                     <arg value="--effort=1" />
@@ -93,10 +115,6 @@
             <artifactId>api</artifactId>
             <exclusions>
                 <exclusion>
-                    <groupId>commons-codec</groupId>
-                    <artifactId>commons-codec</artifactId>
-                </exclusion>
-                <exclusion>
                     <groupId>org.springframework</groupId>
                     <artifactId>spring-beans</artifactId>
                 </exclusion>
@@ -105,18 +123,20 @@
                     <artifactId>junit</artifactId>
                 </exclusion>
                 <exclusion>
-                    <groupId>javax.mail</groupId>
-                    <artifactId>mail</artifactId>
+                    <groupId>com.sun.mail</groupId>
+                    <artifactId>javax.mail</artifactId>
                 </exclusion>
                 <exclusion>
                     <groupId>org.olap4j</groupId>
                     <artifactId>olap4j</artifactId>
                 </exclusion>
-                <exclusion>
-                    <groupId>commons-httpclient</groupId>
-                    <artifactId>commons-httpclient</artifactId>
-                </exclusion>
             </exclusions>
+        </dependency>
+
+        <dependency>
+            <groupId>net.java.balloontip</groupId>
+            <artifactId>balloontip</artifactId>
+            <version>1.2.4.1</version>
         </dependency>
 
         <dependency>
@@ -148,8 +168,12 @@
             <artifactId>jxl</artifactId>
         </dependency>
         <dependency>
-            <groupId>jssc</groupId>
+            <groupId>io.github.java-native</groupId>
             <artifactId>jssc</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.fazecast</groupId>
+            <artifactId>jSerialComm</artifactId>
         </dependency>
 
         <dependency>
@@ -184,19 +208,19 @@
             <groupId>net.java.dev.jna</groupId>
             <artifactId>jna</artifactId>
         </dependency>
-        <dependency>
-            <groupId>net.sf.fax4j</groupId>
-            <artifactId>fax4j</artifactId>
-        </dependency>
         <!--need to print pdf files-->
         <dependency>
             <groupId>org.apache.pdfbox</groupId>
             <artifactId>pdfbox</artifactId>
         </dependency>
-        <!--this plugin fix errors of default ImageIO-->
+        <!--these plugins fix errors of default ImageIO-->
         <dependency>
             <groupId>com.twelvemonkeys.imageio</groupId>
             <artifactId>imageio-jpeg</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.twelvemonkeys.imageio</groupId>
+            <artifactId>imageio-webp</artifactId>
         </dependency>
         <!-- for html link renderer -->
         <dependency>
@@ -208,7 +232,14 @@
         <dependency>
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-text</artifactId>
-            <version>1.8</version>
+            <version>1.10.0</version>
         </dependency>
+
+        <dependency>
+            <groupId>com.glazedlists</groupId>
+            <artifactId>glazedlists</artifactId>
+            <version>1.11.0</version>
+        </dependency>
+
     </dependencies>
 </project>

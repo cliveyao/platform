@@ -1,6 +1,5 @@
 ---
 title: 'Инструкции'
-sidebar_label: Обзор
 ---
 
 Код любого [модуля](Modules.md) на **[lsFusion](Language.md)** состоит из последовательности *инструкций*.
@@ -31,7 +30,6 @@ sidebar_label: Обзор
 -   [Инструкция `INDEX`](INDEX_statement.md)
 -   [Инструкция `BEFORE`](BEFORE_statement.md)
 -   [Инструкция `AFTER`](AFTER_statement.md)
--   [Инструкция `LOGGABLE`](https://ru-documentation.lsfusion.org/pages/viewpage.action?pageId=27689169)
 -   [Пустая инструкция](Empty_statement.md)
 
 Каждая инструкция в **lsFusion** заканчивается точкой с запятой, кроме двух исключений:

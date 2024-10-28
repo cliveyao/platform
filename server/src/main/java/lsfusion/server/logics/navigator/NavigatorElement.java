@@ -1,55 +1,102 @@
 package lsfusion.server.logics.navigator;
 
-import lsfusion.base.ResourceUtils;
 import lsfusion.base.col.MapFact;
+import lsfusion.base.col.interfaces.immutable.ImList;
 import lsfusion.base.col.interfaces.immutable.ImOrderMap;
-import lsfusion.base.col.interfaces.immutable.ImOrderSet;
-import lsfusion.base.col.interfaces.immutable.ImSet;
-import lsfusion.base.file.IOUtils;
-import lsfusion.base.file.SerializableImageIconHolder;
+import lsfusion.server.base.AppServerImage;
 import lsfusion.interop.form.remote.serialization.SerializationUtil;
-import lsfusion.interop.navigator.window.WindowType;
 import lsfusion.server.base.controller.thread.ThreadLocalContext;
+import lsfusion.server.base.version.ComplexLocation;
 import lsfusion.server.base.version.NFFact;
 import lsfusion.server.base.version.Version;
-import lsfusion.server.base.version.interfaces.NFOrderSet;
+import lsfusion.server.base.version.interfaces.NFComplexOrderSet;
 import lsfusion.server.base.version.interfaces.NFProperty;
 import lsfusion.server.logics.BaseLogicsModule;
-import lsfusion.server.logics.form.struct.property.async.AsyncExec;
+import lsfusion.server.logics.form.interactive.action.async.AsyncExec;
+import lsfusion.server.logics.form.interactive.action.async.AsyncSerializer;
+import lsfusion.server.logics.form.interactive.controller.remote.serialization.ConnectionContext;
 import lsfusion.server.logics.navigator.window.NavigatorWindow;
+import lsfusion.server.logics.property.Property;
+import lsfusion.server.physics.admin.Settings;
 import lsfusion.server.physics.admin.authentication.security.policy.SecurityPolicy;
 import lsfusion.server.physics.dev.debug.DebugInfo;
 import lsfusion.server.physics.dev.i18n.LocalizedString;
 import lsfusion.server.physics.dev.id.name.CanonicalNameUtils;
 
-import javax.swing.*;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.*;
+import java.util.function.Supplier;
 
 import static lsfusion.base.col.MapFact.mergeOrderMapsExcl;
 import static lsfusion.base.col.MapFact.singletonOrder;
 
 public abstract class NavigatorElement {
-    
-    private SerializableImageIconHolder imageHolder;
-    public DefaultIcon defaultIcon;
+
+    public void addOrMove(NavigatorElement element, ComplexLocation location, Version version) {
+        removeFromParent(element, version);
+        children.add(element, location, version);
+
+        element.setParent(this, version);
+    }
+
+    public abstract String getDefaultIcon();
 
     public NavigatorWindow window = null;
+    public boolean parentWindow;
 
     private final int ID;
-    public LocalizedString caption;
+
+    // need supplier to have relevant form captions
+    public Property headerProperty;
+    public Property showIfProperty;
+    public Supplier<LocalizedString> caption;
+
+    public Property propertyImage;
+    public AppServerImage.Reader image;
+    public AppServerImage.Reader defaultImage;
+
+    public Property propertyElementClass;
+    public String elementClass;
+
     private final String canonicalName;
     private DebugInfo.DebugPoint debugPoint;
 
     private NFProperty<NavigatorElement> parent = NFFact.property();
-    private NFOrderSet<NavigatorElement> children = NFFact.orderSet();
+    private NFComplexOrderSet<NavigatorElement> children = NFFact.complexOrderSet();
 
-    protected NavigatorElement(String canonicalName, LocalizedString caption) {
+    protected NavigatorElement(String canonicalName) {
         assert canonicalName != null;
         this.canonicalName = canonicalName;
         this.ID = BaseLogicsModule.generateStaticNewID();
-        this.caption = caption;
+    }
+
+    public boolean isParentRoot() {
+        NavigatorElement parent = getParent();
+        return parent == null || parent.getParent() == null;
+    }
+
+    public String getCaption() {
+        return ThreadLocalContext.localize(caption.get()); // can not be null, see createNavigatorElement (forms and actions always have name)
+//        return LocalizedString.create(CanonicalNameUtils.getName(getCanonicalName()));
+    }
+
+    public AppServerImage getImage(ConnectionContext context) {
+        if(this.image != null)
+            return this.image.get(context);
+
+        if(defaultImage != null)
+            return defaultImage.get(context);
+
+        return getDefaultImage(context);
+    }
+
+    public AppServerImage getDefaultImage(String name, float rankingThreshold, boolean useDefaultIcon, ConnectionContext context) {
+        return AppServerImage.createDefaultImage(rankingThreshold, name, AppServerImage.Style.NAVIGATORELEMENT, AppServerImage.getAutoName(() -> caption.get(), this::getName), defaultContext -> useDefaultIcon ? AppServerImage.createNavigatorImage(getDefaultIcon(), NavigatorElement.this).get(defaultContext) : null, context);
+    }
+
+    private AppServerImage getDefaultImage(ConnectionContext context) {
+        return getDefaultImage(AppServerImage.AUTO, Settings.get().getDefaultNavigatorImageRankingThreshold(), Settings.get().isDefaultNavigatorImage(), context);
     }
 
     public int getID() {
@@ -73,16 +120,24 @@ public abstract class NavigatorElement {
         this.parent.set(parent, version);
     }
 
+    ImList<NavigatorElement> lazyChildren;
+    private ImList<NavigatorElement> getLazyChildren() {
+        if (lazyChildren == null) {
+            lazyChildren = children.getList().filterList(child -> child.getParent() == NavigatorElement.this);
+        }
+        return lazyChildren;
+    }
+
     private Iterable<NavigatorElement> getChildrenIt() {
-        return children.getIt();
+        return getLazyChildren();
     }
     
-    public ImSet<NavigatorElement> getChildren() {
-        return children.getSet();
+    public ImList<NavigatorElement> getChildren() {
+        return getLazyChildren();
     }
     
-    public ImOrderSet<NavigatorElement> getChildrenList() {
-        return children.getOrderSet();
+    public ImList<NavigatorElement> getChildrenList() {
+        return getLazyChildren();
     }
 
     public NavigatorElement getParent() {
@@ -155,38 +210,12 @@ public abstract class NavigatorElement {
         return element != null && (equals(element) || isAncestorOf(element.getNFParent(version), version));
     }
 
-    private void changeContainer(NavigatorElement comp, Version version) {
-        removeFromParent(comp, version);
-        comp.setParent(this, version);
-    }
-
     private void removeFromParent(NavigatorElement comp, Version version) {
         NavigatorElement container = comp.getNFParent(version);
         if (container != null) {
-            assert container.children.containsNF(comp, version);
             container.children.remove(comp, version);
             comp.setParent(null, version);
         }
-    }
-
-    public void addFirst(NavigatorElement child, Version version) {
-        changeContainer(child, version);
-        children.addFirst(child, version);
-    }
-
-    public void add(NavigatorElement child, Version version) {
-        changeContainer(child, version);
-        children.add(child, version);
-    }
-
-    public void addBefore(NavigatorElement child, NavigatorElement elemBefore, Version version) {
-        changeContainer(child, version);
-        children.addIfNotExistsToThenLast(child, elemBefore, false, version);
-    }
-
-    public void addAfter(NavigatorElement child, NavigatorElement elemAfter, Version version) {
-        changeContainer(child, version);
-        children.addIfNotExistsToThenLast(child, elemAfter, true, version);
     }
 
     public boolean hasChildren() {
@@ -197,21 +226,33 @@ public abstract class NavigatorElement {
 
     public abstract byte getTypeID();
 
-    public abstract AsyncExec getAsyncExec();
+    public abstract AsyncExec getAsyncExec(ConnectionContext context);
 
-    public void setImage(String icon) {
-        setImage(icon, null);
+    public void setPropertyImage(Property imageProperty) {
+        this.propertyImage = imageProperty;
     }
 
-    public final void setImage(String imagePath, DefaultIcon defaultIcon) {
-        ImageIcon image = ResourceUtils.readImage(imagePath);
-        if (image != null) {
-            imageHolder = new SerializableImageIconHolder(image, imagePath);
-            this.defaultIcon = defaultIcon;
-        }
+    public void setImage(String imagePath) {
+        image = AppServerImage.createNavigatorImage(imagePath, this);
     }
 
-    public void finalizeAroundInit() {
+    public void setPropertyElementClass(Property elementClassProperty) {
+        this.propertyElementClass = elementClassProperty;
+    }
+
+    public void setElementClass(String elementClass) {
+        this.elementClass = elementClass;
+    }
+
+    public void setHeaderProperty(Property headerProperty) {
+        this.headerProperty = headerProperty;
+    }
+
+    public void setShowIfProperty(Property showIfProperty) {
+        this.showIfProperty = showIfProperty;
+    }
+
+    public void finalizeAroundInit(BaseLogicsModule LM) {
         parent.finalizeChanges();
         children.finalizeChanges();
     }
@@ -219,8 +260,9 @@ public abstract class NavigatorElement {
     @Override
     public String toString() {
         String result = getCanonicalName();
+        String caption = getCaption();
         if (caption != null) {
-            result += " '" + ThreadLocalContext.localize(caption) + "'";
+            result += " '" + caption + "'";
         }
         if (debugPoint != null) {
             result += " [" + debugPoint + "]"; 
@@ -229,30 +271,32 @@ public abstract class NavigatorElement {
     }
 
     public String getCreationPath() {
-        return debugPoint.toString();
+        return debugPoint != null ? debugPoint.toString() : "";
+    }
+
+    public String getPath() {
+        return debugPoint != null ? debugPoint.path : "";
     }
     
-    public void serialize(DataOutputStream outStream) throws IOException {
+    public void serialize(ConnectionContext context, DataOutputStream outStream) throws IOException {
         outStream.writeByte(getTypeID());
 
         SerializationUtil.writeString(outStream, canonicalName);
         SerializationUtil.writeString(outStream, getCreationPath());
+        SerializationUtil.writeString(outStream, getPath());
 
-        outStream.writeUTF(ThreadLocalContext.localize(caption));
+        outStream.writeUTF(getCaption());
+        SerializationUtil.writeString(outStream, elementClass);
         outStream.writeBoolean(hasChildren());
-        if (window == null) {
-            outStream.writeInt(WindowType.NULL_VIEW);
-        } else {
-            window.serialize(outStream);
+        String windowCanonicalName = window != null ? window.getCanonicalName() : null;
+        SerializationUtil.writeString(outStream, windowCanonicalName);
+        if(windowCanonicalName != null) {
+            outStream.writeBoolean(parentWindow);
         }
 
-        IOUtils.writeImageIcon(outStream, imageHolder);
+        AppServerImage.serialize(getImage(context), outStream);
 
-        AsyncExec asyncExec = getAsyncExec();
-        outStream.writeInt(asyncExec != null ? asyncExec.getType() : -1);
-        if(asyncExec != null) {
-            asyncExec.serialize(outStream);
-        }
+        AsyncSerializer.serializeEventExec(getAsyncExec(context), context, outStream);
     }
 
     public void setDebugPoint(DebugInfo.DebugPoint debugPoint) {

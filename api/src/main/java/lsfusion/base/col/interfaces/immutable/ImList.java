@@ -25,6 +25,11 @@ public interface ImList<K> extends Iterable<K> {
     ImCol<K> getCol();
 
     int indexOf(K key);
+    boolean containsNull();
+    boolean containsFn(FunctionSet<K> filter);
+    default boolean containsFn(SFunctionSet<K> filter) {
+        return containsFn((FunctionSet<K>) filter);
+    }
     ImMap<Integer, K> toIndexedMap();
 
     ImList<K> addList(ImList<? extends K> list);
@@ -33,6 +38,7 @@ public interface ImList<K> extends Iterable<K> {
     ImList<K> reverseList();
     ImList<K> subList(int i, int to);
     ImList<K> remove(int i);
+    ImList<K> replace(int i, K element);
 
     <V> ImList<V> mapList(ImMap<? extends K, ? extends V> imMap);
 
@@ -47,7 +53,6 @@ public interface ImList<K> extends Iterable<K> {
 
     <M> ImList<M> mapItListValues(Function<K, M> getter); // с последействием
 
-    <M> ImList<M> mapListValues(IntFunction<M> getter);
     <M> ImList<M> mapListValues(IntObjectFunction<K, M> getter);
     <M> ImList<M> mapListValues(Function<K, M> getter);
 

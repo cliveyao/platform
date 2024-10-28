@@ -1,6 +1,5 @@
 ---
 title: 'Action operators'
-sidebar_label: Overview
 ---
 
 *Action operator* is a syntax construct that describes an [operator](Action_operators_paradigm.md) creating an [action](Actions.md).
@@ -21,11 +20,14 @@ Context dependent action operators can use external context parameters. They can
 -   [`CASE` operator](CASE_action_operator.md)
 -   [`CHANGE` operator](CHANGE_operator.md)
 -   [`CHANGECLASS` operator](CHANGECLASS_operator.md)
+-   [`COLLAPSE` operator](COLLAPSE_operator.md)
+-   [`CONTINUE` operator](CONTINUE_operator.md)
 -   [`DELETE` operator](DELETE_operator.md)
 -   [`DIALOG` operator](DIALOG_operator.md)
 -   [`EMAIL` operator](EMAIL_operator.md)
 -   [`EVAL` operator](EVAL_operator.md)
 -   [`EXEC` operator](EXEC_operator.md)
+-   [`EXPAND` operator](EXPAND_operator.md)
 -   [`EXPORT` operator](EXPORT_operator.md)
 -   [`FOR` operator](FOR_operator.md)
 -   [`IF ... THEN` operator](IF_..._THEN_action_operator.md)

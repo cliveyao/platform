@@ -250,11 +250,9 @@ public abstract class AbstractWhere extends AbstractSourceJoin<Where> implements
 
         MCol<GroupJoinsWhere> mResult = ListFact.mColFilter(whereJoins);
         MList<Where> mRecPacks = ListFact.mListMax(whereJoins.size());
-        long currentComplexity = 0;
-        if(!exclusive) {
-            currentComplexity = hasUnionExpr() ? getComplexity(false) : Long.MAX_VALUE;
+        long currentComplexity = hasUnionExpr() ? getComplexity(false) : Long.MAX_VALUE;
+        if(!exclusive)
             mRecPacks.add(Where.FALSE());
-        }
         for(GroupJoinsWhere innerJoin : whereJoins) {
             if(innerJoin.isComplex())
                 mResult.add(innerJoin);
@@ -264,15 +262,20 @@ public abstract class AbstractWhere extends AbstractSourceJoin<Where> implements
                 if(BaseUtils.hashEquals(fullWhere, fullPackWhere))
                     mResult.add(innerJoin);
                 else {
-                    if(exclusive)
-                        mRecPacks.add(fullPackWhere); // если не exclusive
-                    else {
+                    boolean isProceeded = false;
+                    if(!exclusive) {
                         int last = mRecPacks.size() - 1;
                         Where merged = mRecPacks.get(last).or(fullPackWhere);
-                        if(merged.getComplexity(false) < currentComplexity) // предотвращение бесконечной рекурсии, через getCommonWhere может залазить внутрь UnionExpr потом их опять собирать и проверка на hashEquals не сработает
+                        if(merged.getComplexity(false) < currentComplexity) { // prevent infinite recursion, getCommonWhere can get into UnionExpr then reassemble them and the hashEquals check will not work
                             mRecPacks.set(last, merged);
-                        else
+                            isProceeded = true;
+                        }
+                    }
+                    if(!isProceeded) {
+                        if (fullPackWhere.getComplexity(false) < currentComplexity) // also can be infinite recursion because of union exprs
                             mRecPacks.add(fullPackWhere);
+                        else
+                            mResult.add(innerJoin);
                     }
                 }
             }
@@ -368,7 +371,7 @@ public abstract class AbstractWhere extends AbstractSourceJoin<Where> implements
         return StatKeys.or(getPushedWhereJoins(groups, type), value -> value.getStatKeys(groups, type, pushStatKeys), groups);
     }
 
-    public <K extends BaseExpr> StatKeys<K> getStatKeys(final ImSet<K> groups, final StatType type) { // assertion что ключи groups входят в это where
+    public <K extends BaseExpr> StatKeys<K> getStatKeys(ImSet<K> groups, StatType type) { // assertion что ключи groups входят в это where
         assert getOuterKeys().containsAll(AbstractOuterContext.getOuterSetKeys(groups));
         return getPushedStatKeys(groups, type, StatKeys.<KeyExpr>NOPUSH());
     }

@@ -1,13 +1,16 @@
 MODULE Service;
 
-REQUIRE System, Security;
+REQUIRE System, Security, SystemEvents;
 
 NAMESPACE Service;
 
 serviceDBAction '{service.db.action}'  INTERNAL  'lsfusion.server.physics.admin.service.action.ServiceDBAction' ();
-checkAggregationsAction '{service.check.aggregations.action}'  INTERNAL  'lsfusion.server.physics.admin.service.action.CheckAggregationsAction' ();
+//todo: remove after onFinallyStarted migration
+checkAggregationsAction '{service.check.materializations.action}'  INTERNAL 'lsfusion.server.physics.admin.service.action.CheckMaterializationsAction' ();
+checkMaterializationsAction '{service.check.materializations.action}'  INTERNAL 'lsfusion.server.physics.admin.service.action.CheckMaterializationsAction' ();
 checkClassesAction '{service.check.classes.action}'   INTERNAL  'lsfusion.server.physics.admin.service.action.CheckClassesAction' ();
-checkIndicesAction '{service.check.indices.action}'  INTERNAL  'lsfusion.server.physics.admin.service.action.CheckIndicesAction' ();
+checkIndicesAction '{service.check.indexes.action}'  INTERNAL 'lsfusion.server.physics.admin.service.action.CheckIndexesAction' ();
+checkTablesAction '{service.check.tables.action}'  INTERNAL 'lsfusion.server.physics.admin.service.action.CheckTablesAction' ();
 recalculateClassesAction '{service.recalculate.classes.action}'  INTERNAL  'lsfusion.server.physics.admin.service.action.RecalculateClassesAction' ();
 recalculateAction '{service.recalculate.action}'  INTERNAL  'lsfusion.server.physics.admin.service.action.RecalculateAction' ();
 recalculateFollowsAction '{service.recalculate.follow.action}'  INTERNAL  'lsfusion.server.physics.admin.service.action.RecalculateFollowsAction' ();
@@ -18,7 +21,9 @@ maxQuantityOverCalculate '{service.max.quantity.over.calculate}' = DATA INTEGER 
 makeProcessDumpAction '{service.make.process.dump.action}'  INTERNAL  'lsfusion.server.physics.admin.monitor.action.MakeProcessDumpAction' ();
 
 serviceDBMultiThreadAction '{service.service.db.multi.thread.action}'  INTERNAL  'lsfusion.server.physics.admin.service.action.ServiceDBMultiThreadAction' (INTEGER, INTEGER) NULL;
-checkAggregationsMultiThreadAction '{service.check.aggregations.multi.thread.action}'  INTERNAL  'lsfusion.server.physics.admin.service.action.CheckAggregationsMultiThreadAction' (INTEGER, INTEGER) NULL;
+//todo: remove after onFinallyStarted migration
+checkAggregationsMultiThreadAction '{service.check.materializations.multi.thread.action}'  INTERNAL 'lsfusion.server.physics.admin.service.action.CheckMaterializationsMultiThreadAction' (INTEGER, INTEGER) NULL;
+checkMaterializationsMultiThreadAction '{service.check.materializations.multi.thread.action}'  INTERNAL 'lsfusion.server.physics.admin.service.action.CheckMaterializationsMultiThreadAction' (INTEGER, INTEGER) NULL;
 checkClassesMultiThreadAction '{service.check.classes.multi.thread.action}'  INTERNAL  'lsfusion.server.physics.admin.service.action.CheckClassesMultiThreadAction' (INTEGER, INTEGER) NULL;
 recalculateClassesMultiThreadAction '{service.recalculate.classes.multi.thread.action}'  INTERNAL  'lsfusion.server.physics.admin.service.action.RecalculateClassesMultiThreadAction' (INTEGER, INTEGER) NULL;
 recalculateMultiThreadAction '{service.recalculate.multi.thread.action}'  INTERNAL  'lsfusion.server.physics.admin.service.action.RecalculateMultiThreadAction' (INTEGER, INTEGER) NULL;
@@ -27,7 +32,9 @@ recalculateStatsMultiThreadAction '{service.recalculate.stats.thread.action}'  I
 overCalculateStatsMultiThreadAction '{service.over.calculate.stats.multi.thread.action}'  INTERNAL  'lsfusion.server.physics.admin.service.action.OverCalculateStatsMultiThreadAction' (INTEGER, INTEGER) NULL;
 
 serviceDBMultiThreadAction '{service.service.db.multi.thread.action.timeout}' (INTEGER propertyTimeout)  { serviceDBMultiThreadAction (NULL, propertyTimeout); }
-checkAggregationsMultiThreadAction '{service.check.aggregations.multi.thread.action.timeout}' (INTEGER propertyTimeout) { checkAggregationsMultiThreadAction (NULL, propertyTimeout); }
+//todo: remove after onFinallyStarted migration
+checkAggregationsMultiThreadAction '{service.check.materializations.multi.thread.action.timeout}' (INTEGER propertyTimeout) { checkMaterializationsMultiThreadAction (NULL, propertyTimeout); }
+checkMaterializationsMultiThreadAction '{service.check.materializations.multi.thread.action.timeout}' (INTEGER propertyTimeout) { checkMaterializationsMultiThreadAction (NULL, propertyTimeout); }
 checkClassesMultiThreadAction '{service.check.classes.multi.thread.action.timeout}' (INTEGER propertyTimeout) { checkClassesMultiThreadAction (NULL, propertyTimeout); }
 recalculateClassesMultiThreadAction '{service.recalculate.classes.multi.thread.action.timeout}' (INTEGER propertyTimeout) { recalculateClassesMultiThreadAction (NULL, propertyTimeout); }
 recalculateMultiThreadAction '{service.recalculate.multi.thread.action.timeout}' (INTEGER propertyTimeout) { recalculateMultiThreadAction (NULL, propertyTimeout); }
@@ -37,7 +44,9 @@ overCalculateStatsMultiThreadAction '{service.over.calculate.stats.multi.thread.
 
 threadCountMultiThread '{service.thread.count.multi.thread}' = DATA LOCAL INTEGER (); 
 serviceDBMultiThreadAction '{service.service.db.multi.thread.action.thread.count}'  { serviceDBMultiThreadAction(threadCountMultiThread(), NULL); }
-checkAggregationsMultiThreadAction '{service.check.aggregations.multi.thread.action.thread.count}'  { checkAggregationsMultiThreadAction(threadCountMultiThread(), NULL); }
+//todo: remove after onFinallyStarted migration
+checkAggregationsMultiThreadAction '{service.check.materializations.multi.thread.action.thread.count}'  { checkMaterializationsMultiThreadAction(threadCountMultiThread(), NULL); }
+checkMaterializationsMultiThreadAction '{service.check.materializations.multi.thread.action.thread.count}'  { checkMaterializationsMultiThreadAction(threadCountMultiThread(), NULL); }
 checkClassesMultiThreadAction '{service.check.classes.multi.thread.action.thread.count}'  { checkClassesMultiThreadAction(threadCountMultiThread(), NULL); }
 recalculateClassesMultiThreadAction '{service.recalculate.classes.multi.thread.action.thread.count}'  { recalculateClassesMultiThreadAction(threadCountMultiThread(), NULL); }
 recalculateMultiThreadAction '{service.recalculate.multi.thread.action.thread.count}'  { recalculateMultiThreadAction(threadCountMultiThread(), NULL); }
@@ -49,6 +58,48 @@ analyzeDBAction '{service.analyze.db.action}'  INTERNAL  'lsfusion.server.physic
 vacuumDBAction '{service.vacuum.db.action}'  INTERNAL  'lsfusion.server.physics.admin.service.action.VacuumDBAction' ();
 packAction '{service.pack.action}'  INTERNAL  'lsfusion.server.physics.admin.service.action.PackAction' ();
 getVMInfo '{service.get.vm.info}'  INTERNAL  'lsfusion.server.physics.admin.service.action.GetVMInfoAction' ();
+
+migratedMaterializations = DATA BOOLEAN ();
+
+copyPermissions(ActionOrProperty target, ActionOrProperty source) {
+    dataPermissionView(UserRole ur, target) <- dataPermissionView(ur, source);
+    dataPermissionChange(UserRole ur, target) <- dataPermissionChange(ur, source);
+    dataPermissionEditObjects(UserRole ur, target) <- dataPermissionEditObjects(ur, source);
+    dataPermissionGroupChange(UserRole ur, target) <- dataPermissionGroupChange(ur, source);
+}
+
+onFinallyStarted() + {
+    IF NOT migratedMaterializations() THEN {
+        notRecalculateMaterializations(TableColumn tc) <- notRecalculate(tc);
+        copyPermissions(propertyCanonicalName('Reflection.notRecalculateMaterializations[Reflection.TableColumn]'), propertyCanonicalName('Reflection.notRecalculate[Reflection.TableColumn]'));
+        
+        copyPermissions(actionCanonicalName('Reflection.recalculateMaterializations[Reflection.TableColumn]'), actionCanonicalName('Reflection.recalculateAggregation[Reflection.TableColumn]'));
+
+        copyPermissions(actionCanonicalName('Reflection.recalculateMaterializationsWithDependencies[Reflection.TableColumn]'), actionCanonicalName('Reflection.recalculateAggregationWithDependencies[Reflection.TableColumn]'));
+
+        copyPermissions(actionCanonicalName('Reflection.recalculateMaterializationsWithDependents[Reflection.TableColumn]'), actionCanonicalName('Reflection.recalculateAggregationWithDependents[Reflection.TableColumn]'));
+
+        copyPermissions(actionCanonicalName('Reflection.checkMaterializations[Reflection.TableColumn]'), actionCanonicalName('Reflection.checkAggregation[Reflection.TableColumn]'));
+
+        copyPermissions(actionCanonicalName('Reflection.checkMaterializations[STRING]'), actionCanonicalName('Reflection.checkAggregation[STRING]'));
+
+        copyPermissions(actionCanonicalName('Reflection.recalculateColumnsMaterializations[Reflection.Table]'), actionCanonicalName('Reflection.recalculateColumnsAggregations[Reflection.Table]'));
+
+        copyPermissions(propertyCanonicalName('Reflection.disableMaterializations[Reflection.TableColumn]'), propertyCanonicalName('Reflection.disableAggregations[Reflection.TableColumn]'));
+
+        copyPermissions(propertyCanonicalName('Reflection.disableMaterializations[STRING]'), propertyCanonicalName('Reflection.disableAggregations[STRING]'));
+
+        copyPermissions(actionCanonicalName('Service.checkMaterializationsAction[]'), actionCanonicalName('Service.checkAggregationsAction[]'));
+
+        copyPermissions(actionCanonicalName('Service.checkMaterializationsMultiThreadAction[INTEGER,INTEGER]'), actionCanonicalName('Service.checkAggregationsMultiThreadAction[INTEGER,INTEGER]'));
+
+        copyPermissions(actionCanonicalName('Service.checkMaterializationsMultiThreadAction[INTEGER]'), actionCanonicalName('Service.checkAggregationsMultiThreadAction[INTEGER]'));
+
+        copyPermissions(actionCanonicalName('Service.checkMaterializationsMultiThreadAction[]'), actionCanonicalName('Service.checkAggregationsMultiThreadAction[]'));
+
+        migratedMaterializations() <- TRUE;
+    }
+}
 
 singleTransaction '{service.single.transaction}' = DATA BOOLEAN ();
 
@@ -151,7 +202,6 @@ dropLRUPercent '{service.drop.lru.percent}' = DATA DOUBLE ();
 randomDropLRU '{service.random.drop.lru}' = DATA BOOLEAN ();
 dropLRUCustom '{service.drop.lru}'  INTERNAL  'lsfusion.server.physics.admin.service.action.DropLRUAction' (DOUBLE, BOOLEAN);
 dropLRU '{service.drop.lru}' ()  { dropLRUCustom(dropLRUPercent(), randomDropLRU()); }
-turnCacheStatsOff '{service.turn.cache.stats.off}'  INTERNAL  'lsfusion.server.physics.admin.service.action.TurnCacheStatsOffAction' ();
 makeHeapDump '{service.make.heap.dump}'  INTERNAL  'lsfusion.server.physics.admin.service.action.MakeHeapDumpAction' ();
 isServerRestarting = NATIVE BOOLEAN ();
 isNotServerRestarting () = NOT isServerRestarting();
@@ -160,22 +210,21 @@ isNotServerRestarting () = NOT isServerRestarting();
 
 FORM maintenance '{service.form.maintenance}'
     PROPERTIES() scheduledRestart, forbidLogin, restartServer SHOWIF notRestartPushed(), cancelRestartServer SHOWIF restartPushed(),
-                 uploadStaticCaptionType, uploadHost, uploadUser, uploadPassword, uploadInstance, uploadDB, uploadToDBAction,
+                 //uploadStaticCaptionType, uploadHost, uploadUser, uploadPassword, uploadInstance, uploadDB, uploadToDBAction,
                  clearApplicationLog, 
                  serviceDBAction, recalculateClassesAction, recalculateAction, recalculateFollowsAction, maxQuantityOverCalculate,
-                 checkClassesAction, checkAggregationsAction, checkIndicesAction,  
+                 checkClassesAction, checkMaterializationsAction, checkIndicesAction, checkTablesAction,
                  recalculateStatsAction, overCalculateStatsAction,
                  packAction, analyzeDBAction, vacuumDBAction, disableTILMode, reupdateMode, singleTransaction, threadCountMultiThread, serviceDBMultiThreadAction,
                  recalculateClassesMultiThreadAction, recalculateMultiThreadAction, recalculateFollowsMultiThreadAction,
-                 recalculateStatsMultiThreadAction, overCalculateStatsMultiThreadAction, checkClassesMultiThreadAction, checkAggregationsMultiThreadAction,      
-                 runGarbageCollector, getVMInfo, dropLRUPercent, randomDropLRU, dropLRU, turnCacheStatsOff, makeHeapDump           
+                 recalculateStatsMultiThreadAction, overCalculateStatsMultiThreadAction, checkClassesMultiThreadAction, checkMaterializationsMultiThreadAction,      
+                 runGarbageCollector, getVMInfo, dropLRUPercent, randomDropLRU, dropLRU, makeHeapDump           
 ;
 
 DESIGN maintenance {        
     NEW pane {
         fill = 1;
-        type = COLUMNS;
-        columns = 3;
+        lines = 3;
         NEW leftColumn {               
             NEW administration {
                 caption = '{service.form.maintenance.caption.administration}';
@@ -184,16 +233,16 @@ DESIGN maintenance {
                 MOVE PROPERTY(restartServer());
                 MOVE PROPERTY(cancelRestartServer());
             }    
-            NEW upload {
-                caption = '{service.form.maintenance.caption.upload}';
-                MOVE PROPERTY(uploadStaticCaptionType());
-                MOVE PROPERTY(uploadHost());
-                MOVE PROPERTY(uploadUser());
-                MOVE PROPERTY(uploadPassword());
-                MOVE PROPERTY(uploadInstance());
-                MOVE PROPERTY(uploadDB());
-                MOVE PROPERTY(uploadToDBAction());
-            }
+//            NEW upload {
+//                caption = '{service.form.maintenance.caption.upload}';
+//                MOVE PROPERTY(uploadStaticCaptionType());
+//                MOVE PROPERTY(uploadHost());
+//                MOVE PROPERTY(uploadUser());
+//                MOVE PROPERTY(uploadPassword());
+//                MOVE PROPERTY(uploadInstance());
+//                MOVE PROPERTY(uploadDB());
+//                MOVE PROPERTY(uploadToDBAction());
+//            }
             NEW log {
                 caption = '{service.form.maintenance.caption.logging}';
                 MOVE PROPERTY(clearApplicationLog());
@@ -215,8 +264,9 @@ DESIGN maintenance {
                 NEW checkOneThread {
                     caption = '{service.form.maintenance.caption.check.one.thread}';
                     MOVE PROPERTY(checkClassesAction());
-                    MOVE PROPERTY(checkAggregationsAction());
+                    MOVE PROPERTY(checkMaterializationsAction());
                     MOVE PROPERTY(checkIndicesAction());
+                    MOVE PROPERTY(checkTablesAction());
                 }
             NEW database {
                 caption = '{service.form.maintenance.caption.database}';
@@ -245,7 +295,7 @@ DESIGN maintenance {
                  NEW checkMultiThread {
                      caption = '{service.form.maintenance.caption.check.multi.thread}';
                      MOVE PROPERTY(checkClassesMultiThreadAction());
-                     MOVE PROPERTY(checkAggregationsMultiThreadAction());
+                     MOVE PROPERTY(checkMaterializationsMultiThreadAction());
                  }                  
              }  
             NEW virtualMachine {
@@ -255,7 +305,6 @@ DESIGN maintenance {
                 MOVE PROPERTY(dropLRUPercent());
                 MOVE PROPERTY(randomDropLRU());
                 MOVE PROPERTY(dropLRU());
-                MOVE PROPERTY(turnCacheStatsOff());
                 MOVE PROPERTY(makeHeapDump());
             }                      
         }
@@ -274,18 +323,21 @@ NAVIGATOR {
 FORM settings '{service.form.settings}'
     PROPERTIES() currentDate, currentDateTime, currentDateTimeSnapshot, defaultBackgroundColor, defaultForegroundColor, 
                  reportCharWidth, reportRowHeight, reportNotToStretch, hostnameServerComputer, 
-                 dataLogicsName, dataDisplayName, loadLogicsLogo, openLogicsLogo, resetLogicsLogo, loadLogicsIcon, openLogicsIcon, resetLogicsIcon
+                 dataLogicsName, dataDisplayName, loadLogicsLogo, openLogicsLogo, resetLogicsLogo, 
+                 loadLogicsIcon, openLogicsIcon, resetLogicsIcon, loadPWAIcon, openPWAIcon, resetPWAIcon
 ;
+
+CONSTRAINT SETCHANGED (dataLogicsName()) AND NOT regexPatternMatch(dataLogicsName(), '^[A-Za-z0-9\\-._~]*$')
+    MESSAGE '{system.logics.name.space.constraint}';
 
 DESIGN settings {
     OBJECTS {
         NEW tabs {
-            type = TABBED;
+            tabbed = TRUE;
             fill = 1;
             NEW pane {
                 caption = '{service.form.settings.caption.general}';
-                type = COLUMNS;
-                columns = 3;
+                lines = 3;
                 NEW leftColumn {
                     NEW current {
                         caption = '{service.form.settings.caption.current}';
@@ -310,6 +362,9 @@ DESIGN settings {
                         MOVE PROPERTY(loadLogicsIcon());
                         MOVE PROPERTY(openLogicsIcon());
                         MOVE PROPERTY(resetLogicsIcon());
+                        MOVE PROPERTY(loadPWAIcon());
+                        MOVE PROPERTY(openPWAIcon());
+                        MOVE PROPERTY(resetPWAIcon());
                     }                                       
                 }
             }
@@ -364,6 +419,7 @@ defaultValue '{service.default.value.setting}' = DATA STRING[100] (Setting);
 value '{service.value.setting.user.role}' (Setting p, UserRole ur) = OVERRIDE baseValue(p, ur), baseValue(p), defaultValue(p);
 value (Setting p) = OVERRIDE baseValue(p), defaultValue(p);
 valueSetting (ISTRING[100] name) = value(setting(name)); 
+valueSettingBoolean (ISTRING[100] name) = value(setting(name)) == 'true';
 
 pushSetting '{service.push.setting}'  INTERNAL  'lsfusion.server.physics.admin.service.action.PushSettingAction' (STRING[100], STRING[100]);
 popSetting '{service.pop.setting}'  INTERNAL  'lsfusion.server.physics.admin.service.action.PopSettingAction' (STRING[100]);
@@ -371,20 +427,22 @@ popSetting '{service.pop.setting}'  INTERNAL  'lsfusion.server.physics.admin.ser
 writeDefaultSettings '{service.write.default.settings}'  INTERNAL  'lsfusion.server.physics.admin.service.action.WriteDefaultSettingsAction' ();
 updateSetting '{service.update.setting}'  INTERNAL  'lsfusion.server.physics.admin.service.action.UpdateSettingAction' (Setting, UserRole, BOOLEAN);
 
+resetServerSettingsCacheAction '{reset.server.settings.cache}' INTERNAL 'lsfusion.server.physics.admin.service.action.ResetServerSettingsCacheAction'();
+
 updateGlobalSetting(Setting r) {
     updateSetting(r, NULL, TRUE); // system user and users without role
     FOR UserRole ur IS UserRole DO // need this even in onStarted, because onStarted is executed after initializing RMI Manager, that's why roleSettings can be already clone, and we need to update it too
         updateSetting(r, ur, NULL);    
 }
 
-onStarted() + {  
+onInit() + {
     writeDefaultSettings();
 
-    FOR baseValue(Setting r) DO 
+    FOR baseValue(Setting r) DO
         updateGlobalSetting(r);
 
-    FOR baseValue(Setting r, UserRole ur) DO 
-        updateSetting(r, ur, TRUE); 
+    FOR baseValue(Setting r, UserRole ur) DO
+        updateSetting(r, ur, TRUE);
 }
 
 WHEN CHANGED (baseValue(Setting r)) DO
@@ -414,20 +472,44 @@ DESIGN settings {
     }
 }
 
-getServerSettings() {
-    readResources('/web/.*');
-    LOCAL jsonResourceFiles = JSONFILE ();
-    EXPORT FROM file = resourceFiles(STRING str), name = substrFrom(str, 6) WHERE resourceFiles(str) TO jsonResourceFiles;
+inDevMode = NATIVE BOOLEAN ();
+isLightStart = NATIVE BOOLEAN ();
 
-    LOCAL jsonLsfParams = JSONFILE ();
-    EXPORT FROM key = STRING s, value = lsfParams(s) WHERE lsfParams(s) TO jsonLsfParams;
+resetConnections() + {
+    connectionStatus(Connection c) <- ConnectionStatus.disconnectedConnection
+        WHERE (connectionStatus(c) = ConnectionStatus.connectedConnection OR connectionStatus(c) = ConnectionStatus.disconnectingConnection)
+        AND currentLaunch() != launch(c) AND ((NOT isLightStart()) OR connectTime(c) < subtractSeconds(currentDateTime(), 60));
+}
+
+WHEN CHANGED (lsfParams(STRING s)) DO {
+    resetServerSettingsCacheAction();
+}
+
+WHEN CHANGED (logicsName()) OR CHANGED (displayName()) OR CHANGED (logicsLogo()) OR CHANGED (logicsIcon()) OR CHANGED (PWAIcon()) DO {
+    resetServerSettingsCacheAction();
+}
+getServerSettings() ABSTRACT CASE @@noauth;
+
+getServerSettings() + WHEN TRUE THEN {
+    LOCAL noAuthResources = RAWFILE(STRING);
+    LOCAL noAuthResourcesOrder = INTEGER(STRING);
+    onLoginInit();
+    FOR INTEGER order = onLoginInit(STRING s) ORDER order DO {
+        readResource(s);
+        noAuthResources(resourcePath()) <- RAWFILE (resource());
+        noAuthResourcesOrder(resourcePath()) <- order;
+    }
     
     generateJnlpUrls();
-    EXPORT FROM logicsName(), displayName(), logicsLogo(), logicsIcon(), platformVersion(), apiVersion(),
-                sessionConfigTimeout=INTEGER(valueSetting('sessionConfigTimeout')), anonymousUI=(valueSetting('enableUI')='2'),
-                jnlpUrls=exportText(), resourceFiles=STRING(jsonResourceFiles()), disableRegistration=disableRole('selfRegister'),
-                lsfParams=STRING(jsonLsfParams());
-} @@noauth;
+    EXPORT JSON FROM logicsName(), displayName(), logicsLogo = encodeBytesBase64(FILE(logicsLogo())), logicsIcon = encodeBytesBase64(FILE(logicsIcon())),
+    PWAIcon = encodeBytesBase64(FILE(PWAIcon())), platformVersion(), apiVersion(), inDevMode(),
+    sessionConfigTimeout=INTEGER(valueSetting('sessionConfigTimeout')), anonymousUI=(valueSetting('enableUI')='2'),
+    jnlpUrls=exportText(),
+    disableRegistration=disableRole('selfRegister'),
+    lsfParams= (JSON FROM key = STRING s, value = lsfParams(s) WHERE lsfParams(s)),
+    noAuthResourcesBeforeSystem = (JSON FROM key = STRING s, value = noAuthResources(s) WHERE noAuthResourcesOrder(s) < 0 ORDER noAuthResourcesOrder(s)),
+    noAuthResourcesAfterSystem = (JSON FROM key = STRING s, value = noAuthResources(s) WHERE noAuthResourcesOrder(s) >= 0 ORDER noAuthResourcesOrder(s));
+};
 
 // logging for user
 
@@ -489,12 +571,12 @@ WHEN CHANGED(remotePausableLogEnabled(User user)) DO {
     refreshPausableLogEnabled(user);
 }
 
-setExplainAllocationEnabled '{service.set.explain.allocation.enabled}' INTERNAL 'lsfusion.server.physics.admin.service.action.SetExplainAllocationEnabledUserAction' (BOOLEAN, User);
-explainAllocationEnabled '{service.explain.allocation.enabled}' = DATA BOOLEAN (User);
+setExplainAllocationEnabled '{service.set.explain.app.enabled}' INTERNAL 'lsfusion.server.physics.admin.service.action.SetExplainAppEnabledUserAction' (BOOLEAN, User);
+explainAppEnabled '{service.explain.app.enabled}' = DATA BOOLEAN (User);
 refreshExplainAllocationEnabled '' (User user) {
-    setExplainAllocationEnabled(explainAllocationEnabled(user), user);
+    setExplainAllocationEnabled(explainAppEnabled(user), user);
 }
-WHEN CHANGED(explainAllocationEnabled(User user)) DO {
+WHEN CHANGED(explainAppEnabled(User user)) DO {
     refreshExplainAllocationEnabled(user);
 }
 
@@ -511,7 +593,7 @@ onStarted() + {
         refreshExLogEnabled(u);
     FOR remotePausableLogEnabled(User u) DO 
         refreshPausableLogEnabled(u);
-    FOR explainAllocationEnabled(User u) DO
+    FOR explainAppEnabled(User u) DO
         refreshExplainAllocationEnabled(u);
 }
 
@@ -562,7 +644,7 @@ openThreadDump '{system.events.open.thread.dump.custom.user}' (CustomUser user) 
 EXTEND FORM settings
     OBJECTS ul = User
     PROPERTIES(ul) READONLY name, login, userRoles
-    PROPERTIES(ul) explainAnalyzeMode, loggerDebugEnabled, explainTemporaryTablesEnabled, remoteLoggerDebugEnabled, remoteExLogEnabled, remotePausableLogEnabled, explainAllocationEnabled
+    PROPERTIES(ul) explainAnalyzeMode, explainAppEnabled, loggerDebugEnabled, explainTemporaryTablesEnabled, remoteLoggerDebugEnabled, remoteExLogEnabled, remotePausableLogEnabled
     PROPERTIES(ul) GRID requestUserLogs, openUserLogs, requestThreadDump, openThreadDump
 ;
 
@@ -616,19 +698,19 @@ onStarted() + {
 } 
 
 useBusyDialogCustom '{service.use.busy.dialog.user}' = DATA BOOLEAN (CustomUser);
-useBusyDialog () = useBusyDialogCustom(currentUser());
 
-allowExcessAllocatedBytes '{service.allow.excess.allocated.bytes.user}' = DATA BOOLEAN (CustomUser);
+allowExcessAllocatedBytes '{service.allow.excess.allocated.bytes.user}' = DATA BOOLEAN (CustomUser) LAZY;
 
-useRequestTimeout '{service.use.request.timeout.user}' = DATA BOOLEAN (CustomUser); 
-useRequestTimeout() = useRequestTimeout(currentUser());
+useRequestTimeout '{service.use.request.timeout.user}' = DATA BOOLEAN (CustomUser);
 
-devMode '{service.dev.mode.user}' = DATA BOOLEAN (CustomUser); // for debug purposes 
-devMode = devMode(currentUser());
+devMode '{service.dev.mode.user}' = DATA BOOLEAN (CustomUser); // for debug purposes
 
-transactTimeout '{service.transact.timeout}' (User user) = DATA INTEGER (CustomUser);
+transactTimeout '{service.transact.timeout}' (User user) = DATA INTEGER (CustomUser) LAZY;
+
+turnCacheStatsOff '{service.turn.cache.stats.off}'  INTERNAL  'lsfusion.server.physics.admin.service.action.TurnCacheStatsOffAction' ();
 
 EXTEND FORM settings
+    PROPERTIES() turnCacheStatsOff
     OBJECTS u = User
     PROPERTIES(u) READONLY name, login, userRoles
     PROPERTIES(u) nameExecEnv, volatileStatsEnabled
@@ -637,8 +719,10 @@ EXTEND FORM settings
 
 DESIGN settings {
     tabs {
-        MOVE BOX(u) {
+        NEW execution {
             caption = '{service.settings.runtime}';
+            MOVE PROPERTY(turnCacheStatsOff());
+            MOVE BOX(u);
         }
     }
 }
@@ -646,11 +730,8 @@ DESIGN settings {
 // GUI for user
 
 selectedRowBackgroundColor '{service.selected.row.background.color}' = DATA COLOR (User);
-overrideSelectedRowBackgroundColor '{service.selected.row.background.color}' = OVERRIDE selectedRowBackgroundColor(currentUser()), selectedRowBackgroundColor();
 selectedCellBackgroundColor '{service.selected.cell.background.color}' = DATA COLOR (User);
-overrideSelectedCellBackgroundColor '{service.selected.cell.background.color}' = OVERRIDE selectedCellBackgroundColor(currentUser()), selectedCellBackgroundColor();
 focusedCellBackgroundColor '{service.focused.cell.background.color}' = DATA COLOR (User);
-overrideFocusedCellBackgroundColor '{service.focused.cell.background.color}' = OVERRIDE focusedCellBackgroundColor(currentUser()), focusedCellBackgroundColor();
 focusedCellBorderColor '{service.focused.cell.border.color}' = DATA COLOR (User);
 overrideFocusedCellBorderColor '{service.focused.cell.border.color}' = OVERRIDE focusedCellBorderColor(currentUser()), focusedCellBorderColor();
 tableGridColor '{service.table.grid.color}' = DATA COLOR (User);
@@ -658,46 +739,136 @@ overrideTableGridColor '{service.table.grid.color}' = OVERRIDE tableGridColor(cu
 
 resetWindowsLayout '{service.reset.windows.layout}' INTERNAL 'lsfusion.server.logics.navigator.ResetWindowsLayoutAction';
 
-EXTEND FORM settings
-    PROPERTIES() selectedRowBackgroundColor, selectedCellBackgroundColor, focusedCellBackgroundColor, focusedCellBorderColor, tableGridColor
+useKeystore '{service.use.keystore}' = DATA BOOLEAN();
+keystorePassword '{service.keystore.password}' = DATA STRING();
+keyPassword '{service.key.password}' = DATA STRING();
+keystore '{service.keystore}' = DATA FILE();
+loadKeystore '{service.keystore.load}' () { INPUT=keystore() CHANGE; }
+openKeystore '{service.keystore.open}' () { open(keystore()); }
+resetKeystore '{service.keystore.reset}' () { keystore() <- NULL; }
 
+privateKey '{service.private.key}' = DATA FILE();
+loadPrivateKey '{service.private.key.load}' () { INPUT=privateKey() CHANGE; }
+openPrivateKey '{service.private.key.open}' () { open(privateKey()); }
+resetPrivateKey '{service.private.key.reset}' () { privateKey() <- NULL; }
+
+privateKeyPassword '{service.private.key.password}' = DATA STRING();
+
+chain '{service.chain}' = DATA FILE();
+loadChain '{service.chain.load}' () { INPUT=chain() CHANGE; }
+openChain '{service.chain.open}' () { open(chain()); }
+resetChain '{service.chain.reset}' () { chain() <- NULL; }
+
+EXTEND FORM settings
+    PROPERTIES() storeNavigatorSettingsForComputer
+    PROPERTIES() READONLY captionServerTheme, captionServerSize, captionServerNavbar, serverNavigatorPinMode 
+
+    OBJECTS de = DesignEnv
+    PROPERTIES(de) name READONLY,
+        captionTheme, captionSize, captionNavbar, useClientNavigatorPinMode, 
+        navigatorPinMode READONLYIF NOT useClientNavigatorPinMode(de), colorThemeName
+    FILTERS IF storeNavigatorSettingsForComputer() THEN de IS Computer ELSE de IS CustomUser
+
+    PROPERTIES() selectedRowBackgroundColor, selectedCellBackgroundColor, focusedCellBackgroundColor, focusedCellBorderColor,
+        tableGridColor
+    
     OBJECTS uc = CustomUser
     PROPERTIES(uc) READONLY name, login, userRoles
-    PROPERTIES(uc) fontSize, colorThemeName,
-                   selectedRowBackgroundColor, selectedCellBackgroundColor, focusedCellBackgroundColor, focusedCellBorderColor, tableGridColor
+    PROPERTIES(uc) fontSize, selectedRowBackgroundColor, selectedCellBackgroundColor, focusedCellBackgroundColor,
+        focusedCellBorderColor, tableGridColor
+    
+    PROPERTIES() pushPublicKey, pushPrivateKey  
+    
+    PROPERTIES() useKeystore
+    PROPERTIES() SHOWIF useKeystore() keystorePassword, keyPassword, loadKeystore, openKeystore, resetKeystore
+    PROPERTIES() SHOWIF NOT useKeystore() loadPrivateKey, openPrivateKey, resetPrivateKey, privateKeyPassword, loadChain, openChain, resetChain
 ;
 
 DESIGN settings {
     tabs {
-        NEW colorsPane {
+        NEW designPane {
             caption = '{service.form.settings.caption.design}';
-            NEW colorsHeaderPane {
-                type = CONTAINERH;
-                NEW defaultColors {
-                    type = COLUMNS;
-                    columns = 2;
-                    caption = '{service.form.settings.caption.default.colors}';
-                    MOVE PROPERTY(selectedRowBackgroundColor());
-                    MOVE PROPERTY(selectedCellBackgroundColor());
-                    MOVE PROPERTY(focusedCellBackgroundColor());
-                    MOVE PROPERTY(focusedCellBorderColor());
-                    MOVE PROPERTY(tableGridColor());
-               } 
-               NEW generalColors {
-                    caption = '{service.form.settings.caption.general.colors}';
-                    MOVE PROPERTY(defaultBackgroundColor());
-                    MOVE PROPERTY(defaultForegroundColor());
-               }
+            tabbed = TRUE;
+            NEW navigator {
+                caption = '{service.form.settings.caption.navigator}';
+                MOVE PROPERTY(storeNavigatorSettingsForComputer());
+                MOVE PROPERTY (captionServerTheme());
+                MOVE PROPERTY (captionServerSize());
+                MOVE PROPERTY (captionServerNavbar());
+                MOVE PROPERTY (serverNavigatorPinMode());
+                MOVE BOX(de) {
+                    caption = IF storeNavigatorSettingsForComputer() THEN '{authentication.computers}' ELSE '{authentication.users}';
+                }
             }
-            MOVE BOX(uc);
+            NEW colors {
+                caption = '{service.form.settings.caption.colors}';
+                NEW colorsHeaderPane {
+                    horizontal = TRUE;
+                    NEW defaultColors {
+                        lines = 2;
+                        caption = '{service.form.settings.caption.default.colors}';
+                        MOVE PROPERTY(selectedRowBackgroundColor());
+                        MOVE PROPERTY(selectedCellBackgroundColor());
+                        MOVE PROPERTY(focusedCellBackgroundColor());
+                        MOVE PROPERTY(focusedCellBorderColor());
+                        MOVE PROPERTY(tableGridColor());
+                    }
+                    NEW generalColors {
+                        caption = '{service.form.settings.caption.general.colors}';
+                        MOVE PROPERTY(defaultBackgroundColor());
+                        MOVE PROPERTY(defaultForegroundColor());
+                    }
+                }
+                MOVE BOX(uc);
+            }
+        }
+        NEW pushNotification {
+            caption = '{service.form.settings.push.notification}';
+            MOVE PROPERTY (pushPublicKey());
+            MOVE PROPERTY (pushPrivateKey());
+        }
+        NEW externalServerSettings {
+            caption = '{service.external.server.settings}';
+            MOVE PROPERTY (useKeystore());
+            NEW keystore {
+                caption = '{service.keystore}';
+                MOVE PROPERTY (loadKeystore());
+                MOVE PROPERTY (openKeystore());
+                MOVE PROPERTY (resetKeystore());
+                MOVE PROPERTY (keystorePassword());
+                MOVE PROPERTY (keyPassword());
+            }
+            NEW pem {
+                lines = 2;
+                caption = '{service.private.key}';
+                MOVE PROPERTY (loadPrivateKey());
+                MOVE PROPERTY (loadChain());
+                MOVE PROPERTY (openPrivateKey());
+                MOVE PROPERTY (openChain());
+                MOVE PROPERTY (resetPrivateKey());
+                MOVE PROPERTY (resetChain());
+                MOVE PROPERTY (privateKeyPassword());
+            }
         }
     }
 }
 
 EXTEND FORM editProfile
-    PROPERTIES()  resetWindowsLayout
-    PROPERTIES(u) fontSize, colorThemeName,
-                  selectedRowBackgroundColor, selectedCellBackgroundColor, focusedCellBackgroundColor, focusedCellBorderColor, tableGridColor
+    OBJECTS d = DesignEnv PANEL
+    PROPERTIES(d) colorThemeName, dontShowCloseButtonOnInactiveTab SHOWIF isWeb(), userFiltersManualApplyMode
+    FILTERS d = currentDesignEnv()
+    
+    PROPERTIES() resetWindowsLayout
+
+    PROPERTIES(u) fontSize
+    PROPERTIES(u) SHOWIF theme(d) == Theme.excel OR isNative() selectedRowBackgroundColor, selectedCellBackgroundColor,
+        focusedCellBackgroundColor, focusedCellBorderColor, tableGridColor
+
+    OBJECTS r = DateTimePickerRanges
+    PROPERTIES dateTimeRange(r) READONLY, isDateTimeRangeSelected(r, u)
+
+    OBJECTS ir = DateTimeIntervalPickerRanges
+    PROPERTIES intervalRange(ir) READONLY, isIntervalRangeSelected(ir, u)
 ;
 
 DESIGN editProfile {
@@ -706,19 +877,141 @@ DESIGN editProfile {
             caption = '{navigator.account.edit.profile.design}';
             
             MOVE PROPERTY(fontSize(u)) { fontSize = 24; }
-            MOVE PROPERTY(colorThemeName(u)) { fontSize = 24; }
+            MOVE PROPERTY(colorThemeName(d)) { fontSize = 24; }
             
             MOVE PROPERTY(resetWindowsLayout());
             
-            NEW colors { 
-                type = COLUMNS;
-                columns = 2;
+            NEW colors {
+                lines = 2;
                 MOVE PROPERTY(selectedRowBackgroundColor(u)) { fontSize = 24; }
                 MOVE PROPERTY(selectedCellBackgroundColor(u)) { fontSize = 24; }
                 MOVE PROPERTY(focusedCellBackgroundColor(u)) { fontSize = 24; }
                 MOVE PROPERTY(focusedCellBorderColor(u)) { fontSize = 24; }
                 MOVE PROPERTY(tableGridColor(u)) { fontSize = 24; }
             }
+            NEW closeButton {
+                MOVE PROPERTY(dontShowCloseButtonOnInactiveTab(d));
+                MOVE PROPERTY(userFiltersManualApplyMode(d));
+            }
+            NEW predefinedRanges {
+                horizontal = TRUE;
+                MOVE BOX(r);
+                MOVE BOX(ir);   
+                REMOVE TOOLBARSYSTEM(r);
+                REMOVE TOOLBARSYSTEM(ir);
+            }
         }
     }
-} 
+}
+
+inTestMode = NATIVE BOOLEAN ();
+projectLSFDir = NATIVE STRING();
+
+contentWordWrap() += IF contentWordWrap(currentDesignEnv()) THEN (IF contentWordWrap(currentDesignEnv()) == TTRUE THEN TRUE ELSE NULL) ELSE valueSettingBoolean('contentWordWrap');
+
+getInitSettings(User user) ABSTRACT CASE;
+getInitSettings(User user) + WHEN user IS User THEN {
+    LOCAL webClientLoadedResources = RAWFILE(STRING);
+    LOCAL webClientLoadedResourcesOrder = INTEGER(STRING);
+    IF isWeb() THEN {
+        onWebClientInit();
+        FOR INTEGER order = onWebClientInit(STRING s) ORDER order DO {
+            readResource(s);
+            webClientLoadedResources(resourcePath()) <- RAWFILE (resource());
+            webClientLoadedResourcesOrder(resourcePath()) <- order;
+        }
+    }
+
+    EXPORT JSON FROM
+        mainResourcesBeforeSystem =(JSON FROM key = STRING s, value = webClientLoadedResources(s) WHERE webClientLoadedResourcesOrder(s) < 0 ORDER webClientLoadedResourcesOrder(s)),
+        mainResourcesAfterSystem = (JSON FROM key = STRING s, value = webClientLoadedResources(s) WHERE webClientLoadedResourcesOrder(s) >= 0 ORDER webClientLoadedResourcesOrder(s));
+}
+getInitSettings() {
+    getInitSettings(currentUser());
+} @@noauth;
+
+getClientSettings(User user) ABSTRACT CASE;
+getClientSettings(User user) + WHEN user IS User THEN {
+    LOCAL colorThemeStaticName = STRING();
+    colorThemeStaticName() <- staticName(colorTheme(currentDesignEnv()));
+    
+    EXPORT JSON FROM
+        currentUserName = (OVERRIDE currentUserName(), '(без имени)'),
+        fontSize = fontSize(user),
+        useBusyDialog = (valueSettingBoolean('busyDialog') OR inTestMode() OR useBusyDialogCustom(user)),
+        useRequestTimeout = (valueSettingBoolean('useRequestTimeout') OR useRequestTimeout(user)),
+        forbidDuplicateForms = (OVERRIDE dataForbidDuplicateForms(user), abstractForbidDuplicateForms(user), GROUP MAX forbidDuplicateForms(UserRole ur) IF has(user, ur)),
+        autoReconnectOnConnectionLost = (GROUP MAX autoReconnectOnConnectionLost(UserRole ur) IF has(user, ur)),
+        showDetailedInfo = (GROUP MAX showDetailedInfo(UserRole ur) IF has(user, ur)),
+        showDetailedInfoDelay = valueSetting('tooltipDelay'),
+        suppressOnFocusChange = IF suppressOnFocusChange(user) THEN (IF suppressOnFocusChange(user) == TTRUE THEN TRUE ELSE NULL) ELSE valueSettingBoolean('suppressOnFocusChange'),
+        devMode = inDevMode() OR (devMode(user)),
+        projectLSFDir = projectLSFDir(),
+        colorThemeString = IF (colorThemeStaticName()) THEN substrFrom(colorThemeStaticName(), strpos(colorThemeStaticName(), '.') + 1),
+        useBootstrap = useBootstrap(),
+        size = basicStaticName(size()), 
+        selectedRowBackground = (OVERRIDE selectedRowBackgroundColor(user), selectedRowBackgroundColor()),
+        selectedCellBackground = (OVERRIDE selectedCellBackgroundColor(user), selectedCellBackgroundColor()),
+        focusedCellBackground = (OVERRIDE focusedCellBackgroundColor(user), focusedCellBackgroundColor()),
+        focusedCellBorder = (OVERRIDE focusedCellBorderColor(user), focusedCellBorderColor()),
+        tableGridColor = overrideTableGridColor(),
+        dateTimePickerRanges = JSON FROM range = basicStaticName(DateTimePickerRanges r) WHERE isDateTimeRangeSelected(r, user),
+        intervalPickerRanges = JSON FROM range = basicStaticName(DateTimeIntervalPickerRanges ir) WHERE isIntervalRangeSelected(ir, user),
+        language = language(user),
+        country = country(user),
+        timeZone = timeZone(user),
+        twoDigitYearStart = twoDigitYearStart(user),
+        dateFormat = dateFormat(user),
+        timeFormat = timeFormat(user),
+        busyDialogTimeout = valueSetting('busyDialogTimeout'),
+        showNotDefinedStrings = valueSettingBoolean('showNotDefinedStrings'),
+        pivotOnlySelectedColumn = valueSettingBoolean('pivotOnlySelectedColumn'),
+        matchSearchSeparator = valueSetting('matchSearchSeparator'),
+        useTextAsFilterSeparator = valueSettingBoolean('useTextAsFilterSeparator'),
+        userFiltersManualApplyMode = IF userFiltersManualApplyMode() THEN (IF userFiltersManualApplyMode() == TTRUE THEN TRUE ELSE NULL) ELSE valueSettingBoolean('userFiltersManualApplyMode'),
+        disableActionsIfReadonly = valueSetting('disableActionsIfReadonly'),
+        enableShowingRecentlyLogMessages = valueSetting('enableShowingRecentlyLogMessages'),
+        pushNotificationPublicKey = pushPublicKey(),
+        maxRequestQueueSize = valueSetting('maxRequestQueueSize'),
+        maxStickyLeft = valueSetting('maxStickyLeft'),
+        jasperReportsIgnorePageMargins = valueSetting('jasperReportsIgnorePageMargins'),
+        verticalNavbar = verticalNavbar(),
+        navigatorPinMode = navigatorPinMode(),
+        cssBackwardCompatibilityLevel = valueSetting('cssBackwardCompatibilityLevel');
+}
+
+getClientSettings() {
+    getClientSettings(currentUser());
+} @@noauth;
+
+EXTEND FORM customUser
+    PROPERTIES(u) fontSize, colorThemeName, selectedRowBackgroundColor, selectedCellBackgroundColor, 
+        focusedCellBackgroundColor, focusedCellBorderColor, tableGridColor, dontShowCloseButtonOnInactiveTab, userFiltersManualApplyMode
+;
+
+DESIGN customUser {
+    header {
+        NEW design AFTER security {
+            caption = '{navigator.account.edit.profile.design}';
+            MOVE PROPERTY(fontSize(u));
+            MOVE PROPERTY(colorThemeName(u));
+            NEW colors { 
+                MOVE PROPERTY(selectedRowBackgroundColor(u));
+                MOVE PROPERTY(selectedCellBackgroundColor(u));
+                MOVE PROPERTY(focusedCellBackgroundColor(u));
+                MOVE PROPERTY(focusedCellBorderColor(u));
+                MOVE PROPERTY(tableGridColor(u));
+            }
+            NEW closeButton {
+                MOVE PROPERTY(dontShowCloseButtonOnInactiveTab(u));
+                MOVE PROPERTY(userFiltersManualApplyMode(u));
+            }
+        }
+    }
+}
+
+pixelSize(Connection c) = INTEGER(splitPart(screenSize(c), 'x', 1)) * INTEGER(splitPart(screenSize(c), 'x', 2));
+heuristicSize() += CASE
+    WHEN pixelSize(currentConnection()) <= INTEGER(valueSetting('maxPixelTinySize')) THEN Size.tiny
+    WHEN pixelSize(currentConnection()) <= INTEGER(valueSetting('maxPixelMiniSize')) THEN Size.mini
+    ELSE Size.normal;

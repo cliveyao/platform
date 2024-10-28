@@ -1,10 +1,10 @@
 package lsfusion.client.form.filter.view;
 
 import lsfusion.client.controller.remote.RmiQueue;
+import lsfusion.client.form.design.view.widget.CheckBoxWidget;
 import lsfusion.client.form.filter.ClientRegularFilter;
 import lsfusion.client.form.filter.ClientRegularFilterGroup;
 
-import javax.swing.*;
 import java.awt.*;
 import java.awt.event.FocusEvent;
 import java.awt.event.ItemEvent;
@@ -13,7 +13,7 @@ import java.io.IOException;
 
 import static lsfusion.client.ClientResourceBundle.getString;
 
-public abstract class SingleFilterBox extends JCheckBox {
+public abstract class SingleFilterBox extends CheckBoxWidget {
     private AWTEvent latestCheckBoxEvent;
     private boolean internalChange = false;
 
@@ -69,6 +69,11 @@ public abstract class SingleFilterBox extends JCheckBox {
     protected void processEvent(AWTEvent e) {
         latestCheckBoxEvent = e;
         super.processEvent(e);
+    }
+
+    public void forceSelect(boolean select) {
+        latestCheckBoxEvent = null;
+        setSelected(select);
     }
     
     public abstract void selected() throws IOException;

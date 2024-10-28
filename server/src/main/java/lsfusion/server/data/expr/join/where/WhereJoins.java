@@ -58,7 +58,6 @@ import lsfusion.server.physics.admin.Settings;
 
 import java.util.*;
 import java.util.function.Function;
-import java.util.function.Predicate;
 
 public class WhereJoins extends ExtraMultiIntersectSetWhere<WhereJoin, WhereJoins> implements DNFWheres.Interface<WhereJoins>, OuterContext<WhereJoins> {
 
@@ -584,12 +583,10 @@ public class WhereJoins extends ExtraMultiIntersectSetWhere<WhereJoin, WhereJoin
         }
 
         private int pushCompareTo(PushCost b, boolean pushLargeDepth) {
-            int compare = Integer.compare(pushStatKeys.getCost().rows.getWeight(), b.pushStatKeys.getCost().rows.getWeight());
-            if(compare != 0)
-                return compare;
             if(pushLargeDepth)
-                return 0;
-            compare = Integer.compare(pushStatKeys.getRows().getWeight(), b.pushStatKeys.getRows().getWeight());
+                return pushCompareCost(pushStatKeys, b.pushStatKeys);
+
+            int compare = WhereJoins.pushCompareTo(pushStatKeys, b.pushStatKeys);
             if(compare != 0)
                 return compare;
 
@@ -610,7 +607,18 @@ public class WhereJoins extends ExtraMultiIntersectSetWhere<WhereJoin, WhereJoin
             return compare;
         }
     }
-    
+
+    public static int pushCompareTo(StatKeys pushStatKeys1, StatKeys pushStatKeys2) {
+        int compare = pushCompareCost(pushStatKeys1, pushStatKeys2);
+        if(compare != 0)
+            return compare;
+        return Integer.compare(pushStatKeys1.getRows().getWeight(), pushStatKeys2.getRows().getWeight());
+    }
+
+    public static int pushCompareCost(StatKeys pushStatKeys1, StatKeys pushStatKeys2) {
+        return Integer.compare(pushStatKeys1.getCost().rows.getWeight(), pushStatKeys2.getCost().rows.getWeight());
+    }
+
     public static class CompileInfo {
         protected final ImSet<BaseExpr> usedNotNulls;
         protected final ImOrderSet<BaseJoin> joinOrder;
@@ -697,12 +705,8 @@ public class WhereJoins extends ExtraMultiIntersectSetWhere<WhereJoin, WhereJoin
             return getKeyStat(edge.join, edge.key);
         }
 
-        private <K extends BaseExpr> ImMap<K, Stat> getDistinct(ImSet<K> exprs, final MAddMap<BaseExpr, PropStat> exprStats) {
-            return new DistinctKeys<>(exprs.mapValues(new Function<K, Stat>() {
-                public Stat apply(K value) {
-                    return getPropStat(value, exprStats).distinct;
-                }
-            }));
+        private <K extends BaseExpr> ImMap<K, Stat> getDistinct(ImSet<K> exprs, final MAddMap<BaseExpr, PropStat> exprStats, Stat stat) {
+            return new DistinctKeys<>(exprs.mapValues((Function<K, Stat>) value -> getPropStat(value, exprStats).distinct.min(stat)));
         }
 
         private static ImMap<QueryJoin, PushCost> addPushCosts(ImMap<QueryJoin, PushCost> left, ImMap<QueryJoin, PushCost> right) {
@@ -828,7 +832,7 @@ public class WhereJoins extends ExtraMultiIntersectSetWhere<WhereJoin, WhereJoin
                 rows.set(stat);
             if (compileInfo != null)
                 compileInfo.set(costStat.compileInfo);
-            return StatKeys.create(cost, stat, new DistinctKeys<>(costStat.getDistinct(groups, exprStats)));
+            return StatKeys.create(cost, stat, new DistinctKeys<>(costStat.getDistinct(groups, exprStats, stat)));
         }, null, null, null, false, debugInfoWriter);
     }
 
@@ -1566,7 +1570,7 @@ public class WhereJoins extends ExtraMultiIntersectSetWhere<WhereJoin, WhereJoin
 
     private void buildStats(Result<ImSet<BaseJoin>> joins, Result<ImSet<BaseExpr>> exprs, ImSet<Edge> edges, MAddMap<BaseJoin, Stat> joinStats, MAddMap<BaseExpr, PropStat> exprStats, MAddMap<Edge, Stat> keyStats, MAddMap<BaseJoin, DistinctKeys> keyDistinctStats, MAddMap<BaseJoin, Cost> indexedStats, final StatType statType, final KeyStat keyStat) {
 
-        ImMap<BaseJoin, StatKeys> joinStatKeys = joins.result.mapValues((BaseJoin value) -> value.getStatKeys(keyStat, statType, false));
+        ImMap<BaseJoin, StatKeys> joinStatKeys = joins.result.mapValues((BaseJoin value) -> value.getStatKeys(keyStat, statType));
 
         // читаем статистику по join'ам
         for(int i=0,size=joinStatKeys.size();i<size;i++) {
@@ -1836,7 +1840,9 @@ public class WhereJoins extends ExtraMultiIntersectSetWhere<WhereJoin, WhereJoin
                 removeUpWheres.set(UpWheres.EMPTY());
             }
 
-            if(removeJoins!=null) { // вырезали, придется выкидывать целиком join, оставлять sibling'ом
+            // cut, we need to throw away the whole join
+            // it's not good, because we can loose other siblings reductions (to prevent that there is a heuristics in the getReducePushedStatKeys)
+            if(removeJoins != null) {
                 if(result==null) {
                     result = removeJoins;
                     resultUpWheres = removeUpWheres.result;

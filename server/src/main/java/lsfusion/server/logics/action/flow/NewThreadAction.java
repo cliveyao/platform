@@ -4,17 +4,20 @@ import com.google.common.base.Throwables;
 import lsfusion.base.col.interfaces.immutable.ImOrderSet;
 import lsfusion.base.col.interfaces.immutable.ImRevMap;
 import lsfusion.base.col.interfaces.immutable.ImSet;
+import lsfusion.server.base.controller.stack.*;
 import lsfusion.server.base.controller.thread.ExecutorFactory;
 import lsfusion.server.base.controller.thread.ThreadLocalContext;
 import lsfusion.server.data.sql.exception.SQLHandledException;
 import lsfusion.server.data.value.DataObject;
 import lsfusion.server.data.value.ObjectValue;
+import lsfusion.server.language.property.LP;
+import lsfusion.server.logics.action.Action;
 import lsfusion.server.logics.action.controller.context.ExecutionContext;
 import lsfusion.server.logics.action.controller.context.ExecutionEnvironment;
-import lsfusion.server.logics.action.controller.stack.EnvStackRunnable;
 import lsfusion.server.logics.action.controller.stack.ExecutionStack;
 import lsfusion.server.logics.action.implement.ActionMapImplement;
-import lsfusion.server.logics.action.session.DataSession;
+import lsfusion.server.logics.form.interactive.action.async.PushAsyncResult;
+import lsfusion.server.logics.navigator.controller.remote.RemoteNavigator;
 import lsfusion.server.logics.property.PropertyFact;
 import lsfusion.server.logics.property.implement.PropertyInterfaceImplement;
 import lsfusion.server.logics.property.oraction.PropertyInterface;
@@ -31,11 +34,13 @@ public class NewThreadAction extends AroundAspectAction {
     private PropertyInterfaceImplement<PropertyInterface> delayProp;
     private PropertyInterfaceImplement<PropertyInterface> connectionProp;
 
+    private LP<?> targetProp;
+
     public <I extends PropertyInterface> NewThreadAction(LocalizedString caption, ImOrderSet<I> innerInterfaces,
                                                          ActionMapImplement<?, I> action,
                                                          PropertyInterfaceImplement<I> period,
                                                          PropertyInterfaceImplement<I> delay,
-                                                         PropertyInterfaceImplement<I> connection) {
+                                                         PropertyInterfaceImplement<I> connection, LP<?> targetProp) {
         super(caption, innerInterfaces, action);
 
         ImRevMap<I, PropertyInterface> mapInterfaces = getMapInterfaces(innerInterfaces).reverse();
@@ -48,47 +53,62 @@ public class NewThreadAction extends AroundAspectAction {
         if(connection != null) {
             this.connectionProp = connection.map(mapInterfaces);
         }
+        this.targetProp = targetProp;
+    }
+
+    // in theory we can also pass Thread, and then add ExecutionStackAspect.getStackString to message (to get multi thread stack)
+    @StackNewThread
+    @StackMessage("NEWTHREAD")
+    @ThisMessage
+    protected void run(ExecutionContext<PropertyInterface> context) { //, @ParamMessage (profile = false) String callThreadStack) {
+        try {
+            proceed(context);
+        } catch (Throwable t) {
+            ServerLoggers.schedulerLogger.error("New thread error : ", t);
+            throw Throwables.propagate(t);
+        }
     }
 
     @Override
     protected FlowResult aroundAspect(final ExecutionContext<PropertyInterface> context) throws SQLException, SQLHandledException {
+//        String callThread = ExecutionStackAspect.getStackString();
+        if(targetProp != null || connectionProp != null) {
+            RemoteNavigator.Notification notification = new RemoteNavigator.Notification() {
+                @Override
+                public void run(ExecutionEnvironment env, ExecutionStack stack, PushAsyncResult asyncResult) {
+                    NewThreadAction.this.run(context.override(env, stack, asyncResult));
+                }
 
-        DataSession session = context.getSession();
-        session.registerThreadStack();
+                @Override
+                protected Action<?> getAction() {
+                    return aspectActionImplement.action;
+                }
+            };
+            if(targetProp != null)
+                targetProp.change(RemoteNavigator.pushGlobalNotification(notification), context);
+            else {
+                ObjectValue connectionObject = connectionProp.readClasses(context);
+                if (connectionObject instanceof DataObject)
+                    context.getNavigatorsManager().pushNotificationConnection((DataObject) connectionObject, notification); //, callThread));
+            }
+        } else {
+            context.getSession().registerThreadStack();
+            Long delay = delayProp != null ? ((Number) delayProp.read(context, context.getKeys())).longValue() : 0L;
+            Long period = periodProp != null ? ((Number) periodProp.read(context, context.getKeys())).longValue() : null;
 
-        final EnvStackRunnable run = (env, stack) -> {
-            try {
-                DataSession session1 = context.getSession();
-                if(env != null) {
-                    session1.unregisterThreadStack(); // уже не нужна сессия
-                    proceed(context.override(env, stack));
-                } else {
-                    try {
-                        proceed(context.override(stack));
-                    } finally {
-                        session1.unregisterThreadStack();
+            Runnable runContext = () -> {
+                ExecutionStack stack = ThreadLocalContext.getStack();
+                try {
+                    run(context.override(stack)); //, callThread);
+                } finally {
+                    if (periodProp == null) {
+                        try {
+                            context.getSession().unregisterThreadStack();
+                        } catch (SQLException ignored) {
+                        }
                     }
                 }
-            } catch (Throwable t) {
-                ServerLoggers.schedulerLogger.error("New thread error : ", t);
-                throw Throwables.propagate(t);
-            }
-        };
-
-        if (connectionProp != null) {
-            ObjectValue connectionObject = connectionProp.readClasses(context);
-            if(connectionObject instanceof DataObject)
-                context.getNavigatorsManager().pushNotificationCustomUser((DataObject) connectionObject, run);
-        } else {
-            Long delay = 0L, period = null;
-            if (delayProp != null) {
-                delay = ((Number) delayProp.read(context, context.getKeys())).longValue();
-            }
-            if (periodProp != null) {
-                period = ((Number) periodProp.read(context, context.getKeys())).longValue();
-            }
-            
-            Runnable runContext = () -> run.run(null, ThreadLocalContext.getStack());
+            };
             boolean externalExecutor = context.getExecutorService() != null;
             ScheduledExecutorService executor = externalExecutor ? context.getExecutorService() : ExecutorFactory.createNewThreadService(context);
             if (period != null)
@@ -103,6 +123,6 @@ public class NewThreadAction extends AroundAspectAction {
 
     @Override
     protected <T extends PropertyInterface> ActionMapImplement<?, PropertyInterface> createAspectImplement(ImSet<PropertyInterface> interfaces, ActionMapImplement<?, PropertyInterface> action) {
-        return PropertyFact.createNewThreadAction(interfaces, action, periodProp, delayProp, connectionProp);
+        return PropertyFact.createNewThreadAction(interfaces, action, periodProp, delayProp, connectionProp, targetProp);
     }
 }

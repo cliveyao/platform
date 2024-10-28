@@ -29,7 +29,7 @@ public class ProtectExcelAction extends InternalAction {
     public ProtectExcelAction(UtilsLogicsModule LM, ValueClass... classes) {
         super(LM, classes);
 
-        Iterator<ClassPropertyInterface> i = interfaces.iterator();
+        Iterator<ClassPropertyInterface> i = getOrderInterfaces().iterator();
         fileInterface = i.next();
         passwordInterface = i.next();
     }
@@ -41,7 +41,7 @@ public class ProtectExcelAction extends InternalAction {
 
         try {
             RawFileData file = (RawFileData) fileObject.object;
-            String extension = ((StaticFormatFileClass)fileObject.objectClass.getType()).getOpenExtension(file);
+            String extension = ((StaticFormatFileClass)fileObject.objectClass.getType()).getExtension(file);
             RawFileData protectedFile = null;
             switch (extension) {
                 case "xls": {

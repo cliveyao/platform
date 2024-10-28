@@ -259,16 +259,24 @@ public class CacheAspect {
     }
 
     public enum Type {
-        SIMPLE, START, STRONG, QUICK
+        SIMPLE,
+        START,
+        STRONG,
+        STRONG_NOTNULL, // the mode where null is not cached (is used to "cancel" the call)
+        QUICK
     } 
 
     private static class Waiting {}
 
     private static boolean disableCaches = false;
+    private static boolean disableStrongCaches = false;
     private static boolean checkCaches = false;
 
     public static Object lazyIdentityExecute(Object target, ProceedingJoinPoint thisJoinPoint, Object[] args, boolean changedArgs, Type type, CacheStats.CacheType cacheType) throws Throwable {
-        if(type == Type.STRONG) {
+        if(type == Type.STRONG || type == Type.STRONG_NOTNULL) {
+            if(disableStrongCaches)
+                return execute(target, thisJoinPoint, args, changedArgs);
+
 //            synchronized (lazyIdentityExecute) {
 //                IdentityInvocation invocation = new IdentityInvocation(lazyIdentityExecute.getRefQueue(), target, thisJoinPoint, args);
 //                Object result = lazyIdentityExecute.get(invocation);
@@ -286,7 +294,7 @@ public class CacheAspect {
             synchronized (lazyIdentityExecute) {
                 invocation = new IdentityInvocation(lazyIdentityExecute.getRefQueue(), target, thisJoinPoint, args);
                 result = lazyIdentityExecute.get(invocation);
-                if (result == null && !lazyIdentityExecute.containsKey(invocation)) { // здесь и в lazyExecute кривовато, но пока такой способ handl'ить null
+                if (result == null && (type == Type.STRONG_NOTNULL || !lazyIdentityExecute.containsKey(invocation))) { // здесь и в lazyExecute кривовато, но пока такой способ handl'ить null
                     result = new Waiting();
                     lazyIdentityExecute.put(invocation, result);
                 }
@@ -300,8 +308,10 @@ public class CacheAspect {
                             return doubleResult;
                     }
                     result = execute(target, thisJoinPoint, args, changedArgs);
-                    synchronized (lazyIdentityExecute) {
-                        lazyIdentityExecute.put(invocation, result);
+                    if(!(result == null && type == Type.STRONG_NOTNULL)) {
+                        synchronized (lazyIdentityExecute) {
+                            lazyIdentityExecute.put(invocation, result);
+                        }
                     }
                 }
             }
@@ -350,6 +360,10 @@ public class CacheAspect {
     @Around("execution(@lsfusion.server.base.caches.IdentityStrongLazy * *.*(..)) && target(object)")
     public Object callStrongMethod(ProceedingJoinPoint thisJoinPoint, Object object) throws Throwable {
         return callMethod(object, thisJoinPoint, Type.STRONG, CacheStats.CacheType.INSTANCE_LAZY);
+    }
+    @Around("execution(@lsfusion.server.base.caches.IdentityStrongNotNullLazy * *.*(..)) && target(object)")
+    public Object callStrongNotNullMethod(ProceedingJoinPoint thisJoinPoint, Object object) throws Throwable {
+        return callMethod(object, thisJoinPoint, Type.STRONG_NOTNULL, CacheStats.CacheType.INSTANCE_LAZY);
     }
     @Around("execution(@lsfusion.server.base.caches.IdentityQuickLazy * *.*(..)) && target(object)")
     public Object callQuickMethod(ProceedingJoinPoint thisJoinPoint, Object object) throws Throwable {

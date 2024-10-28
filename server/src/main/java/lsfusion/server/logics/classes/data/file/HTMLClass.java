@@ -1,6 +1,6 @@
 package lsfusion.server.logics.classes.data.file;
 
-import lsfusion.base.file.RawFileData;
+import lsfusion.interop.base.view.FlexAlignment;
 import lsfusion.interop.classes.DataType;
 import lsfusion.server.logics.classes.data.DataClass;
 import lsfusion.server.logics.form.stat.struct.FormIntegrationType;
@@ -38,10 +38,6 @@ public class HTMLClass extends HumanReadableFileClass {
         return DataType.HTML;
     }
 
-    public String getOpenExtension(RawFileData file) {
-        return "html";
-    }
-
     @Override
     public String getExtension() {
         return "html";
@@ -51,4 +47,15 @@ public class HTMLClass extends HumanReadableFileClass {
     public FormIntegrationType getIntegrationType() {
         throw new UnsupportedOperationException();
     }
+
+    @Override
+    public FlexAlignment getValueAlignmentHorz() {
+        return FlexAlignment.STRETCH;
+    }
+
+    @Override
+    public FlexAlignment getValueAlignmentVert() {
+        return FlexAlignment.STRETCH;
+    }
+
 }

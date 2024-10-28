@@ -1,0 +1,101 @@
+.property-toolbar-on-hover .property-toolbar-item-hover {
+    width: 0;
+    transition: width 200ms linear;
+
+    overflow: hidden;
+}
+
+.property-toolbar-on-hover:hover .property-toolbar-item-hover {
+    width: 100%;
+    transition: width 200ms linear;
+}
+
+.property-hide-toolbar > .property-toolbar {
+    display: none;
+}
+
+.property-toolbar {
+    display: flex;
+    align-items: center;
+
+    /*
+        bootstrap uses "z-index: 1" in ".btn-group>.btn-check:checked+.btn" rule,
+        and the loading spinner hides under last .btn-group element and becomes invisible
+    */
+    z-index: 1;
+}
+
+.property-toolbar-start {
+    max-width: 50%;
+}
+
+:not(.panel-renderer-value-focused) > .property-toolbar-on-hover .property-toolbar-start {
+    justify-content: start;
+}
+
+.property-toolbar-end {
+    max-width: 50%;
+}
+
+:not(.panel-renderer-value-focused) > .property-toolbar-on-hover .property-toolbar-end {
+    justify-content: end;
+}
+
+.property-toolbar-loading {
+    padding: 0.125rem;
+}
+
+.property-toolbar-item-hover {
+    display: flex;
+    align-self: stretch;
+}
+
+.property-toolbar-item-hover-start {
+    justify-content: end;
+}
+
+.property-toolbar-item-hover-end {
+    justify-content: start;
+}
+
+.property-toolbar-item,
+.property-toolbar-item.btn {
+    /*overflow: hidden;*/
+
+    /*we can't use border transparent, because it doesn't respect box-shadow, which is used for the background color in the table rows / cells*/
+    /*border: 1px solid transparent;*/
+    /*so we'll add the border to the padding (not the margin, since we want to be it not transparent, ie use the background color)*/
+    /* it seems that now it's not needed */
+    /*--border-toolbar-item-padding : 1px;*/
+    /*padding: calc(0.125rem + var(--border-toolbar-item-padding));*/
+    /*border-radius: var(--button-border-radius);*/
+
+    /*stretch self and center image inside*/
+    display: flex;
+    align-self: stretch;
+    align-items: center;
+}
+
+/* an input with a toolbar (input "pulls the size" from the upper container) */
+
+.prop-input-w-toolbar {
+    /*display: flex;*/
+}
+
+.prop-input-w-toolbar > .prop-input {
+    /*flex: 1 1 auto;*/
+    /*align-self: stretch;*/
+}
+
+.prop-input-w-toolbar > .property-toolbar {
+    margin-top: var(--input-border-width);
+    margin-bottom: var(--input-border-width);
+}
+
+.prop-input-w-toolbar > .property-toolbar-end {
+    margin-right: var(--input-border-width);
+}
+
+.prop-input-w-toolbar > .property-toolbar-start {
+    margin-left: var(--input-border-width);
+}

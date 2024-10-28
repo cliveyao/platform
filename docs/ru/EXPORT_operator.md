@@ -6,18 +6,22 @@ title: 'Оператор EXPORT'
 
 ## Синтаксис
 
-    EXPORT [exportFormat] [TOP n] FROM [columnId1 =] propertyExpr1, ..., [columnIdN = ] propertyExprN [WHERE whereExpr] [ORDER orderExpr1 [DESC], ..., orderExprL [DESC]] [TO propertyId]
-    EXPORT formName [OBJECTS objName1 = expr1, ..., objNameK = exprK] [exportFormat] [TOP n] [TO (propertyId | (groupId1 = propertyId1, ..., groupIdN = propertyIdM))]
+```
+EXPORT [exportFormat] [TOP n] FROM [columnId1 =] propertyExpr1, ..., [columnIdN = ] propertyExprN [WHERE whereExpr] [ORDER orderExpr1 [DESC], ..., orderExprL [DESC]] [TO propertyId]
+EXPORT formName [OBJECTS objName1 = expr1, ..., objNameK = exprK] [exportFormat] [TOP n] [TO (propertyId | (groupId1 = propertyId1, ..., groupIdN = propertyIdM))]
+```
 
 `exportFormat` может задаваться одним из следующих вариантов:
 
-    JSON [CHARSET charsetStr]
-    XML [ATTR] [CHARSET charsetStr]
-    CSV [separator] [HEADER | NOHEADER] [ESCAPE | NOESCAPE] [CHARSET charsetStr]
-    XLS [HEADER | NOHEADER]
-    XLSX [HEADER | NOHEADER]
-    DBF [CHARSET charsetStr]
-    TABLE
+```
+JSON [CHARSET charsetStr]
+XML [HEADER | NOHEADER] [ATTR] [CHARSET charsetStr]
+CSV [separator] [HEADER | NOHEADER] [ESCAPE | NOESCAPE] [CHARSET charsetStr]
+XLS [SHEET sheetProperty] [HEADER | NOHEADER]
+XLSX [SHEET sheetProperty] [HEADER | NOHEADER]
+DBF [CHARSET charsetStr]
+TABLE
+```
 
  
 ## Описание
@@ -92,6 +96,8 @@ title: 'Оператор EXPORT'
 
     При использовании опции `NOHEADER`, если имя колонки одно из предопределенных (`A`, `B`, ..., `Z`, `AA`, ...,  `AE`), то оно экспортируются в колонку с соответствующем номером, и при этом следующие колонки экспортируются в колонки следующие по порядку за этой колонкой.
 
+    Имеет другое назначение для **XML**: с опцией `HEADER` файл результата содержит первую строку `<?xml version="1.0" encoding="UTF-8"?>`. С опцией `NOHEADER` экспортируется без этой строки. По умолчанию используется `HEADER`.
+
 - `ESCAPE | NOESCAPE`
 
     Ключевое слово, указывающее на присутствие (`ESCAPE`) или отсутствие (`NOESCAPE`) в **CSV** файле экранирования спецсимволов(`\r`, `\n`, `"` (двойные кавычки) и указанного разделителя (`separator`). `NOESCAPE` имеет смысл использовать, только в случаях, когда в данных гарантировано не будет заданного разделителя. По умолчанию используется `ESCAPE`.
@@ -103,6 +109,10 @@ title: 'Оператор EXPORT'
     - `charsetStr`
     
         Cтроковый литерал, определяющий кодировку. 
+
+- `sheetProperty`
+
+  [Идентификатор свойства](IDs.md#propertyid), значение которого применяется в качестве названия листа в выгружаемом файле. У свойства не должно быть параметров. Используется для форматов экспорта `XLS`, `XLSX`.
 
 - `TOP n`
 
@@ -133,11 +143,18 @@ weight = DATA NUMERIC[10,2] (Sku);
 in = DATA BOOLEAN (Store, Sku);
 
 exportSkus (Store store)  {
-    EXPORT DBF CHARSET 'CP866' FROM id(Sku s), name(s), weight(s) WHERE in(store, s); // выгружаем в DBF все Sku, для которых задано in (Store, Sku) для нужного склада
-    EXPORT CSV NOHEADER NOESCAPE FROM id(Sku s), name(s), weight(s) WHERE in(store, s); // выгружает CSV без строки заголовков и без экранирования спецсимволов
-    EXPORT FROM id(Sku s), name(s), weight(s) WHERE in(store, s) ORDER name(s) DESC; // выгружает JSON, сортируем по свойству name[Sku] в порядке убывания
-    EXPORT FROM ff='HI'; // выгружает JSON {"ff":"HI"}, так как по умолчанию получает имя value, а платформа объект {"value":"HI"} автоматически преобразует в
-    EXPORT FROM 'HI'; // выгружает JSON "HI", так как по умолчанию получает имя value, а платформа объект {"value":"HI"} автоматически преобразует в "HI"
+    // выгружаем в DBF все Sku, для которых задано in (Store, Sku) для нужного склада
+    EXPORT DBF CHARSET 'CP866' FROM id(Sku s), name(s), weight(s) WHERE in(store, s); 
+    // выгружает CSV без строки заголовков и без экранирования спецсимволов
+    EXPORT CSV NOHEADER NOESCAPE FROM id(Sku s), name(s), weight(s) WHERE in(store, s); 
+    // выгружает JSON, сортируем по свойству name[Sku] в порядке убывания
+    EXPORT FROM id(Sku s), name(s), weight(s) WHERE in(store, s) ORDER name(s) DESC; 
+    // выгружает JSON {"ff":"HI"}, так как по умолчанию получает имя value, а платформа объект {"value":"HI"} 
+    // автоматически преобразует в "HI"
+    EXPORT FROM ff='HI'; 
+    // выгружает JSON "HI", так как по умолчанию получает имя value, а платформа объект {"value":"HI"} 
+    // автоматически преобразует в "HI"
+    EXPORT FROM 'HI'; 
 }
 ```
 

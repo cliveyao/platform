@@ -1,21 +1,26 @@
 package lsfusion.gwt.client.form.controller.dispatch;
 
-import com.google.gwt.user.client.Event;
-import com.google.gwt.user.client.rpc.AsyncCallback;
 import lsfusion.gwt.client.action.*;
+import lsfusion.gwt.client.base.EscapeUtils;
 import lsfusion.gwt.client.base.Result;
-import lsfusion.gwt.client.base.log.GLog;
+import lsfusion.gwt.client.base.StaticImage;
 import lsfusion.gwt.client.base.view.DialogBoxHelper;
-import lsfusion.gwt.client.classes.GObjectClass;
+import lsfusion.gwt.client.base.view.EventHandler;
+import lsfusion.gwt.client.base.view.PopupOwner;
+import lsfusion.gwt.client.base.view.WindowHiddenHandler;
 import lsfusion.gwt.client.controller.dispatch.GwtActionDispatcher;
+import lsfusion.gwt.client.controller.remote.action.RequestAsyncCallback;
 import lsfusion.gwt.client.controller.remote.action.form.ServerResponseResult;
-import lsfusion.gwt.client.form.classes.view.ClassChosenHandler;
+import lsfusion.gwt.client.form.classes.view.GClassDialog;
 import lsfusion.gwt.client.form.controller.GFormController;
-import lsfusion.gwt.client.form.property.cell.GEditBindingMap;
-import lsfusion.gwt.client.form.property.cell.controller.ExecuteEditContext;
+import lsfusion.gwt.client.form.property.PValue;
+import lsfusion.gwt.client.form.property.cell.controller.CancelReason;
+import lsfusion.gwt.client.form.property.cell.controller.EditContext;
+import lsfusion.gwt.client.form.property.cell.controller.EndReason;
 import lsfusion.gwt.client.form.property.cell.view.GUserInputResult;
-import lsfusion.gwt.client.navigator.window.GModalityType;
+import lsfusion.gwt.client.navigator.window.GModalityShowFormType;
 import lsfusion.gwt.client.view.MainFrame;
+import lsfusion.interop.action.ServerResponse;
 
 public class GFormActionDispatcher extends GwtActionDispatcher {
     protected final GFormController form;
@@ -25,41 +30,58 @@ public class GFormActionDispatcher extends GwtActionDispatcher {
     }
 
     @Override
-    protected void continueServerInvocation(long requestIndex, Object[] actionResults, int continueIndex, AsyncCallback<ServerResponseResult> callback) {
+    protected void continueServerInvocation(long requestIndex, Object[] actionResults, int continueIndex, RequestAsyncCallback<ServerResponseResult> callback) {
         form.continueServerInvocation(requestIndex, actionResults, continueIndex, callback);
     }
 
     @Override
-    protected void throwInServerInvocation(long requestIndex, Throwable t, int continueIndex, AsyncCallback<ServerResponseResult> callback) {
+    protected void throwInServerInvocation(long requestIndex, Throwable t, int continueIndex, RequestAsyncCallback<ServerResponseResult> callback) {
         form.throwInServerInvocation(requestIndex, t, continueIndex, callback);
     }
 
     @Override
+    public boolean canShowDockedModal() {
+        return !form.isWindow();
+    }
+
+    @Override
     public void execute(final GFormAction action) {
-        if (form.isModal() && action.modalityType == GModalityType.DOCKED_MODAL) {
-            action.modalityType = GModalityType.MODAL;
+        if (action.showFormType.isDockedModal() && !canShowDockedModal()) {
+            action.showFormType = GModalityShowFormType.MODAL;
         }
 
-        if (action.modalityType.isModal()) {
+        if (action.showFormType.isModal()) {
             pauseDispatching();
         }
-        form.openForm(getDispatchingIndex(), action.form, action.modalityType, action.forbidDuplicate, getEditEvent(), () -> {
-            if (action.modalityType.isModal()) {
+        WindowHiddenHandler onClose = () -> {
+            if (action.showFormType.isModal()) {
                 continueDispatching();
             }
-        });
+        };
+        try {
+            form.openForm(getDispatchingIndex(), action.form, action.showFormType, action.forbidDuplicate, editEventHandler != null ? editEventHandler.event : null, editContext, onClose, action.formId);
+        } catch (Throwable t) {
+            onClose.onHidden();
+            throw t;
+        }
+
+    }
+
+    @Override
+    protected void onServerInvocationResponse(ServerResponseResult response) {
+        form.onServerInvocationResponse(response);
+    }
+
+    @Override
+    protected void onServerInvocationFailed(ExceptionResult exceptionResult) {
+        form.onServerInvocationFailed(exceptionResult);
     }
 
     @Override
     public Object execute(GChooseClassAction action) {
         pauseDispatching();
         Result<Object> result = new Result<>();
-        form.showClassDialog(action.baseClass, action.defaultClass, action.concreate, new ClassChosenHandler() {
-            @Override
-            public void onClassChosen(GObjectClass chosenClass) {
-                continueDispatching(chosenClass == null ? null : chosenClass.ID, result);
-            }
-        });
+        GClassDialog.showDialog(action.baseClass, action.defaultClass, action.concreate, chosenClass -> continueDispatching(chosenClass == null ? null : chosenClass.ID, result), getPopupOwner());
         return result.result;
     }
 
@@ -68,29 +90,18 @@ public class GFormActionDispatcher extends GwtActionDispatcher {
         pauseDispatching();
 
         Result<Object> result = new Result<>();
-        form.blockingConfirm(action.caption, action.message, action.cancel, action.timeout, action.initialValue,
-                chosenOption -> continueDispatching(chosenOption.asInteger(), result));
+        DialogBoxHelper.showConfirmBox(action.caption, EscapeUtils.toHTML(action.message, StaticImage.MESSAGE_WARN), action.cancel, action.timeout, action.initialValue, getPopupOwner(), chosenOption -> continueDispatching(chosenOption.asInteger(), result));
         return result.result;
     }
 
     @Override
-    public void execute(GLogMessageAction action) {
-        if (GLog.isLogPanelVisible || action.failed) {
-            super.execute(action);
-        } else {
-            pauseDispatching();
-            form.blockingMessage(action.failed, "lsFusion", action.message, new DialogBoxHelper.CloseCallback() {
-                @Override
-                public void closed(DialogBoxHelper.OptionType chosenOption) {
-                    continueDispatching();
-                }
-            });
-        }
+    protected PopupOwner getPopupOwner() {
+        return editContext != null ? editContext.getPopupOwner() : form.getPopupOwner();
     }
 
     @Override
     public void execute(GHideFormAction action) {
-        form.hideForm(action.closeDelay);
+        form.hideForm(getAsyncFormController(getDispatchingIndex()), action.closeDelay, editFormCloseReason != null ? editFormCloseReason : CancelReason.HIDE);
     }
 
     @Override
@@ -110,32 +121,33 @@ public class GFormActionDispatcher extends GwtActionDispatcher {
     }
 
     @Override
-    public void execute(final GChangeColorThemeAction action) {
-        MainFrame.changeColorTheme(action.colorTheme);
+    public void execute(GResetWindowsLayoutAction action) {
+        if (!MainFrame.mobile) {
+            form.resetWindowsLayout();
+        }
     }
 
     @Override
-    public void execute(GResetWindowsLayoutAction action) {
-        form.resetWindowsLayout();
+    public void execute(GOrderAction action) {
+        form.changePropertyOrder(action.goID, action.ordersMap);
+    }
+
+    @Override
+    public void execute(GFilterAction action) {
+        form.changePropertyFilters(action.goID, action.filters);
+    }
+
+    @Override
+    public void execute(GFilterGroupAction action) {
+        form.setRegularFilterIndex(action.filterGroup, action.index);
     }
 
     // editing (INPUT) functionality
 
-    private Event editEvent;
-    private ExecuteEditContext editContext;
-    private String actionSID;
+    public EventHandler editEventHandler;
+    public EditContext editContext; // needed for some input operations (input, update edit value)
 
-    public long executePropertyActionSID(Event event, String actionSID, ExecuteEditContext editContext) {
-        this.editEvent = event;
-        this.editContext = editContext;
-        this.actionSID = actionSID;
-
-        return form.executeEventAction(editContext.getProperty(), editContext.getColumnKey(), actionSID);
-    }
-
-    protected Event getEditEvent() {
-        return editEvent;
-    }
+    public EndReason editFormCloseReason;
 
     @Override
     public Object execute(GRequestUserInputAction action) {
@@ -144,17 +156,27 @@ public class GFormActionDispatcher extends GwtActionDispatcher {
 
         // we should not drop at least editSetValue since GUpdateEditValueAction might use it
         Result<Object> result = new Result<>();
-        form.edit(action.readType, editEvent, action.hasOldValue, action.oldValue,
-                value -> form.changeEditPropertyValue(editContext, actionSID, action.readType, value, getDispatchingIndex()), // we'll be optimists and assume that this value will stay
-                value -> continueDispatching(new GUserInputResult(value), result),
-                () -> continueDispatching(GUserInputResult.canceled, result), editContext);
+        // we'll be optimists and assume that this value will stay
+        long dispatchingIndex = getDispatchingIndex();
+        form.edit(action.readType, editEventHandler, action.hasOldValue, PValue.convertFileValue(action.oldValue), action.inputList, action.inputListActions,
+                (value, onExec) -> {
+                    onExec.accept(dispatchingIndex);
+
+                    continueDispatching(value, result);
+                },
+                (cancelReason) -> continueDispatching(GUserInputResult.canceled, result), editContext, ServerResponse.INPUT, null);
         return result.result;
     }
 
     @Override
     public void execute(GUpdateEditValueAction action) {
-        editContext.setValue(action.value);
+        if(editContext != null) {
+            form.setValue(editContext, PValue.convertFileValue(action.value));
+        }
+    }
 
-        form.update(editContext.getProperty(), editContext.getRenderElement(), action.value, editContext.getUpdateContext());
+    @Override
+    public void execute(GCloseFormAction action) {
+        form.getFormsController().closeForm(action.formId);
     }
 }

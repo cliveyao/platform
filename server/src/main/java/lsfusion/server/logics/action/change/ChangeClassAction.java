@@ -1,7 +1,6 @@
 package lsfusion.server.logics.action.change;
 
 import lsfusion.base.BaseUtils;
-import lsfusion.base.col.ListFact;
 import lsfusion.base.col.MapFact;
 import lsfusion.base.col.SetFact;
 import lsfusion.base.col.interfaces.immutable.*;
@@ -20,10 +19,11 @@ import lsfusion.server.logics.action.flow.FlowResult;
 import lsfusion.server.logics.action.flow.ForAction;
 import lsfusion.server.logics.action.implement.ActionMapImplement;
 import lsfusion.server.logics.action.session.classes.change.ClassChange;
-import lsfusion.server.logics.classes.ValueClass;
 import lsfusion.server.logics.classes.user.*;
 import lsfusion.server.logics.classes.user.set.OrObjectClassSet;
 import lsfusion.server.logics.form.interactive.UpdateType;
+import lsfusion.server.logics.form.interactive.action.async.map.AsyncMapEventExec;
+import lsfusion.server.logics.form.interactive.action.async.map.AsyncMapRemove;
 import lsfusion.server.logics.form.interactive.instance.object.CustomObjectInstance;
 import lsfusion.server.logics.form.interactive.instance.object.ObjectInstance;
 import lsfusion.server.logics.form.interactive.instance.property.PropertyObjectInterfaceInstance;
@@ -39,7 +39,9 @@ import lsfusion.server.physics.dev.debug.ActionDelegationType;
 import lsfusion.server.physics.dev.i18n.LocalizedString;
 
 import java.sql.SQLException;
+import java.util.List;
 
+import static lsfusion.server.logics.ServerResourceBundle.getString;
 import static lsfusion.server.logics.property.PropertyFact.createChangeClassAction;
 
 // с открытым 2-м интерфейсом класса уже есть в SystemActionProperty
@@ -86,7 +88,7 @@ public class ChangeClassAction<T extends PropertyInterface, I extends PropertyIn
      }
 
     @Override
-    public ImMap<Property, Boolean> aspectUsedExtProps() {
+    public ImMap<Property, Boolean> calculateUsedExtProps() {
         if(where==null)
             return MapFact.EMPTY();
         return getUsedProps(where);
@@ -131,22 +133,23 @@ public class ChangeClassAction<T extends PropertyInterface, I extends PropertyIn
         ConcreteObjectClass readClass;
 
         if (needDialog()) {
-            CustomClass baseClass; CustomClass currentClass;
-            CustomObjectInstance object = (CustomObjectInstance) context.getSingleObjectInstance();
-            if(object == null) {
-                baseClass = this.baseClass;
-                currentClass = baseClass;
-            } else {
-                baseClass = object.baseClass;
-                currentClass = object.currentClass;
-            }
-            
-            ObjectValue objectValue = context.requestUserClass(baseClass, currentClass, true);
-            if (!(objectValue instanceof DataObject)) { // cancel
-                return FlowResult.FINISH;
-            }
+            throw new UnsupportedOperationException(getString("logics.error.unable.create.object.of.abstract.class"));
+            //CustomClass baseClass; CustomClass currentClass;
+            //CustomObjectInstance object = (CustomObjectInstance) context.getSingleObjectInstance();
+            //if(object == null) {
+            //    baseClass = this.baseClass;
+            //    currentClass = baseClass;
+            //} else {
+            //    baseClass = object.baseClass;
+            //    currentClass = object.currentClass;
+            //}
 
-            readClass = baseClass.getBaseClass().findConcreteClassID((Long) ((DataObject) objectValue).object);
+            //ObjectValue objectValue = context.requestUserClass(baseClass, currentClass, true);
+            //if (!(objectValue instanceof DataObject)) { // cancel
+            //    return FlowResult.FINISH;
+            //}
+
+            //readClass = baseClass.getBaseClass().findConcreteClassID((Long) ((DataObject) objectValue).object);
         } else
             readClass = (ConcreteObjectClass) valueClass;
 
@@ -162,7 +165,21 @@ public class ChangeClassAction<T extends PropertyInterface, I extends PropertyIn
                 if (objectInstance instanceof ObjectInstance) {
                     CustomObjectInstance customObjectInstance = (CustomObjectInstance) objectInstance;
                     if(readClass instanceof UnknownClass || !((CustomClass) readClass).isChild(customObjectInstance.gridClass)) { // если удаляется
-                        nearObject = BaseUtils.getNearValue((ObjectInstance) objectInstance, dataObject, ListFact.toJavaMapList(customObjectInstance.groupTo.keys.keyOrderSet()));
+                        List<ImMap<ObjectInstance, DataObject>> keys = customObjectInstance.groupTo.keys.keyOrderSet().toJavaList();
+                        boolean found = false;
+                        for (int i = keys.size() - 1; i >= 0; i--) {
+                            DataObject keyObject = keys.get(i).get((ObjectInstance) objectInstance);
+                            if (keyObject.equals(dataObject)) {
+                                if (i < keys.size() - 1) {
+                                    nearObject = keys.get(i + 1).get((ObjectInstance) objectInstance);
+                                    break;
+                                } else found = true;
+                            } else
+                                if (found) {
+                                    nearObject = keyObject;
+                                    break;
+                                }
+                        }
                         seekOther = true;
                     }
                 }
@@ -188,10 +205,10 @@ public class ChangeClassAction<T extends PropertyInterface, I extends PropertyIn
     }
 
     @Override
-    public PropertyInterface getSimpleDelete() {
+    public AsyncMapEventExec<PropertyInterface> calculateAsyncEventExec(boolean optimistic, boolean recursive) {
         if ((where == null || BaseUtils.hashEquals(mapInterfaces.valuesSet(),innerInterfaces)) && valueClass instanceof UnknownClass)
-            return interfaces.single();
-        return super.getSimpleDelete();
+            return new AsyncMapRemove<>(mapInterfaces.reverse().get(changeInterface));
+        return null;
     }
 
     @Override
@@ -215,6 +232,10 @@ public class ChangeClassAction<T extends PropertyInterface, I extends PropertyIn
     @Override
     public boolean hasFlow(ChangeFlowType type) {
         if(type.isChange())
+            return true;
+        if(type == ChangeFlowType.PRIMARY && valueClass instanceof CustomClass)
+            return true;
+        if(type == ChangeFlowType.ANYEFFECT)
             return true;
         return super.hasFlow(type);
     }

@@ -23,7 +23,7 @@ public class ExceptionUtils {
     }
 
     public static String getStackTrace() {
-        return getStackTrace(new Exception());
+        return "THREAD :" + Thread.currentThread() + "\n" + getStackTrace(new Exception());
     }
 
     public static String toString(Throwable e) {

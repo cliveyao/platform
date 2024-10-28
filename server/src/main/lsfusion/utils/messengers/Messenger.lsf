@@ -29,9 +29,10 @@ TABLE messages (Message);
 
 chat = DATA Chat (Message);
 message '{messenger.message}' = DATA STRING (Message);
+file = DATA NAMEDFILE(Message);
 from '{messenger.from}' = DATA STRING (Message);
 dateTime '{messenger.datetime}' = DATA DATETIME (Message);
-account = DATA Account (Chat);
+account = DATA Account (Chat) NONULL DELETE;
 chatType = DATA ChatType (Chat);
 captionChatType '{messenger.chat.type}' (Chat c) = staticCaption(chatType(c)) CHARWIDTH 10 IN id;
 id '{messenger.chat.id}' = DATA STRING (Chat) CHARWIDTH 10;
@@ -39,16 +40,21 @@ chatIdAccount = GROUP AGGR Chat c BY account(c), id(c);
 name '{messenger.chat.name}' = DATA STRING (Chat) IN id;
 title '{messenger.chat.title}' = DATA STRING (Chat);
 newMessage '{messenger.chat.new.message}' = DATA LOCAL TEXT (Chat);
+newAttachment '{chat.attachment}' = DATA LOCAL NESTED NAMEDFILE(Chat);
 
 sendMessageResult = DATA LOCAL STRING();
 sendMessage '{messenger.chat.send.message}' ABSTRACT CASE (Chat, STRING);
+sendFile '{messenger.chat.send.message}' ABSTRACT CASE (Chat, NAMEDFILE);
 
 sendMessage '{messenger.chat.send.message}' (Chat chat) {
     sendMessage(chat, newMessage(chat));
+    IF NOT sendMessageResult() THEN sendFile(chat, newAttachment(chat));
     IF sendMessageResult() THEN {
         MESSAGE sendMessageResult() NOWAIT;
     }
+    sendMessageResult() <- NULL;
     newMessage(chat) <- NULL;
+    newAttachment(chat) <- NULL;
 }
 
 synchronizeChats ABSTRACT LIST (Account);
@@ -61,20 +67,27 @@ synchronizeChatsAction '{messenger.account.synchronize}' (Account a) {
     APPLY;
 }
 
-FORM messengers '{messenger.messengers}' AUTOREFRESH 20
+openFile '{system.open.file}' (Message m) {
+    open(file(m));
+}
+
+FORM messengers '{messenger.messengers}'
     OBJECTS a = Account
     PROPERTIES(a) READONLY name, captionMessenger, token 
     PROPERTIES(a) NEWSESSION synchronizeChatsAction TOOLBAR SHOWIF isSynchronize(messenger(a)), NEW, EDIT, DELETE 
     OBJECTS c = Chat
     PROPERTIES(c) READONLY id, captionChatType, name, title SHOWIF showTitle(messenger(a)), DELETE CHANGEABLE
-    PROPERTIES(c) PANEL newMessage, sendMessage
+    PROPERTIES(c) PANEL newMessage, sendMessage, newAttachment
     
     OBJECTS m = Message
     PROPERTIES(m) READONLY from, dateTime, message 
+    PROPERTIES(m) openFile READONLYIF NOT file(m)
     FILTERS chat(m) == c 
     ORDERS dateTime(m) DESC
 
-    FILTERS account(c) == a;
+    FILTERS account(c) == a
+
+    EVENTS ON SCHEDULE PERIOD 20 formRefresh();
 
 FORM messenger '{messenger.messenger}'
     OBJECTS a = Account PANEL
@@ -88,14 +101,18 @@ DESIGN messengers {
     }
     NEW chat {
         fill = 3;
-        type = SPLITH;
+        horizontal = TRUE;
         MOVE BOX(c);
         MOVE BOX(m);
     }
     MOVE PROPERTY(newMessage(c)) {
         panelCaptionVertical = TRUE;
     }
-    MOVE PROPERTY(sendMessage(c));                              
+    NEW sendMessage {
+        MOVE PROPERTY(sendMessage(c));
+        MOVE PROPERTY(newAttachment(c));
+        horizontal = TRUE;
+    }
     MOVE TOOLBARBOX; 
 }
 

@@ -5,7 +5,6 @@ import com.formdev.flatlaf.FlatLaf;
 import com.formdev.flatlaf.FlatLightLaf;
 import lsfusion.base.BaseUtils;
 import lsfusion.base.Pair;
-import lsfusion.base.ResourceUtils;
 import lsfusion.base.SystemUtils;
 import lsfusion.base.classloader.RemoteClassLoader;
 import lsfusion.base.file.RawFileData;
@@ -23,21 +22,21 @@ import lsfusion.client.base.view.ClientImages;
 import lsfusion.client.base.view.ColorThemeChangeListener;
 import lsfusion.client.base.view.SwingDefaults;
 import lsfusion.client.controller.remote.ConnectionLostManager;
-import lsfusion.client.form.print.SavingThread;
 import lsfusion.client.form.property.cell.classes.controller.rich.RichEditorPane;
 import lsfusion.client.logics.LogicsProvider;
 import lsfusion.client.view.MainFrame;
-import lsfusion.interop.action.ReportPath;
 import lsfusion.interop.base.exception.AppServerNotAvailableException;
 import lsfusion.interop.base.view.ColorTheme;
 import lsfusion.interop.connection.AuthenticationToken;
+import lsfusion.interop.connection.ComputerInfo;
+import lsfusion.interop.connection.ConnectionInfo;
 import lsfusion.interop.connection.authentication.PasswordAuthentication;
 import lsfusion.interop.form.object.table.grid.user.design.ColorPreferences;
 import lsfusion.interop.logics.LogicsConnection;
 import lsfusion.interop.logics.LogicsRunnable;
-import lsfusion.interop.logics.LogicsSessionObject;
 import lsfusion.interop.logics.ServerSettings;
 import lsfusion.interop.logics.remote.RemoteLogicsInterface;
+import lsfusion.interop.session.ExternalRequest;
 import lsfusion.interop.session.SessionInfo;
 import org.apache.log4j.Logger;
 
@@ -48,14 +47,12 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.io.File;
 import java.io.IOException;
-import java.lang.reflect.Field;
-import java.lang.reflect.Modifier;
 import java.rmi.RemoteException;
-import java.rmi.server.RMIClassLoader;
 import java.util.List;
 import java.util.*;
 
 import static lsfusion.base.BaseUtils.nvl;
+import static lsfusion.base.BaseUtils.safeDelete;
 import static lsfusion.client.StartupProperties.*;
 
 public class MainController {
@@ -71,15 +68,31 @@ public class MainController {
     public static long busyDialogTimeout;
     public static boolean useRequestTimeout;
     public static boolean showNotDefinedStrings;
+    public static String matchSearchSeparator;
     public static boolean showDetailedInfo;
+    public static int showDetailedInfoDelay;
+    public static String projectLSFDir;
     public static boolean forbidDuplicateForms;
     public static long timeDiffServerClientLog = 1000;
     public static ColorPreferences colorPreferences;
     public static ColorTheme colorTheme = ColorTheme.DEFAULT;
+    public static String userDebugPath;
+    public static boolean useTextAsFilterSeparator;
+    
+    public static boolean userFiltersManualApplyMode;
+    public static boolean disableActionsIfReadonly;
+    public static boolean enableShowingRecentlyLogMessages;
+
+    public static int maxRequestQueueSize;
+
+    public static boolean jasperReportsIgnorePageMargins;
 
     // lifecycle
 
+    private static RemoteClassLoader remoteClassLoader;
     public static void start(final String[] args) {
+        remoteClassLoader = new RemoteClassLoader(Thread.currentThread().getContextClassLoader());
+        Thread.currentThread().setContextClassLoader(remoteClassLoader);
 
         registerSingleInstanceListener();
 
@@ -279,31 +292,11 @@ public class MainController {
     }
 
     public static void initRmiClassLoader(RemoteLogicsInterface remoteLogics) {
-        // since RMIClassLoader uses Spi Class.forname to load,
-        // and this does not work correctly, since JWS uses its own user-class loader,
-        // and the jar-files are not added to java.class.path
-        // requires RemoteClassLoader to run with native JWS ClassLoader
-
-        try {
-            Field field = RMIClassLoader.class.getDeclaredField("provider");
-            field.setAccessible(true);
-
-            Field modifiersField = Field.class.getDeclaredField("modifiers");
-            modifiersField.setAccessible(true);
-            modifiersField.setInt(field, field.getModifiers() & ~Modifier.FINAL);
-
-            field.set(null, new RemoteClassLoader(remoteLogics));
-
-            // reset the SecurityManager that installs JavaWS,
-            // since it doesn't let the RemoteClassLoader class do anything,
-            // since it is loaded from a temporary directory
-            System.setSecurityManager(null);
-        } catch (Exception ex) {
-            logger.error("Error during startup: ", ex);
-            ex.printStackTrace();
-            removeSingleInstanceListener();
-            System.exit(1);
-        }
+        remoteClassLoader.setRemoteLogics(remoteLogics);
+        // reset the SecurityManager that installs JavaWS,
+        // since it doesn't let the RemoteClassLoader class do anything,
+        // since it is loaded from a temporary directory
+        System.setSecurityManager(null);
     }
     
     private static void initSwing() throws ClassNotFoundException, InstantiationException, IllegalAccessException, UnsupportedLookAndFeelException {
@@ -327,7 +320,9 @@ public class MainController {
         UIManager.put("TextComponent.selectAllOnFocusPolicy", "never");
         UIManager.put("Button.default.borderWidth", SwingDefaults.getButtonBorderWidth()); // differs in light and dark themes. make equal to have equal height.
         UIManager.put("TabbedPane.tabHeight", SwingDefaults.getComponentHeight());
+        UIManager.put("TabbedPane.tabsPopupPolicy", "never");
         UIManager.put("ToggleButton.margin", SwingDefaults.getToggleButtonMargin());
+        UIManager.put("SplitPaneDivider.style", "plain");
 
         setUIDefaults();
         
@@ -336,46 +331,26 @@ public class MainController {
         new RichEditorPane();
     }
 
-    public static void setStatusText(String msg) {
-        if (MainFrame.instance != null) {
-            MainFrame.instance.statusComponent.setText(msg);
-        }
-    }
-
-    public static long getBytesSent() {
-        return ZipClientSocketFactory.outSum;
-    }
-
-    public static long getBytesReceived() {
-        return ZipClientSocketFactory.inSum;
-    }
-
     // edit reports
     
-    public static void addReportPathList(List<ReportPath> reportPathList, String formSID) throws IOException {
+    public static void addReportPathList(List<String> reportPathList, String formSID) throws IOException {
         reportPathList.addAll(MainController.remoteLogics.saveAndGetCustomReportPathList(formSID, false));
         editReportPathList(reportPathList);
     }
-    public static void recreateReportPathList(List<ReportPath> reportPathList, String formSID) throws IOException {
+    public static void recreateReportPathList(List<String> reportPathList, String formSID) throws IOException {
         MainController.remoteLogics.saveAndGetCustomReportPathList(formSID, true);
         editReportPathList(reportPathList);
     }
-    public static void editReportPathList(List<ReportPath> reportPathList) throws IOException {
-        for (ReportPath reportPath : reportPathList) {
-            Desktop.getDesktop().open(new File(reportPath.customPath));
+    public static void editReportPathList(List<String> reportPathList) throws IOException {
+        for (String reportPath : reportPathList) {
+            Desktop.getDesktop().open(new File(reportPath));
         }
-        // не очень хорошо оставлять живой поток, но это используется только в девелопменте, поэтому не важно
-        new SavingThread(reportPathList).start();
     }
 
-    public static void deleteReportPathList(List<ReportPath> reportPathList) {
-        for (ReportPath reportPath : reportPathList) {
-            File customFile = new File(reportPath.customPath);
-            if(!customFile.delete())
-                customFile.deleteOnExit();
-            File targetFile = new File(reportPath.targetPath);
-            if(!targetFile.delete())
-                targetFile.deleteOnExit();
+    public static void deleteReportPathList(List<String> reportPathList) {
+        for (String reportPath : reportPathList) {
+            File customFile = new File(reportPath);
+            safeDelete(customFile);
         }
         reportPathList.clear();
     }
@@ -410,9 +385,13 @@ public class MainController {
     }
 
     public static String computerName;
+
     public static SessionInfo getSessionInfo() {
-        return new SessionInfo(computerName, SystemUtils.getLocalHostIP(), Locale.getDefault().getLanguage(), Locale.getDefault().getCountry(),
-                BaseUtils.getDatePattern(), BaseUtils.getTimePattern());
+        return new SessionInfo(getConnectionInfo(), ExternalRequest.EMPTY);
+    }
+
+    public static ConnectionInfo getConnectionInfo() {
+        return new ConnectionInfo(new ComputerInfo(computerName, SystemUtils.getLocalHostIP()), new lsfusion.interop.connection.UserInfo(Locale.getDefault().getLanguage(), Locale.getDefault().getCountry(), TimeZone.getDefault(), BaseUtils.getDatePattern(), BaseUtils.getTimePattern(), DarkModeDetector.isDarkMode() ? "dark" : "light"));
     }
 
     public static LogicsConnection serverInfo;
@@ -447,11 +426,7 @@ public class MainController {
         try {
             assert authToken == null;
             final UserInfo fUserInfo = userInfo;
-            authToken = runRequest(new LogicsRunnable<AuthenticationToken>() {
-                public AuthenticationToken run(LogicsSessionObject sessionObject) throws RemoteException {
-                    return fUserInfo.isAnonymous() ? AuthenticationToken.ANONYMOUS : sessionObject.remoteLogics.authenticateUser(new PasswordAuthentication(fUserInfo.name, fUserInfo.password));
-                }
-            });
+            authToken = runRequest((sessionObject, retry) -> fUserInfo.isAnonymous() ? AuthenticationToken.ANONYMOUS : sessionObject.remoteLogics.authenticateUser(new PasswordAuthentication(fUserInfo.name, fUserInfo.password)));
         } catch (Exception e) {
             return loginAndAuthenticateUser(e.getMessage(), null);
         }
@@ -474,9 +449,9 @@ public class MainController {
     private static final String DEFAULT_ICON_PATH = "logo/";
     public static List<Image> getMainIcons(ServerSettings serverSettings) {
         Set<Image> images = new LinkedHashSet<>();
-        RawFileData logicsMainIcon = serverSettings != null ? serverSettings.logicsIcon : null;
+        RawFileData logicsMainIcon = serverSettings != null && serverSettings.logicsIcon != null ? serverSettings.logicsIcon.getRawFile() : null;
         if(logicsMainIcon != null) {
-            ImageIcon resource = new ImageIcon(logicsMainIcon.getBytes());
+            ImageIcon resource = logicsMainIcon.getImageIcon();
             if(resource.getImageLoadStatus() == MediaTracker.COMPLETE) {
                 images.add(resource.getImage());
             }
@@ -491,8 +466,8 @@ public class MainController {
     }
 
     public static ImageIcon getLogo(ServerSettings serverSettings) {
-        RawFileData logicsMainLogo = serverSettings != null ? serverSettings.logicsLogo : null;
-        return logicsMainLogo != null ? new ImageIcon(logicsMainLogo.getBytes()) : getImageIcon(DEFAULT_ICON_PATH + "logo.png");
+        RawFileData logicsMainLogo = serverSettings != null && serverSettings.logicsLogo != null ? serverSettings.logicsLogo.getRawFile() : null;
+        return logicsMainLogo != null ? logicsMainLogo.getImageIcon() : getImageIcon(DEFAULT_ICON_PATH + "logo.png");
     }
 
     private static Image getImage(String resourcePath) {
@@ -500,7 +475,7 @@ public class MainController {
     }
 
     private static ImageIcon getImageIcon(String resourcePath) {
-        return ResourceUtils.readImage(resourcePath);
+        return ClientImages.readImage(resourcePath);
     }
 
     public static String getMainTitle() {
@@ -575,7 +550,6 @@ public class MainController {
     
     // properties which depend on client settings and are stored in UIDefaults (not read in runtime)
     public static void setClientSettingsDependentUIDefaults() {
-        UIManager.put("Tree.selectionInactiveBackground", SwingDefaults.getFocusedTableRowBackground()); // JTree in TreeGroupTable draws inactive background on selection
         UIManager.put("Table.gridColor", SwingDefaults.getTableGridColor()); // Actually doesn't fully work. We have to update gridColor in JTable's updateUI() for existing tables
         UIManager.put("TableHeader.separatorColor", SwingDefaults.getTableGridColor());
         UIManager.put("TableHeader.bottomSeparatorColor", SwingDefaults.getTableGridColor());
@@ -591,7 +565,7 @@ public class MainController {
             SwingDefaults.reset();
             setUIDefaults();
             
-            FlatLaf.install(newLookAndFeel);
+            FlatLaf.setup(newLookAndFeel);
             FlatLaf.updateUI();
 
             for (ColorThemeChangeListener colorThemeChangeListener : new HashSet<>(colorThemeChangeListeners)) {

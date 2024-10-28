@@ -1,12 +1,16 @@
 package lsfusion.gwt.client.form.property.cell.controller;
 
 import com.google.gwt.dom.client.Element;
-import lsfusion.gwt.client.base.Pair;
+import lsfusion.gwt.client.form.property.PValue;
 import lsfusion.gwt.client.form.property.cell.view.RenderContext;
 
 public interface ReplaceCellEditor extends CellEditor {
 
-    void render(Element cellParent, RenderContext renderContext, Pair<Integer, Integer> renderedSize);
+    default boolean needReplace(Element cellParent, RenderContext renderContext) {
+        return true;
+    }
 
-    void clearRender(Element cellParent, RenderContext renderContext);
+    void render(Element cellParent, RenderContext renderContext, PValue oldValue, Integer renderedWidth, Integer renderedHeight);
+
+    void clearRender(Element cellParent, RenderContext renderContext, boolean cancel);
 }

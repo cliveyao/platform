@@ -1,0 +1,72 @@
+
+.table {
+    /* here it's tricky, there are two ways to make border single :
+    1) border-spacing: 0, border-collapse: separate (default)
+    2) border-collapse: collapse
+    however in second case, we'll have to draw the focus for upper / left cells (to prioritize this border during collapse, plus it won't help with the table-container border)
+    */
+    border-spacing: 0;
+    border-collapse: separate;
+}
+
+.no-vertical-scroll {
+}
+
+:root {
+    /*override in StyleDefaults init*/
+    --focused-cell-border-color: var(--focus-color);
+}
+
+.table:not(.empty-header) .data-grid-header .data-grid-header-cell {
+    /* the same as data-grid-cell, data-grid-header-cell, table.pvtTable thead tr th/td */
+    border-bottom: var(--border-width) solid var(--grid-separator-border-color);
+}
+
+.table:not(.empty-footer) .data-grid-footer .data-grid-footer-cell {
+    border-top: var(--border-width) solid var(--grid-separator-border-color);
+}
+
+.data-grid-cell {
+    /* the same as data-grid-cell, data-grid-header-cell, table.pvtTable thead tr th/td */
+    border-bottom: var(--border-width) solid var(--grid-separator-border-color);
+}
+
+.focused-cell-bottom-border,
+:not(.empty-header) .data-grid-header .data-grid-header-cell.focused-cell-bottom-border {
+    border-bottom: var(--border-width) solid var(--focused-cell-border-color);
+}
+
+.data-grid-header-cell:not(.no-vertical-scroll .data-grid-last-header-cell) {
+    border-right: var(--border-width) solid var(--grid-separator-border-color);
+}
+
+.data-grid-footer-cell:not(.no-vertical-scroll .data-grid-last-footer-cell) {
+    border-right: var(--border-width) solid var(--grid-separator-border-color);
+}
+
+.data-grid-cell:not(.no-vertical-scroll .data-grid-last-cell) {
+    /* the same as data-grid-cell, data-grid-header-cell, table.pvtTable thead tr th/td */
+    border-right: var(--border-width) solid var(--grid-separator-border-color);
+}
+
+.focused-cell-right-border:not(.no-vertical-scroll .data-grid-last-cell) {
+    border-right: var(--border-width) solid var(--focused-cell-border-color);
+}
+
+.left-neighbour-right-border:not(.no-vertical-scroll .data-grid-last-cell)  { /* second check we need to prioritize this rule over .data-grid-cell:not (otherwise two matches against one) */
+    border-right: var(--border-width) solid var(--focused-cell-border-color);
+}
+
+.data-grid-first-header-cell {
+}
+.data-grid-last-header-cell {
+}
+.data-grid-first-footer-cell {
+}
+.data-grid-last-footer-cell {
+}
+.data-grid-first-cell {
+}
+.data-grid-last-cell {
+}
+

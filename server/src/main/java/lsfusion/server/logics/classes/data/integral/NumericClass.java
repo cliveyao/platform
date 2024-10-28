@@ -122,7 +122,7 @@ public class NumericClass extends IntegralClass<BigDecimal> {
 
     @Override
     public BigDecimal read(ResultSet set, SQLSyntax syntax, String name) throws SQLException {
-        return read(set.getBigDecimal(name));
+        return readResult(set.getBigDecimal(name));
     }
 
     public void writeParam(PreparedStatement statement, int num, Object value, SQLSyntax syntax) throws SQLException {
@@ -133,7 +133,7 @@ public class NumericClass extends IntegralClass<BigDecimal> {
         return isUnlimited() ? Settings.get().getMaxNumericScale() : scale.value;
     }
 
-    public String getDB(SQLSyntax syntax, TypeEnvironment typeEnv) {
+    public String getDBString(SQLSyntax syntax, TypeEnvironment typeEnv) {
         return syntax.getNumericType(precision, scale);
     }
 
@@ -159,7 +159,7 @@ public class NumericClass extends IntegralClass<BigDecimal> {
     }
 
     public BigDecimal getDefaultValue() {
-        return read(new BigDecimal("0.0"));
+        return readNumber(new BigDecimal("0.0"));
     }
 
     public BigDecimal parseString(String s) throws ParseException {
@@ -188,11 +188,18 @@ public class NumericClass extends IntegralClass<BigDecimal> {
 
     @Override
     public OverJDBField formatDBF(String fieldName) throws JDBFException {
-        return new OverJDBField(fieldName, 'N', Math.min(getPrecision(), 253), Math.min(getScale(), 253));
+        //values below zero need +1 for minus sign
+        return OverJDBField.createField(fieldName, 'N', Math.min(getPrecision() + 1, 20), Math.min(getScale(), 19));
     }
 
     @Override
     public Stat getTypeStat() {
         return new Stat(10, isUnlimited() ? Settings.get().getMaxNumericPrecision() : precision.value);
+    }
+
+    @Override
+    public int getSize(BigDecimal value) {
+        assert precision.isUnlimited();
+        return value.precision();
     }
 }

@@ -3,6 +3,7 @@ package lsfusion.server.base.controller.remote.context;
 import lsfusion.base.BaseUtils;
 import lsfusion.base.ExceptionUtils;
 import lsfusion.base.col.heavy.weak.WeakIdentityHashSet;
+import lsfusion.base.lambda.ERunnable;
 import lsfusion.server.base.controller.context.Context;
 import lsfusion.server.base.controller.remote.PendingRemoteObject;
 import lsfusion.server.base.controller.stack.ExecutionStackAspect;
@@ -45,8 +46,8 @@ public abstract class ContextAwarePendingRemoteObject extends PendingRemoteObjec
 
     protected Context context;
 
-    private static ScheduledExecutorService closeExecutor = ExecutorFactory.createCloseScheduledThreadService(3);
-    private void scheduleClose(long delay, Runnable run) {
+    protected static ScheduledExecutorService closeExecutor = ExecutorFactory.createCloseScheduledThreadService();
+    protected void scheduleClose(long delay, ERunnable run) {
         closeExecutor.schedule(() -> {
             ThreadInfo threadInfo = EventThreadInfo.TIMER(ContextAwarePendingRemoteObject.this);
             ThreadLocalContext.aspectBeforeRmi(ContextAwarePendingRemoteObject.this, true, threadInfo);
@@ -91,7 +92,7 @@ public abstract class ContextAwarePendingRemoteObject extends PendingRemoteObjec
         return exportPort < 0;
     }
 
-    private Set<Thread> getContextThreads() {
+    public Set<Thread> getContextThreads() {
         assert !isLocal();
         synchronized (threads) {
             return threads.copy();
@@ -247,6 +248,7 @@ public abstract class ContextAwarePendingRemoteObject extends PendingRemoteObjec
     public void interrupt(boolean cancelable) throws RemoteException {
         try {
             Thread thread = ExecutionStackAspect.getLastThread(getContextThreads());
+            if (thread == null) thread = ExecutionStackAspect.getLastThread(getAllContextThreads());
             if (thread != null) {
                 Context context = getContext();
                 if (cancelable)
@@ -257,4 +259,6 @@ public abstract class ContextAwarePendingRemoteObject extends PendingRemoteObjec
         } catch (SQLException | SQLHandledException ignored) {
         }
     }
+
+    protected abstract Set<Thread> getAllContextThreads();
 }

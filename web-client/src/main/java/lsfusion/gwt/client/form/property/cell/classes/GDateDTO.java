@@ -23,12 +23,12 @@ public class GDateDTO implements Serializable {
     }
 
     public Date toDate() {
-        return new java.sql.Date(year - 1900, month - 1, day);
+        return new java.util.Date(year - 1900, month - 1, day);
     }
     
     @Override
     public String toString() {
-        return toDate().toString();
+        return new java.sql.Date(year - 1900, month - 1, day).toString(); //need sql format for GCalendar
     }
 
     @Override

@@ -20,41 +20,43 @@ import com.google.gwt.core.client.Scheduler;
 import com.google.gwt.dom.client.*;
 import com.google.gwt.dom.client.Style.Unit;
 import com.google.gwt.event.dom.client.KeyCodes;
+import com.google.gwt.event.dom.client.MouseWheelHandler;
+import com.google.gwt.event.dom.client.ScrollHandler;
+import com.google.gwt.event.dom.client.TouchMoveHandler;
 import com.google.gwt.user.client.Event;
 import com.google.gwt.user.client.ui.AbstractNativeScrollbar;
-import com.google.gwt.user.client.ui.FlexTable;
-import com.google.gwt.user.client.ui.Focusable;
+import com.google.gwt.user.client.ui.RootPanel;
 import com.google.gwt.user.client.ui.Widget;
+import lsfusion.gwt.client.base.FocusUtils;
 import lsfusion.gwt.client.base.GwtClientUtils;
+import lsfusion.gwt.client.base.Result;
+import lsfusion.gwt.client.base.StaticImage;
+import lsfusion.gwt.client.base.size.GSize;
 import lsfusion.gwt.client.base.view.*;
 import lsfusion.gwt.client.base.view.grid.cell.Cell;
-import lsfusion.gwt.client.form.controller.GFormController;
+import lsfusion.gwt.client.form.EmbeddedForm;
+import lsfusion.gwt.client.form.event.GKeyStroke;
 import lsfusion.gwt.client.form.event.GMouseStroke;
+import lsfusion.gwt.client.form.object.table.TableComponent;
+import lsfusion.gwt.client.form.object.table.TableContainer;
+import lsfusion.gwt.client.form.object.table.tree.view.GTreeTable;
+import lsfusion.gwt.client.form.object.table.view.GridDataRecord;
 import lsfusion.gwt.client.form.property.table.view.GPropertyTableBuilder;
 import lsfusion.gwt.client.view.ColorThemeChangeListener;
 import lsfusion.gwt.client.view.MainFrame;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.function.BiConsumer;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
 import static java.lang.Math.min;
-import static lsfusion.gwt.client.base.view.ColorUtils.getDisplayColor;
-import static lsfusion.gwt.client.base.view.ColorUtils.mixColors;
-import static lsfusion.gwt.client.view.StyleDefaults.*;
+import static lsfusion.gwt.client.view.MainFrame.v5;
 
-// we need resizesimplepanel for "scroller" padding in headers (we don't know if there gonna be vertival scroller)
-public abstract class DataGrid<T> extends ResizableSimplePanel implements Focusable, ColorThemeChangeListener {
-
-    public static final String DATA_GRID_CLASS = "dataGridTableWrapperWidget";
-
-    private static GridStyle DEFAULT_STYLE;
-
-    protected static GridStyle getDefaultStyle() {
-        if (DEFAULT_STYLE == null) {
-            DEFAULT_STYLE = new GridTableStyle();
-        }
-        return DEFAULT_STYLE;
-    }
+public abstract class DataGrid<T> implements TableComponent, ColorThemeChangeListener, HasMaxPreferredSize {
 
     public static int nativeScrollbarWidth = AbstractNativeScrollbar.getNativeScrollbarWidth();
     public static int nativeScrollbarHeight = AbstractNativeScrollbar.getNativeScrollbarHeight();
@@ -67,17 +69,16 @@ public abstract class DataGrid<T> extends ResizableSimplePanel implements Focusa
     /**
      * The command used to resolve the pending state.
      */
-    boolean isFocused;
+    protected boolean isFocused() {
+        return tableContainer.isFocused;
+    }
 
-    private final List<Column<T, ?>> columns = new ArrayList<>();
-    private final Map<Column<T, ?>, String> columnWidths = new HashMap<>();
+    private final ArrayList<Column<T, ?>> columns = new ArrayList<>();
 
-    protected final GridStyle style;
-
-    private HeaderBuilder<T> footerBuilder;
+    private final DefaultHeaderBuilder<T> footerBuilder;
     private final List<Header<?>> footers = new ArrayList<>();
 
-    private HeaderBuilder<T> headerBuilder;
+    private final DefaultHeaderBuilder<T> headerBuilder;
     private final List<Header<?>> headers = new ArrayList<>();
 
     // pending dom updates
@@ -90,19 +91,12 @@ public abstract class DataGrid<T> extends ResizableSimplePanel implements Focusa
     private boolean selectedRowChanged;
     private boolean selectedColumnChanged;
     private boolean focusedChanged;
+    private boolean onResizeChanged;
 
     protected GPropertyTableBuilder<T> tableBuilder;
 
-    private final TableWidget tableData;
-    protected TableScrollPanel tableDataScroller; // vertical scroller
-
-    private FooterWidget tableFooter;
-    private TableScrollPanel tableFooterScroller;
-
-    private HeaderWidget tableHeader;
-    private TableScrollPanel tableHeaderScroller;
-
-    private final FlexTable emptyTableWidgetContainer;
+    protected final TableWidget tableWidget;
+    protected final TableContainer tableContainer;
 
     protected DataGridSelectionHandler selectionHandler;
 
@@ -111,123 +105,151 @@ public abstract class DataGrid<T> extends ResizableSimplePanel implements Focusa
     }
 
     //focused cell indices local to table (aka real indices in rendered portion of the data)
-    int renderedSelectedRow = -1;
+    protected int renderedSelectedRow = -1;
     int renderedSelectedCol = -1;
+    int renderedLeftStickyCol = -1;
     Object renderedSelectedKey = null; // needed for saving scroll position when keys are update
+    Integer renderedSelectedExpandingIndex = null; // needed for saving scroll position when keys are update
 
     protected abstract Object getSelectedKey();
-    protected int getRowByKeyOptimistic(Object key) {
+    protected abstract Integer getSelectedExpandingIndex();
+    // virtualKey - null means that we're looking for any selected key but object other key
+    protected int getRowByKey(Object key, Integer expandingIndex) {
         Object selectedKey = getSelectedKey();
-        if(selectedKey != null && selectedKey.equals(key)) // optimization the most common case
+        if(selectedKey != null && (selectedKey.equals(key) && (expandingIndex == null || expandingIndex.equals(getSelectedExpandingIndex())))) // optimization the most common case
             return getSelectedRow();
 
-        return getRowByKey(key);
+        return findRowByKey(key, expandingIndex == null ? GridDataRecord.objectExpandingIndex : expandingIndex);
     }
-    protected abstract int getRowByKey(Object key);
+    protected abstract int findRowByKey(Object key, int expandingIndex);
 
     private int pageIncrement = 30;
 
-    private final boolean noHeaders;
-    private final boolean noFooters;
-    private final boolean noScrollers;
+    protected final boolean noHeaders;
+    protected final boolean noFooters;
 
-    // there are two ways to remove outer grid borders :
-    // 1) set styles for outer cells and set border-left/top : none there
-    // 2) set margins (not paddings since they do not support negative values) to -1
-    // first solution is cleaner (since border can be wider than 1px + margin can be used for other purposes, for example scroller padding), however the problem is that in that case the same should be implemented for focus which is pretty tricky
-    // the second solution is easier to implement
-    // the same problem is in gpivot (.subtotalouterdiv .scrolldiv / .headerdiv), and there it is solved the same way (however since there is no focus cell there in history there should be a solution with styles, conditional css)
-    public static void removeOuterGridBorders(Widget parent) {
-        parent.getElement().getStyle().setMarginLeft(-1, Unit.PX);
-        setOuterRightGridBorder(parent.getElement(), true);
-    }
-    public static void setOuterRightGridBorder(Element element, boolean setMargin) {
-        element.getStyle().setMarginRight(setMargin ? -1 : 0, Unit.PX);
-    }
+    private int latestHorizontalScrollPosition = 0;
+    private int latestLastStickedColumn = -1;
 
-    public DataGrid(GridStyle style, boolean noHeaders, boolean noFooters, boolean noScrollers) {
+    public DataGrid(TableContainer tableContainer, boolean noHeaders, boolean noFooters) {
+        this.tableContainer = tableContainer;
+
         this.noHeaders = noHeaders;
         this.noFooters = noFooters;
-        this.noScrollers = noScrollers;
 
-        this.style = style;
+        // INITIALIZING MAIN DATA
+        tableWidget = new TableWidget();
 
-        tableData = new TableWidget();
+        recentlyScrolledClassHandler = new RecentlyEventClassHandler(tableWidget, false, "was-scrolled-recently", 1000);
 
-        Widget tableDataContainer;
-        if(!noScrollers) {
-            tableDataScroller = new TableScrollPanel(tableData, Style.Overflow.AUTO);
-            tableDataContainer = tableDataScroller;
-        } else {
-            tableDataContainer = tableData;
-        }
+        // we always need headers and footers to support scroll arrows
+        // INITIALIZING HEADERS
+        headerBuilder = new DefaultHeaderBuilder<>(this, false);
 
-        if(noHeaders && noFooters) {
-            setFillWidget(tableDataContainer);
-        } else {
-            FlexPanel headerPanel = new FlexPanel(true); // will use flex for headers / footers
-
-            if(!noHeaders) {
-                Widget tableHeaderContainer;
-                tableHeader = new HeaderWidget();
-                if(!noScrollers) {
-                    tableHeaderScroller = new TableScrollPanel(tableHeader, Style.Overflow.HIDDEN);
-                    tableHeaderContainer = tableHeaderScroller;
-                } else
-                    tableHeaderContainer = tableHeader;
-
-                headerPanel.add(tableHeaderContainer, GFlexAlignment.STRETCH);
-
-                headerBuilder = new DefaultHeaderBuilder<>(this, false);
-            } else
-                tableHeaderScroller = null;
-
-            headerPanel.addFillFlex(tableDataContainer, !noScrollers ? 0 : null); // for scrollers we need 0 basis (since that is the point of scroller)
-
-            if (!noFooters) { // the same as for headers
-                Widget tableFooterContainer;
-                tableFooter = new FooterWidget();
-                if(!noScrollers) {
-                    tableFooterScroller = new TableScrollPanel(tableFooter, Style.Overflow.HIDDEN);
-                    tableFooterContainer = tableFooterScroller;
-                } else
-                    tableFooterContainer = tableFooter;
-
-                headerPanel.add(tableFooterContainer, GFlexAlignment.STRETCH);
-
-                footerBuilder = new DefaultHeaderBuilder<>(this, true);
-            } else
-                tableFooterScroller = null;
-
-            if(!noScrollers) {
-                // Synchronize the scroll positions of the three tables.
-                // it's not possible to avoid this by splitting to separate horizontal and vertical scroller, since we don't want vertical scroller to be scrolled by horizontal scroller
-                tableDataScroller.addScrollHandler(event -> {
-                    int scrollLeft = tableDataScroller.getHorizontalScrollPosition();
-                    if (tableHeaderScroller != null) {
-                        tableHeaderScroller.setHorizontalScrollPosition(scrollLeft);
-                    }
-                    if (tableFooterScroller != null) {
-                        tableFooterScroller.setHorizontalScrollPosition(scrollLeft);
-                    }
-                });
-            } else {
-                removeOuterGridBorders(headerPanel);
-            }
-            tableDataScroller.addScrollHandler(event -> checkSelectedRowVisible());
-
-            setFillWidget(headerPanel);
-        }
-
-        emptyTableWidgetContainer = new FlexTable();
-        emptyTableWidgetContainer.setHeight("1px");
-
-        getTableDataFocusElement().setTabIndex(0);
-        initSinkEvents(this);
-
-        addStyleName(style.dataGridWidget());
+        // INITIALIZING FOOTERS
+        footerBuilder = new DefaultHeaderBuilder<>(this, true);
 
         MainFrame.addColorThemeChangeListener(this);
+    }
+
+    private final RecentlyEventClassHandler recentlyScrolledClassHandler;
+
+    private static boolean skipScrollEvent;
+
+    @Override
+    public ScrollHandler getScrollHandler() {
+        return event -> {
+            //skipScrollEvent crashes grid top border(.scrolled-down css class in <table><thead><tr>) when scrolling with up/down keyboard keys
+//            if(skipScrollEvent) {
+//                skipScrollEvent = false;
+//            } else {
+                calcLeftNeighbourRightBorder(true);
+                checkSelectedRowVisible();
+
+                updateScrolledStateVertical();
+                updateScrolledStateHorizontal();
+//            }
+        };
+    }
+
+    @Override
+    public MouseWheelHandler getMouseWheelScrollHandler() {
+        return event -> onHumanInputEvent();
+    }
+
+    @Override
+    public TouchMoveHandler getTouchMoveHandler() {
+        return event -> onHumanInputEvent();
+    }
+
+    private void onHumanInputEvent() {
+        recentlyScrolledClassHandler.onEvent();
+    }
+
+    protected abstract void scrollToEnd(boolean toEnd);
+
+    private void updateScrolledStateHorizontal() {
+        int horizontalScrollPosition = tableContainer.getHorizontalScrollPosition();
+        if(horizontalScrollPosition > MainFrame.mobileAdjustment)
+            GwtClientUtils.addClassName(tableWidget, "scrolled-left");
+        else
+            GwtClientUtils.removeClassName(tableWidget, "scrolled-left");
+
+        if (horizontalScrollPosition != latestHorizontalScrollPosition) {
+            updateStickyColumnsState(horizontalScrollPosition);
+
+            latestHorizontalScrollPosition = horizontalScrollPosition;
+        }
+    }
+    private void updateScrolledStateVertical() {
+        int verticalScrollPosition = tableContainer.getVerticalScrollPosition();
+        if (verticalScrollPosition > MainFrame.mobileAdjustment)
+            GwtClientUtils.addClassName(tableWidget, "scrolled-down");
+        else
+            GwtClientUtils.removeClassName(tableWidget, "scrolled-down");
+        if (verticalScrollPosition < tableContainer.getScrollHeight() - tableContainer.getClientHeight() - MainFrame.mobileAdjustment)
+            GwtClientUtils.addClassName(tableWidget, "scrolled-up");
+        else
+            GwtClientUtils.removeClassName(tableWidget, "scrolled-up");
+    }
+    
+    private void updateStickyColumnsState(int horizontalScrollPosition) {
+        List<Integer> stickyColumns = getStickyColumns();
+        int lastSticked = getLastStickedColumn(horizontalScrollPosition, stickyColumns);
+
+        if (lastSticked != latestLastStickedColumn) {
+            if (!noHeaders)
+                headerBuilder.updateStickedState(stickyColumns, lastSticked);
+            if (!noFooters)
+                footerBuilder.updateStickedState(stickyColumns, lastSticked);
+
+            tableBuilder.updateStickedState(tableWidget.getSection(), stickyColumns, lastSticked);
+            
+            latestLastStickedColumn = lastSticked;
+        }
+    }
+
+    private int getLastStickedColumn(int horizontalScrollPosition, List<Integer> stickyColumns) {
+        if(stickyLefts != null) {
+            TableRowElement stickyLeftRow = getStickyLeftRow();
+            if (stickyLeftRow != null) {
+                NodeList<TableCellElement> trCells = stickyLeftRow.getCells();
+                for (int i = stickyColumns.size() - 1; i >= 0; i--) {
+                    Integer stickyColumn = stickyColumns.get(i);
+
+                    TableCellElement cell = trCells.getItem(stickyColumn);
+                    StickyParams left = stickyLefts.get(i);
+                    if (left != null) {
+                        int offsetLeft = cell.getOffsetLeft();
+                        // actually it is == but may differ for 1px (for now is being observed in Firefox, where no borders in header are seen)
+                        if (horizontalScrollPosition + left.left + 1 >= offsetLeft) {
+                            return i;
+                        }
+                    }
+                }
+            }
+        }
+        return -1;
     }
 
     private static Set<String> browserKeyEvents;
@@ -246,11 +268,37 @@ public abstract class DataGrid<T> extends ResizableSimplePanel implements Focusa
     private static Set<String> getBrowserFocusEvents() {
         if(browserFocusEvents == null) {
             Set<String> eventTypes = new HashSet<>();
-            eventTypes.add(BrowserEvents.FOCUS);
+            eventTypes.add(BrowserEvents.FOCUSIN);
+            eventTypes.add(BrowserEvents.FOCUSOUT);
             eventTypes.add(BrowserEvents.BLUR);
+            eventTypes.add(BrowserEvents.FOCUS);
             browserFocusEvents = eventTypes;
         }
         return browserFocusEvents;
+    }
+
+//    public static final String FOCUSEVENT = BrowserEvents.FOCUSIN; // BrowserEvents.FOCUS;
+//    public static final String BLUREVENT = BrowserEvents.FOCUSOUT; // BrowserEvents.BLUR;
+    public static final String FOCUSIN = BrowserEvents.FOCUSIN;
+    public static final String FOCUSOUT = BrowserEvents.FOCUSOUT;
+    // here it might be a problem because the editor can be "inside" of the element that handles focusout, so someone between editor and outside element (for example that element (grid)) can get focus and that won't trigger focus out
+    public static final String FOCUSCHANGEIN = BrowserEvents.FOCUS;
+    public static final String FOCUSCHANGEOUT = BrowserEvents.BLUR;
+    // needed for some "system" features, like getting last blurred + switching to another window
+    public static final String FOCUSPREVIEWIN = BrowserEvents.FOCUS;
+    public static final String FOCUSPREVIEWOUT = BrowserEvents.BLUR;
+
+    private static Set<String> nonBubblingEvents;
+    private static Set<String> getNonBubblingEvents() {
+        if(nonBubblingEvents == null) {
+            Set<String> eventTypes = new HashSet<>();
+            eventTypes.add(BrowserEvents.FOCUS);
+            eventTypes.add(BrowserEvents.BLUR);
+            eventTypes.add(BrowserEvents.LOAD);
+            eventTypes.add(BrowserEvents.ERROR);
+            nonBubblingEvents = eventTypes;
+        }
+        return nonBubblingEvents;
     }
 
     private static Set<String> browserMouseEvents;
@@ -296,7 +344,7 @@ public abstract class DataGrid<T> extends ResizableSimplePanel implements Focusa
     private static Set<String> getBrowserEvents() {
         if(browserEvents == null) {
             Set<String> eventTypes = new HashSet<>();
-            eventTypes.addAll(getBrowserFocusEvents());
+//            eventTypes.addAll(getBrowserFocusEvents());
             eventTypes.addAll(getBrowserMouseEvents());
             eventTypes.addAll(getBrowserKeyEvents());
             browserEvents = eventTypes;
@@ -310,7 +358,7 @@ public abstract class DataGrid<T> extends ResizableSimplePanel implements Focusa
     public static void initSinkEvents(Widget widget) {
         CellBasedWidgetImpl.get().sinkEvents(widget, getBrowserEvents());
 
-        widget.sinkEvents(Event.ONPASTE | Event.ONCONTEXTMENU);
+        widget.sinkEvents(Event.ONPASTE | Event.ONCONTEXTMENU | Event.ONCHANGE);
     }
     // the problem that onpaste ('paste') event is not triggered when there is no "selection" inside element (or no other contenteditable element)
     // also it's important that focusElement should have text, thats why EscapeUtils.UNICODE_NBSP is used in a lot of places
@@ -322,73 +370,76 @@ public abstract class DataGrid<T> extends ResizableSimplePanel implements Focusa
         CellBasedWidgetImpl.get().sinkEvents(widget, getBrowserMouseEvents());
     }
 
+    public static void initSinkFocusEvents(Widget widget) {
+        CellBasedWidgetImpl.get().sinkEvents(widget, getBrowserFocusEvents());
+    }
+
     public static void initSinkDragDropEvents(Widget widget) {
         CellBasedWidgetImpl.get().sinkEvents(widget, getBrowserDragDropEvents());
     }
 
-    public static Element getTargetAndCheck(Element element, Event event) {
-        EventTarget eventTarget = event.getEventTarget();
-        //it seems that now all this is not needed
-//        if (!Element.is(eventTarget)) {
-//            return null;
-//        }
-        Element target = Element.as(eventTarget);
-//        if (!element.isOrHasChild(target)) {
-//            return null;
-//        }
-        return target;
+    public static boolean isMouseEvent(Event event) {
+        String eventType = event.getType();
+        return getBrowserMouseEvents().contains(eventType);
     }
     public static boolean checkSinkEvents(Event event) {
         String eventType = event.getType();
-        return getBrowserFocusEvents().contains(eventType) ||
-                getBrowserMouseEvents().contains(eventType) ||
+        return getBrowserMouseEvents().contains(eventType) ||
                 getBrowserDragDropEvents().contains(eventType) ||
                 checkSinkGlobalEvents(event);
     }
-    public static boolean checkSinkGlobalEvents(Event event) {
-        return getBrowserKeyEvents().contains(event.getType()) || event.getTypeInt() == Event.ONPASTE || event.getType().equals(BrowserEvents.CONTEXTMENU);
+    public static boolean checkNonBubblingEvents(Event event) {
+        String eventType = event.getType();
+        return getNonBubblingEvents().contains(eventType);
+    }
+    public static boolean checkSinkFocusEvents(Event event) {
+        String eventType = event.getType();
+        return getBrowserFocusEvents().contains(eventType);
     }
 
-    public GridStyle getStyle() {
-        return style;
+    public static void dispatchFocusAndCheckSinkEvents(EventHandler eventHandler, Element target, Element element, BiConsumer<Element, EventHandler> onFocus, BiConsumer<Element, EventHandler> onBlur) {
+        Event event = eventHandler.event;
+        String eventType = event.getType();
+        boolean consume = false;
+        // when element is null we want only dispatching
+        // when it is not null, there is an assertion that it is focusable (has tabIndex)
+        if (FOCUSIN.equals(eventType)) {
+            onFocus.accept(target, eventHandler);
+        } else if(FOCUSOUT.equals(eventType)) {
+            if(element == null || !FocusUtils.isFakeBlur(event, element))
+                onBlur.accept(target, eventHandler);
+            else // it's a fake focus out, but we let FOCUSCHANGE through
+                consume = true;
+        } else if(element != null) {
+            if (FOCUSCHANGEOUT.equals(eventType)) {
+                if (!FocusUtils.isFakeBlur(event, element)) // in that case we rely on FOCUSOUT
+                    consume = true;
+            } else if (FOCUSCHANGEIN.equals(eventType)) { // we rely on FOCUSIN
+                consume = true;
+            } else if (!DataGrid.checkSinkEvents(event)) {
+//            assert false; // actually only initFocus and initSinkEvents should be called
+                consume = true;
+            }
+        }
+        if(consume)
+            eventHandler.consume(true, true);
+    }
+    public static boolean checkSinkGlobalEvents(Event event) {
+        return getBrowserKeyEvents().contains(event.getType()) || event.getTypeInt() == Event.ONPASTE || event.getType().equals(BrowserEvents.CONTEXTMENU) || event.getType().equals(BrowserEvents.CHANGE);
     }
 
     public void setPageIncrement(int pageIncrement) {
         this.pageIncrement = Math.max(1, pageIncrement);
     }
 
-    @Override
-    public void setAccessKey(char key) {
-    }
-
-    @Override
-    public void setTabIndex(int index) {
-    }
-
-    @Override
-    public int getTabIndex() {
-        return 0;
-    }
-
-    // transfering focus to table data element
-    @Override
-    public void setFocus(boolean focused) {
-        Element focusHolderElement = getTableDataFocusElement();
-
-        if (focused) {
-            focusHolderElement.focus();
-        } else {
-            focusHolderElement.blur();
-        }
-    }
-
-    public void focus() {
-        setFocus(true);
-    }
-
     private Runnable rowChangedHandler;
     public void setRowChangedHandler(Runnable handler) {
         rowChangedHandler = handler;
+    }
+
+    private Runnable columnChangedHandler;
+    public void setColumnChangedHandler(Runnable handler) {
+        columnChangedHandler = handler;
     }
 
     /**
@@ -407,63 +458,49 @@ public abstract class DataGrid<T> extends ResizableSimplePanel implements Focusa
     protected abstract ArrayList<T> getRows();
 
     @Override
-    public final void onBrowserEvent(Event event) {
+    public void onActivate() {
+        onFocus(null, null);
+    }
+
+    public final void onBrowserEvent(Element target, EventHandler eventHandler) {
+        Event event = eventHandler.event;
         // Ignore spurious events (such as onblur) while we refresh the table.
         if (isResolvingState) {
+            assert DataGrid.FOCUSOUT.equals(event.getType()) || DataGrid.FOCUSCHANGEOUT.equals(event.getType());
             return;
         }
 
-        // Verify that the target is still a child of this widget. IE fires focus
-        // events even after the element has been removed from the DOM.
-//        EventTarget eventTarget = event.getEventTarget();
-//        if (!Element.is(eventTarget)) {
-//            return;
-//        }
-//        Element target = Element.as(eventTarget);
-//        if (!getElement().isOrHasChild(Element.as(eventTarget))) {
-//            return;
-//        }
-        Element target = getTargetAndCheck(getElement(), event);
-        if(target == null)
+        // with that inner propagation scheme we need only dispatching (otherwise this FOCUSOUT / FOCUSCHANGEOUT will become inconsistent)
+        DataGrid.dispatchFocusAndCheckSinkEvents(eventHandler, target, null, this::onFocus, this::onBlur);
+        if(eventHandler.consumed)
             return;
-        if(!previewEvent(target, event))
-            return;
-
-        super.onBrowserEvent(event);
-
-        // here grid handles somewhy other than sink events, so will check it after super
-        if(!checkSinkEvents(event))
-            return;
-
-        String eventType = event.getType();
-        if (BrowserEvents.FOCUS.equals(eventType))
-            onFocus();
-        else if (BrowserEvents.BLUR.equals(eventType))
-            onBlur(event);
 
         // Find the cell where the event occurred.
         TableSectionElement tbody = getTableBodyElement();
-        TableSectionElement tfoot = getTableFootElement();
-        TableSectionElement thead = getTableHeadElement();
+        TableSectionElement tfoot = !noFooters ? getTableFootElement() : null;
+        TableSectionElement thead = !noHeaders ? getTableHeadElement() : null;
 
         int row = -1;
         Column column = null;
-        Element columnParent = null;
+        TableCellElement columnParent = null;
 
         Header header = null;
         Element headerParent = null;
         Header footer = null;
         Element footerParent = null;
 
+        // debug
+        RowIndexHolder rowIndexHolder = null;
+
         TableSectionElement targetTableSection = null;
 
-        if (target == getTableDataFocusElement() || target == getTableElement()) { // need this when focus is on grid and not cell itself, so we need to propagate key events there
-            // usually all events has target getTableDataFocusElement, but ONPASTE when focus is on grid somewhy has target tableElement
+        if (target == getTableDataFocusElement() || GKeyStroke.isPasteFromClipboardEvent(event)) { // need this when focus is on grid and not cell itself, so we need to propagate key events there
+            // usually all events has target getTableDataFocusElement, but ONPASTE when focus is on grid somewhy has target tableElement (in last version something has changed and now target is copied cell, however it is also undesirable)
             if (checkSinkGlobalEvents(event)) {
                 targetTableSection = tbody;
 
                 row = getSelectedRow();
-                columnParent = getSelectedElement();
+                columnParent = getSelectedElement(getSelectedColumn());
                 if(columnParent != null)
                     column = tableBuilder.getColumn(columnParent);
             }
@@ -475,12 +512,25 @@ public abstract class DataGrid<T> extends ResizableSimplePanel implements Focusa
                     break;
                 }
 
-                if(row < 0)
+                if(EmbeddedForm.is(cur)) {
+                    row = -1;
+                    column = null;
+                    columnParent = null;
+
+                    header = null;
+                    headerParent = null;
+                    footer = null;
+                    footerParent = null;
+                }
+
+                if(row < 0) {
                     row = tableBuilder.getRowValueIndex(cur);
+                    rowIndexHolder = tableBuilder.getRowIndexHolder(cur);
+                }
                 if (column == null) {
                     column = tableBuilder.getColumn(cur);
                     if(column != null)
-                        columnParent = cur;
+                        columnParent = (TableCellElement) cur; // COLUMN_ATTRIBUTE is only set for TableCellElement
                 }
                 if (header == null && !noHeaders) {
                     header = headerBuilder.getHeader(cur);
@@ -504,12 +554,23 @@ public abstract class DataGrid<T> extends ResizableSimplePanel implements Focusa
             if (footer != null)
                 footer.onBrowserEvent(footerParent, event);
         } else {
-            if (column != null)
-                onBrowserEvent(new Cell(row, getColumnIndex(column), column, getRowValue(row)), event, column, columnParent);
+            if (column != null) {
+                assert rowIndexHolder == null || getRows().contains((T) rowIndexHolder);
+                RowIndexHolder rowValue;
+                try {
+                    rowValue = (RowIndexHolder) getRowValue(row);
+                } catch (IndexOutOfBoundsException e) {
+                    Object rowData = (rowIndexHolder == null ? "null" : getRows().indexOf((T) rowIndexHolder));
+                    throw new RuntimeException("INCORRECT ROW " + row + " " + event.getType() + " " + (this instanceof GTreeTable) + " " + target + " " + (target == getTableDataFocusElement()) + " " + getGridInfo() + " " + rowData + " " + getRows().size() + " " + RootPanel.getBodyElement().isOrHasChild(target));
+                }
+                onBrowserEvent(new Cell(row, getColumnIndex(column), column, rowValue), eventHandler, column, columnParent);
+            }
         }
     }
 
-    public abstract <C> void onBrowserEvent(Cell cell, Event event, Column<T, C> column, Element parent);
+    protected abstract String getGridInfo();
+
+    public abstract <C> void onBrowserEvent(Cell cell, EventHandler eventHandler, Column<T, C> column, TableCellElement parent);
 
     /**
      * Checks that the row is within bounds of the view.
@@ -519,16 +580,6 @@ public abstract class DataGrid<T> extends ResizableSimplePanel implements Focusa
      */
     protected boolean isRowWithinBounds(int row) {
         return row >= 0 && row < getRowCount();
-    }
-
-    /**
-     * Adds a column to the end of the table with an associated header.
-     *
-     * @param col    the column to be added
-     * @param header the associated {@link Header}
-     */
-    public void addColumn(Column<T, ?> col, Header<?> header, Header<?> footer) {
-        insertColumn(getColumnCount(), col, header, footer);
     }
 
     /**
@@ -559,9 +610,9 @@ public abstract class DataGrid<T> extends ResizableSimplePanel implements Focusa
         // Increment the keyboard selected column.
         int selectedColumn = getSelectedColumn();
         if(selectedColumn == -1)
-            changeSelectedColumn(columns.size() - 1);
+            setSelectedColumn(columns.size() - 1);
         else if (beforeIndex <= selectedColumn)
-            changeSelectedColumn(selectedColumn + 1);
+            setSelectedColumn(selectedColumn + 1);
     }
 
     public void moveColumn(int oldIndex, int newIndex) {
@@ -614,8 +665,12 @@ public abstract class DataGrid<T> extends ResizableSimplePanel implements Focusa
 
         int selectedColumn = getSelectedColumn();
         // Decrement the keyboard selected column.
-        if (index <= selectedColumn)
-            setSelectedColumn(selectedColumn - 1);
+        if (index <= selectedColumn) {
+            if (selectedColumn == 0 && columns.size() > 0)
+                setSelectedColumn(0);
+            else
+                setSelectedColumn(selectedColumn - 1);
+        }
     }
 
     /**
@@ -646,10 +701,6 @@ public abstract class DataGrid<T> extends ResizableSimplePanel implements Focusa
      */
     public int getColumnIndex(Column<T, ?> column) {
         return columns.indexOf(column);
-    }
-
-    public String getColumnWidth(Column<T, ?> column) {
-        return columnWidths.get(column);
     }
 
     public void setTableBuilder(GPropertyTableBuilder<T> tableBuilder) {
@@ -692,9 +743,19 @@ public abstract class DataGrid<T> extends ResizableSimplePanel implements Focusa
         selectedColumnChanged = true;
         scheduleUpdateDOM();
     }
-    public void focusedChanged() {
+    public void focusedChanged(Element target) {
+        if(isFocused())
+            DataGrid.sinkPasteEvent(getTableDataFocusElement());
+
         focusedChanged = true;
-        scheduleUpdateDOM();
+        if(!isResolvingState) // hack, grid elements can have focus and not be in editing mode (for example input) and removing such elements will lead to blur
+            scheduleUpdateDOM();
+    }
+
+    public void onResizeChanged() {
+        onResizeChanged = true;
+        if(!isResolvingState) // hack, because in preUpdateScroll there is browser event flush, which causes scheduleDeferred flush => HeaderPanel.forceLayout => onResize and IllegalStateException, everything is really twisted here, so will just suppress ensurePendingState
+            scheduleUpdateDOM();
     }
 
     /**
@@ -703,13 +764,6 @@ public abstract class DataGrid<T> extends ResizableSimplePanel implements Focusa
      */
     public Header<?> getFooter(int index) {
         return footers.get(index);
-    }
-
-    /**
-     * Get the {@link HeaderBuilder} used to generate the footer section.
-     */
-    public HeaderBuilder<T> getFooterBuilder() {
-        return footerBuilder;
     }
 
     /**
@@ -732,40 +786,63 @@ public abstract class DataGrid<T> extends ResizableSimplePanel implements Focusa
         return selectedColumn;
     }
 
+    public int getFocusedColumn() {
+        return isFocused() ? getSelectedColumn() : -1;
+    }
+
+    public boolean isSelectedRow(Cell cell) {
+        return getSelectedRow() == cell.getRowIndex();
+    }
+
+    public boolean isFocusedColumn(Cell cell) {
+        return getFocusedColumn() == cell.getColumnIndex();
+    }
+
     protected TableRowElement getChildElement(int row) {
         return getRowElementNoFlush(row);
     }
 
-    public void setColumnWidth(Column<T, ?> column, String width) {
-        columnWidths.put(column, width);
+    protected abstract GSize getColumnWidth(int column);
+    protected abstract double getColumnFlexPerc(int column);
+    public abstract boolean isColumnFlex(int column);
+
+    public int getFullColumnWidth(int index) {
+        return GwtClientUtils.getFullWidth(getWidthElement(index));
+    }
+    public int getClientColumnWidth(int index) {
+        return GwtClientUtils.getWidth(getWidthElement(index));
     }
 
     // when row or column are changed by keypress in grid (KEYUP, PAGEUP, etc), no focus is lost
     // so to handle this there are to ways of doing that, either with GFormController.checkCommitEditing, or moving focus to grid
     // so far will do it with checkCommitEditing (like in form bindings)
     // see overrides
-    public boolean changeSelectedColumn(int column) {
-//        setFocus(true);
+    public void changeSelectedCell(int row, int column, FocusUtils.Reason reason) {
+        // there are index checks inside, sometimes they are redundant, sometimes not
+        // however not it's not that important as well, as if the row / column actually was changed
+        changeSelectedRow(row);
+        changeSelectedColumn(column);
+    }
+
+    private void changeSelectedColumn(int column) {
         int columnCount = getColumnCount();
         if(columnCount == 0)
-            return true;
+            return;
         if (column < 0)
             column = 0;
         else if (column >= columnCount)
             column = columnCount - 1;
 
-        if(!isFocusable(column))
-            return false;
-
-        setSelectedColumn(column);
-        return true;
+        assert isFocusable(column);
+        if (setSelectedColumn(column) && columnChangedHandler != null)
+            columnChangedHandler.run();
     }
-    public void changeSelectedRow(int row) {
-//        setFocus(true);
-        int rowCount = getRowCount();
 
+    private void changeSelectedRow(int row) {
+        int rowCount = getRowCount();
         if(rowCount == 0)
             return;
+
         if (row < 0)
             row = 0;
         else if (row >= rowCount)
@@ -775,14 +852,23 @@ public abstract class DataGrid<T> extends ResizableSimplePanel implements Focusa
             rowChangedHandler.run();
     }
 
-    public void setSelectedColumn(int column) {
-        assert column >= 0 : "Column must be zero or greater";
+    public Cell getSelectedCell() {
+        return getSelectedCell(getSelectedColumn());
+    }
+
+    public Cell getSelectedCell(int column) {
+        return new Cell(getSelectedRow(), column, getColumn(column), (RowIndexHolder) getSelectedRowValue());
+    }
+
+    public boolean setSelectedColumn(int column) {
+        assert column >= 0 || columns.size() == 0 : "Column must be zero or greater";
 
         if (getSelectedColumn() == column)
-            return;
+            return false;
 
         this.selectedColumn = column;
         selectedColumnChanged();
+        return true;
     }
 
     public boolean isFocusable(int column) {
@@ -791,7 +877,15 @@ public abstract class DataGrid<T> extends ResizableSimplePanel implements Focusa
     public boolean isFocusable(Cell cell) {
         return cell.getColumn().isFocusable();
     }
-    public boolean isChangeOnSingleClick(Cell cell, boolean rowChanged) {
+
+    protected void focusColumn(int columnIndex, FocusUtils.Reason reason) {
+        focus(reason);
+        selectionHandler.changeColumn(columnIndex, reason);
+    }
+
+    public abstract void focus(FocusUtils.Reason reason);
+
+    public boolean isChangeOnSingleClick(Cell cell, Event event, boolean rowChanged, Column column) {
         return !isFocusable(cell);
     }
 
@@ -805,42 +899,11 @@ public abstract class DataGrid<T> extends ResizableSimplePanel implements Focusa
         return true;
     }
 
+    @Override
+    public void setPreferredSize(boolean set, Result<Integer> grids) {
+        FlexPanel.setMaxPrefWidth(getElement(), set ? "min-content" : null);
 
-    /**
-     * Set the minimum width of the tables in this widget. If the widget become
-     * narrower than the minimum width, a horizontal scrollbar will appear so the
-     * user can scroll horizontally.
-     * <p/>
-     * <p>
-     * Note that this method is not supported in IE6 and earlier versions of IE.
-     * </p>
-     *
-     * @param value the width
-     * @param unit  the unit of the width
-     * @see #setTableWidth(double, Unit)
-     */
-    private double minWidthValue = 0.0;
-    private Unit minWidthUnit = null;
-    public void setMinimumTableWidth(double value, Unit unit) {
-        minWidthValue = value;
-        minWidthUnit = unit;
-
-        setBlockMinWidth(value, tableData);
-        updateHeaderFooterTableMinimumWidth();
-    }
-
-    public void setBlockMinWidth(double value, Widget tableData) {
-        tableData.getElement().getStyle().setProperty("minWidth", value, minWidthUnit);
-    }
-
-    private void updateHeaderTablePadding(TableWrapperWidget headerWidget, TableScrollPanel tableHeaderScroller) {
-        updateTablePadding(hasVerticalScroll, headerWidget.tableElement);
-//        updateTableMargin(hasVerticalScroll, tableHeaderScroller.getElement());
-
-        updateHeaderTableMinimumWidth(headerWidget); // padding changed, we need to reupdate minimumWidth
-    }
-    private void updateTableRightOuterBorder() {
-        updateTableRightOuterBorder(hasVerticalScroll, tableDataScroller.getElement());
+        grids.set(grids.result + 1);
     }
 
     /* see DataGrid.css, dataGridTableWrapperWidget description */
@@ -850,73 +913,25 @@ public abstract class DataGrid<T> extends ResizableSimplePanel implements Focusa
         else
             tableElement.getStyle().clearPaddingRight();
     }
-    public static void updateTableMargin(boolean hasVerticalScroller, Element tableElement) {
-        if(hasVerticalScroller)
-            tableElement.getStyle().setMarginRight(nativeScrollbarWidth + 1, Unit.PX); // 1 for right outer border margin
+
+    // there are two ways to remove outer grid borders :
+    // 1) set styles for outer cells and set border-left/top : none there
+    // 2) set margins (not paddings since they do not support negative values) to -1
+    // first solution is cleaner (since border can be wider than 1px + margin can be used for other purposes, for example scroller padding), however the problem is that in that case the same should be implemented for focus which is pretty tricky
+    // the second solution is easier to implement
+    // the same problem is in gpivot (.subtotalouterdiv .scrolldiv / .headerdiv), and there it is solved the same way (however since there is no focus cell there in history there should be a solution with styles, conditional css)
+
+    // in theory margin should be set for inner (child element)
+    // but 1) margin-right doesn't work for table if it's width 100%
+    // 2) it's hard to tell what to do with scroller, since we want right border when there is scroll, and don't wan't it when there is no such scroll
+    // however we can remove margin when there is a vertical scroller (so there's no difference whether to set border for child or parent)
+
+    public static void updateVerticalScroll(boolean hasVerticalScroller, Element tableElement) {
+        boolean setMargin = !hasVerticalScroller;
+        if(setMargin)
+            GwtClientUtils.addClassName(tableElement, "no-vertical-scroll");
         else
-            tableElement.getStyle().clearMarginRight();
-    }
-    public static void updateTableRightOuterBorder(boolean hasVerticalScroller, Element tableElement) {
-        setOuterRightGridBorder(tableElement, !hasVerticalScroller);
-    }
-
-    private void updateHeaderTableMinimumWidth(TableWrapperWidget headerWidget) {
-        if(minWidthUnit != null)
-            setBlockMinWidth(minWidthValue + (hasVerticalScroll ? nativeScrollbarWidth + 1 : 0), headerWidget); // 1 for right outer border margin
-    }
-
-    private void updateTableMargins() {
-        if(!noHeaders)
-            updateHeaderTablePadding(tableHeader, tableHeaderScroller);
-        if(!noFooters)
-            updateHeaderTablePadding(tableFooter, tableFooterScroller);
-        if(!noScrollers)
-            updateTableRightOuterBorder();
-    }
-    private void updateHeaderFooterTableMinimumWidth() {
-        if(!noHeaders)
-            updateHeaderTableMinimumWidth(tableHeader);
-        if(!noFooters)
-            updateHeaderTableMinimumWidth(tableFooter);
-    }
-
-    /**
-     * Set the width of the tables in this widget. By default, the width is not
-     * set and the tables take the available width.
-     * <p/>
-     * <p>
-     * The table width is not the same as the width of this widget. If the tables
-     * are narrower than this widget, there will be a gap between the table and
-     * the edge of the widget. If the tables are wider than this widget, a
-     * horizontal scrollbar will appear so the user can scroll horizontally.
-     * </p>
-     * <p/>
-     * <p>
-     * If your table has many columns and you want to ensure that the columns are
-     * not truncated, you probably want to use
-     * {@link #setMinimumTableWidth(double, Unit)} instead. That will ensure that
-     * the table is wide enough, but it will still allow the table to expand to
-     * 100% if the user has a wide screen.
-     * </p>
-     * <p/>
-     * <p>
-     * Note that setting the width in percentages will not work on older versions
-     * of IE because it does not account for scrollbars when calculating the
-     * width.
-     * </p>
-     *
-     * @param value the width
-     * @param unit  the unit of the width
-     * @see #setMinimumTableWidth(double, Unit)
-     */
-    public void setTableWidth(double value, Unit unit) {
-        /*
-         * The min-width style attribute doesn't apply to tables, so we set the
-         * min-width of the element that contains the table instead. For
-         * consistency, we set the width of the container as well.
-         */
-        assert noHeaders && noScrollers && noFooters;
-        tableData.getElement().getStyle().setWidth(value, unit);
+            GwtClientUtils.removeClassName(tableElement, "no-vertical-scroll");
     }
 
     private TableRowElement getRowElementNoFlush(int row) {
@@ -926,17 +941,17 @@ public abstract class DataGrid<T> extends ResizableSimplePanel implements Focusa
         return rows.getItem(row);
     }
 
-    protected Element getSelectedElement() {
-        return getSelectedElement(getSelectedColumn());
-    }
-
-    protected Element getSelectedElement(int column) {
+    protected TableCellElement getSelectedElement(int column) {
         return getElement(getSelectedRow(), column);
     }
 
-    protected Element getElement(int rowIndex, int colIndex) { // element used for rendering
+    protected TableCellElement getElement(Cell cell) {
+        return getElement(cell.getRowIndex(), cell.getColumnIndex());
+    }
+
+    protected TableCellElement getElement(int rowIndex, int colIndex) { // element used for rendering
         TableCellElement result = null;
-        TableRowElement tr = getRowElementNoFlush(rowIndex); // Do not use getRowElement() because that will flush the presenter.
+        TableRowElement tr = getChildElement(rowIndex); // Do not use getRowElement() because that will flush the presenter.
         if (tr != null && colIndex >= 0) {
             int cellCount = tr.getCells().getLength();
             if (cellCount > 0) {
@@ -947,53 +962,43 @@ public abstract class DataGrid<T> extends ResizableSimplePanel implements Focusa
         return result;
     }
 
+    public Element getElement() {
+        return tableWidget.getElement();
+    }
+
+    @Override
+    public Widget getWidget() {
+        return tableWidget;
+    }
+
     protected final TableElement getTableElement() {
-        return tableData.tableElement;
+        return tableWidget.tableElement;
     }
 
     protected final TableSectionElement getTableBodyElement() {
-        return tableData.getSection();
+        return tableWidget.getSection();
     }
 
     protected final TableSectionElement getTableFootElement() {
-        if(!noFooters)
-            return tableFooter.getSection();
-        return null;
+        return tableWidget.footerElement;
     }
 
-    protected final TableSectionElement getTableHeadElement() {
-        if(!noHeaders)
-            return tableHeader.getSection();
-        return null;
+    public final TableSectionElement getTableHeadElement() {
+        return tableWidget.headerElement;
     }
 
-    protected abstract boolean previewEvent(Element target, Event event);
-
-    protected void onFocus() {
-        DataGrid.sinkPasteEvent(getTableDataFocusElement());
-
-        if(isFocused)
-            return;
-        isFocused = true;
-        focusedChanged();
+    public void onFocus(Element target, EventHandler eventHandler) {
+        focusedChanged(target);
     }
 
-    protected void onBlur(Event event) {
-        if(!isFocused)
-            return;
-        isFocused = false;
-        focusedChanged();
-    }
-
-    public void changeBorder(String color) {
-        getElement().getStyle().setBorderColor(color);
+    public void onBlur(Element target, EventHandler eventHandler) {
+        focusedChanged(target);
     }
 
     public Element getTableDataFocusElement() {
-        if(!noScrollers)
-            return tableDataScroller.getElement();
-        else
-            return tableData.tableElement;
+//        if(!noScrollers)
+        return tableContainer.getFocusElement();
+//        return getTableElement();
     }
 
     /**
@@ -1006,22 +1011,6 @@ public abstract class DataGrid<T> extends ResizableSimplePanel implements Focusa
         if (col < 0 || col >= getColumnCount()) {
             throw new IndexOutOfBoundsException("Column index is out of bounds: " + col);
         }
-    }
-
-    private void updateColumnWidthImpl(int column, String width) {
-        updateColumnWidthImpl(tableData, column, width);
-        if (!noHeaders)
-            updateColumnWidthImpl(tableHeader, column, width);
-        if (!noFooters)
-            updateColumnWidthImpl(tableFooter, column, width);
-    }
-
-    private void updateColumnWidthImpl(TableWrapperWidget tableData, int column, String width) {
-        Style colElementStyle = tableData.ensureTableColElement(column).getStyle();
-        if (width == null)
-            colElementStyle.clearWidth();
-        else
-            colElementStyle.setProperty("width", width);
     }
 
     /**
@@ -1050,15 +1039,6 @@ public abstract class DataGrid<T> extends ResizableSimplePanel implements Focusa
         return isRowWithinBounds(selectedRow) ? getRowValue(selectedRow) : null;
     }
 
-    /**
-     * Check whether or not the data set is empty. That is, the row count is exactly 0.
-     *
-     * @return true if data set is empty
-     */
-    public boolean isEmpty() {
-        return getRowCount() == 0;
-    }
-
     protected void startResolving() {
         if (isResolvingState) {
             return;
@@ -1077,14 +1057,15 @@ public abstract class DataGrid<T> extends ResizableSimplePanel implements Focusa
         if (columnsChanged || dataChanged)
             updateDataDOM(columnsChanged, dataColumnsChanged); // updating data (rows + column values)
 
-        if (columnsChanged || selectedRowChanged || selectedColumnChanged || dataChanged) // dataChanged because background is data (and updated during data update)
-            updateSelectedRowBackgroundDOM(); // updating selection background
+        if((selectedRowChanged || selectedColumnChanged || focusedChanged)) // this is the check that all columns are already updated
+            updateSelectedDOM(dataColumnsChanged, !columnsChanged && !(dataChanged && dataColumnsChanged == null));
 
         if (columnsChanged || selectedRowChanged || selectedColumnChanged || focusedChanged)
             updateFocusedCellDOM(); // updating focus cell border
 
-        if(focusedChanged) // updating focus grid border
-            changeBorder(isFocused ? "var(--focus-color)" : "var(--component-border-color)");
+        // moved to GridContainerPanel
+//        if(focusedChanged) // updating focus grid border
+//            getElement().getStyle().setBorderColor(isFocused ? "var(--focus-color)" : "var(--component-border-color)");
     }
 
     private void finishResolving() {
@@ -1096,57 +1077,82 @@ public abstract class DataGrid<T> extends ResizableSimplePanel implements Focusa
         selectedRowChanged = false;
         selectedColumnChanged = false;
         focusedChanged = false;
+        onResizeChanged = false;
 
         renderedSelectedKey = getSelectedKey();
+        renderedSelectedExpandingIndex = getSelectedExpandingIndex();
         renderedSelectedRow = getSelectedRow();
         renderedSelectedCol = getSelectedColumn();
 
         isResolvingState = false;
     }
 
-    private int getLastVisibleRow(int tableBottom, int start) {
+    private int getLastVisibleRow(Integer scrollTop, Integer scrollBottom, int start) {
         for (int i = start; i >= 0; i--) {
             TableRowElement rowElement = getChildElement(i);
-            int rowBottom = rowElement.getOffsetTop() + rowElement.getClientHeight();
-            if (rowBottom <= tableBottom) {
-                return i;
+            int rowTop = rowElement.getOffsetTop();
+            if(rowTop <= scrollBottom) {
+                if (scrollTop == null || rowTop >= scrollTop) {
+                    return i;
+                } else {
+                    break;
+                }
             }
         }
-        return 0;
+        return -1;
     }
 
-    private int getFirstVisibleRow(int tableTop, int start) {
+    private int getFirstVisibleRow(Integer scrollTop, Integer scrollBottom, int start) {
         for (int i = start; i < getRowCount(); i++) {
             TableRowElement rowElement = getChildElement(i);
-            int rowTop = rowElement.getOffsetTop();
-            if (rowTop >= tableTop) {
-                return i;
+            int rowBottom = rowElement.getOffsetTop() + rowElement.getClientHeight();
+            if (rowBottom >= scrollTop) {
+                if (scrollBottom == null || rowBottom <= scrollBottom) {
+                    return i;
+                } else {
+                    break;
+                }
             }
         }
-        return 0;
+        return -1;
     }
 
     public void checkSelectedRowVisible() {
         int selectedRow = getSelectedRow();
         if (selectedRow >= 0) {
-            int scrollHeight = tableDataScroller.getClientHeight();
-            int scrollTop = tableDataScroller.getVerticalScrollPosition();
+            int scrollHeight = tableContainer.getClientHeight();
+            int scrollTop = tableContainer.getVerticalScrollPosition();
 
             TableRowElement rowElement = getChildElement(selectedRow);
             int rowTop = rowElement.getOffsetTop();
             int rowBottom = rowTop + rowElement.getClientHeight();
 
+            int headerHeight = getHeaderHeight();
+            int footerHeight = getFooterHeight();
+            int visibleTop = scrollTop + headerHeight;
+            int visibleBottom = scrollTop + scrollHeight - footerHeight;
+
             int newRow = -1;
-            if (rowBottom > scrollTop + scrollHeight + 1) { // 1 for border
-                newRow = getLastVisibleRow(scrollTop + scrollHeight, selectedRow);
+            if (rowBottom > visibleBottom + 1) { // 1 for border
+                newRow = getLastVisibleRow(rowTop <= visibleBottom ? visibleTop : null, visibleBottom, selectedRow - 1);
             }
-            if (rowTop < scrollTop) {
-                newRow = getFirstVisibleRow(scrollTop, selectedRow);
+            if (rowTop < visibleTop) {
+                newRow = getFirstVisibleRow(visibleTop, rowBottom >= visibleTop ? visibleBottom : null, selectedRow + 1);
             }
             if (newRow != -1) {
-                changeSelectedRow(newRow);
+                selectionHandler.changeRow(newRow, FocusUtils.Reason.SCROLLNAVIGATE);
             }
         }
+    }
+
+    private int getHeaderHeight() {
+        return !noHeaders ? getTableHeadElement().getClientHeight() : 0;
+//        return getTableHeadElement().getClientHeight();
+    }
+
+    private int getFooterHeight() {
+        return !noFooters ? getTableFootElement().getClientHeight() : 0;
+//        return getTableFootElement().getClientHeight();
     }
 
     private void beforeUpdateDOMScroll(SetPendingScrollState pendingState) {
@@ -1154,8 +1160,8 @@ public abstract class DataGrid<T> extends ResizableSimplePanel implements Focusa
     }
 
     private void beforeUpdateDOMScrollVertical(SetPendingScrollState pendingState) {
-        if (areRowsChanged() && renderedSelectedRow >= 0) // rows changed and there was some selection
-            pendingState.renderedSelectedScrollTop = getChildElement(renderedSelectedRow).getOffsetTop() - tableDataScroller.getVerticalScrollPosition();
+        if (areRowsChanged() && renderedSelectedRow >= 0 && renderedSelectedRow < getRowCount()) // rows changed and there was some selection
+            pendingState.renderedSelectedScrollTop = getChildElement(renderedSelectedRow).getOffsetTop() - tableContainer.getVerticalScrollPosition();
     }
 
     //force browser-flush
@@ -1165,33 +1171,87 @@ public abstract class DataGrid<T> extends ResizableSimplePanel implements Focusa
     }
 
     private void preAfterUpdateDOMScrollHorizontal(SetPendingScrollState pendingState) {
-
-        int viewportWidth = getViewportWidth();
-        boolean hasVerticalScroll = viewportWidth != tableDataScroller.getOffsetWidth();
-        if(hasVerticalScroll != this.hasVerticalScroll)
+        boolean hasVerticalScroll = GwtClientUtils.hasVerticalScroll(tableContainer.getScrollableElement()); // probably getFullWidth should be used
+        if (this.hasVerticalScroll == null || !this.hasVerticalScroll.equals(hasVerticalScroll))
             pendingState.hasVertical = hasVerticalScroll;
 
-        int currentScrollLeft = tableDataScroller.getHorizontalScrollPosition();
+        int currentScrollLeft = tableContainer.getHorizontalScrollPosition();
+
+        int viewportWidth = getViewportWidth();
 
         //scroll column to visible if needed
-        int scrollLeft = currentScrollLeft;
         int colToShow;
         if (selectedColumnChanged && (colToShow = getSelectedColumn()) >=0 && getRowCount() > 0) {
-            TableRowElement tr = tableData.tableElement.getRows().getItem(0);
-            TableCellElement td = tr.getCells().getItem(colToShow);
+            NodeList<TableCellElement> cells = tableWidget.getDataRows().getItem(0).getCells();
+            TableCellElement td = cells.getItem(colToShow);
 
-            int columnLeft = td.getOffsetLeft();
-            int columnRight = columnLeft + td.getOffsetWidth();
+            int columnLeft = td.getOffsetLeft() - getPrevStickyCellsOffsetWidth(cells, colToShow);
+            int columnRight = td.getOffsetLeft() + td.getOffsetWidth();
+
+            int scrollLeft = currentScrollLeft;
             if (columnRight >= scrollLeft + viewportWidth) // not completely visible from right
                 scrollLeft = columnRight - viewportWidth;
             if (columnLeft < scrollLeft) // not completely visible from left
                 scrollLeft = columnLeft;
+            if(currentScrollLeft != scrollLeft)
+                pendingState.left = scrollLeft;
         }
 
-        if(currentScrollLeft != scrollLeft)
-            pendingState.left = scrollLeft;
+        //calculate left neighbour right border for focused cell
+        if (columnsChanged || selectedRowChanged || selectedColumnChanged || focusedChanged) {
+            pendingState.leftNeighbourRightBorder = calcLeftNeighbourRightBorder(isFocused());
+        }
+
+        //calculate left for sticky properties
+        if (columnsChanged || headersChanged || dataChanged || widthsChanged || onResizeChanged) {
+            pendingState.stickyLefts = getStickyLefts();
+        }
 
 //        updateScrollHorizontal(pendingState);
+    }
+
+    public static class StickyParams {
+        public final double left;
+        public final double borderRight;
+
+        public StickyParams(double left, double borderRight) {
+            this.left = left;
+            this.borderRight = borderRight;
+        }
+    }
+
+    private List<StickyParams> getStickyLefts() {
+        TableRowElement tr = getStickyLeftRow();
+        if(tr != null) {
+            List<StickyParams> stickyLefts = new ArrayList<>();
+            double left = 0.0;
+            List<Integer> stickyColumns = getStickyColumns();
+            double viewportWidth = getViewportWidth();
+            for (int i = 0; i < stickyColumns.size(); i++) {
+                Element cell = tr.getCells().getItem(stickyColumns.get(i));
+                double borderLeftWidth = GwtClientUtils.getDoubleBorderLeftWidth(cell);
+                double borderRightWidth = GwtClientUtils.getDoubleBorderRightWidth(cell);
+                double cellWidth = GwtClientUtils.getDoubleOffsetWidth(cell) - borderLeftWidth - borderRightWidth;
+                //protect from too much sticky columns
+                double nextLeft = left + cellWidth;
+                // assert that nextLeft is Fixed PX, so the resize size is not null
+                stickyLefts.add(nextLeft <= viewportWidth * MainFrame.maxStickyLeft ? new StickyParams(left - borderLeftWidth, borderRightWidth) : null);
+                left = nextLeft;
+            }
+            return stickyLefts;
+        }
+        return null;
+    }
+
+    private TableRowElement getStickyLeftRow() {
+        if(!noHeaders)
+           return headerBuilder.getHeaderRow();
+
+        NodeList<TableRowElement> dataRows = tableWidget.getDataRows();
+        if(dataRows.getLength() > 0)
+            return dataRows.getItem(0);
+
+        return null;
     }
 
     private void preAfterUpdateDOMScrollVertical(SetPendingScrollState pendingState) {
@@ -1203,14 +1263,17 @@ public abstract class DataGrid<T> extends ResizableSimplePanel implements Focusa
             tableHeight = lastRowElement.getOffsetTop() + lastRowElement.getClientHeight();
         }
 
-        int viewportHeight = tableDataScroller.getClientHeight();
-        int currentScrollTop = tableDataScroller.getVerticalScrollPosition();
+        int viewportHeight = tableContainer.getClientHeight();
+        int currentScrollTop = tableContainer.getVerticalScrollPosition();
 
         int scrollTop = currentScrollTop;
 
+        int headerHeight = getHeaderHeight();
+        int footerHeight = getFooterHeight();
+
         // we're trying to keep viewport the same after rerendering
         int rerenderedSelectedRow;
-        if(pendingState.renderedSelectedScrollTop != null && (rerenderedSelectedRow = getRowByKeyOptimistic(renderedSelectedKey)) >= 0) {
+        if(pendingState.renderedSelectedScrollTop != null && (rerenderedSelectedRow = getRowByKey(renderedSelectedKey, renderedSelectedExpandingIndex)) >= 0) {
             scrollTop = getChildElement(rerenderedSelectedRow).getOffsetTop() - pendingState.renderedSelectedScrollTop;
 
             if(scrollTop < 0) // upper than top
@@ -1225,26 +1288,26 @@ public abstract class DataGrid<T> extends ResizableSimplePanel implements Focusa
             TableRowElement rowElement = getChildElement(rowToShow);
             int rowTop = rowElement.getOffsetTop();
             int rowBottom = rowTop + rowElement.getClientHeight();
-            if (rowBottom >= scrollTop + viewportHeight) // not completely visible from bottom
-                scrollTop = rowBottom - viewportHeight;
-            if (rowTop <= scrollTop) // not completely visible from top
-                scrollTop = rowTop - 1; // 1 for border
+            if (rowBottom >= scrollTop + viewportHeight - footerHeight) // not completely visible from bottom
+                scrollTop = rowBottom - viewportHeight + footerHeight;
+            if (rowTop <= scrollTop + headerHeight) // not completely visible from top
+                scrollTop = rowTop - headerHeight - 1; // 1 for border
         }
 
         if(scrollTop != currentScrollTop)
             pendingState.top = scrollTop;
-
-//        updateScrollVertical(pendingState);
     }
 
     protected int getViewportWidth() {
-        return tableDataScroller.getClientWidth();
+        return tableContainer.getWidth();
+//        return GwtClientUtils.getWidth(getTableElement());
     }
-    public int getViewportHeight() {
-        return tableDataScroller.getClientHeight();
+    public int getViewportClientHeight() {
+        return tableContainer.getClientHeight();
+//        return getTableElement().getClientHeight();
     }
 
-    boolean hasVerticalScroll = false;
+    Boolean hasVerticalScroll;
     private void afterUpdateDOMScroll(SetPendingScrollState pendingState) {
         afterUpdateDOMScrollHorizontal(pendingState);
         afterUpdateDOMScrollVertical(pendingState);
@@ -1252,19 +1315,48 @@ public abstract class DataGrid<T> extends ResizableSimplePanel implements Focusa
 
     private void afterUpdateDOMScrollVertical(SetPendingScrollState pendingState) {
         if (pendingState.top != null) {
-            tableDataScroller.setVerticalScrollPosition(pendingState.top);
+            skipScrollEvent = true;
+            tableContainer.setVerticalScrollPosition(pendingState.top);
+
+//            updateScrolledStateVertical(); // scroll handler is called after programmatic change
         }
     }
+
+    private List<StickyParams> stickyLefts;
 
     private void afterUpdateDOMScrollHorizontal(SetPendingScrollState pendingState) {
         if(pendingState.hasVertical != null) {
             hasVerticalScroll = pendingState.hasVertical;
-            updateTableMargins();
+            updateVerticalScroll(hasVerticalScroll, tableContainer.getScrollableElement());
+        }
+
+        //set left sticky, we want it before setting horizontal position to have relevant sticky lefts
+        if(pendingState.stickyLefts != null) {
+            stickyLefts = pendingState.stickyLefts;
+
+            updateStickyLeftDOM();
         }
 
         if (pendingState.left != null) {
-            tableDataScroller.setHorizontalScrollPosition(pendingState.left);
+            tableContainer.setHorizontalScrollPosition(pendingState.left);
+
+//            updateScrolledStateHorizontal(); // scroll handler is called after programmatic change
         }
+
+        //set left neighbour right border for focused cell
+        if(pendingState.leftNeighbourRightBorder != null) {
+            setLeftNeighbourRightBorder(pendingState.leftNeighbourRightBorder);
+        }
+    }
+
+    private void updateSelectedCells(int rowIndex, ArrayList<Column> dataColumnsChanged, boolean updateRowImpl, boolean selectedRow) {
+        TableRowElement rowElement = getChildElement(rowIndex);
+        if(updateRowImpl) {
+            // last parameter is an optimization (not to update already updated cells)
+            tableBuilder.updateRowImpl(rowIndex, getRowValue(rowIndex), null, rowElement, (tColumn, cell) -> (dataColumnsChanged == null || !dataColumnsChanged.contains(tColumn)));
+        }
+
+        setTableActive(rowElement, selectedRow);
     }
 
     private void updateDataDOM(boolean columnsChanged, ArrayList<Column> dataColumnsChanged) {
@@ -1276,65 +1368,48 @@ public abstract class DataGrid<T> extends ResizableSimplePanel implements Focusa
                 columnsToRedraw[i] = getColumnIndex(dataColumnsChanged.get(i));
         }
 
-        tableBuilder.update(tableData.getSection(), getRows(), columnsChanged, columnsToRedraw);
-
-        if(!noScrollers) {
-            if (getRowCount() == 0) {
-                tableDataScroller.setWidget(emptyTableWidgetContainer);
-            } else {
-                tableDataScroller.setWidget(tableData);
-            }
-        }
+        tableBuilder.update(tableWidget.getSection(), getRows(), columnsChanged, columnsToRedraw);
     }
 
-    private void updateSelectedRowBackgroundDOM() {
-        NodeList<TableRowElement> rows = tableData.tableElement.getRows();
+    private void updateStickyLeftDOM() {
+        List<Integer> stickyColumns = getStickyColumns();
+        if (!noHeaders)
+            headerBuilder.updateStickyLeft(stickyColumns, stickyLefts);
+        if (!noFooters)
+            footerBuilder.updateStickyLeft(stickyColumns, stickyLefts);
+
+        tableBuilder.updateRowStickyLeft(tableWidget.getSection(), stickyColumns, stickyLefts);
+    }
+
+    private List<Integer> getStickyColumns() {
+        List<Integer> stickyColumns = new ArrayList<>();
+        for(int i = 0; i < columns.size(); i++) {
+            if(columns.get(i).isSticky()) {
+                stickyColumns.add(i);
+            }
+        }
+        return stickyColumns;
+    }
+
+    private void updateSelectedDOM(ArrayList<Column> dataColumnsChanged, boolean updateRowImpl) {
+        NodeList<TableRowElement> rows = tableWidget.getDataRows();
         int rowCount = rows.getLength();
 
         int newLocalSelectedRow = getSelectedRow();
 
         // CLEAR PREVIOUS STATE
         if (renderedSelectedRow >= 0 && renderedSelectedRow < rowCount &&
-                renderedSelectedRow != newLocalSelectedRow) {
-            updateSelectedRowCellsBackground(renderedSelectedRow, rows, false, -1);
-        }
+                renderedSelectedRow != newLocalSelectedRow)
+            updateSelectedCells(renderedSelectedRow, dataColumnsChanged, updateRowImpl, false);
 
         // SET NEW STATE
-        if (newLocalSelectedRow >= 0 && newLocalSelectedRow < rowCount) {
-            updateSelectedRowCellsBackground(newLocalSelectedRow, rows, true, this.isFocused ? getSelectedColumn() : -1);
-        }
+        if (newLocalSelectedRow >= 0 && newLocalSelectedRow < rowCount)
+            updateSelectedCells(newLocalSelectedRow, dataColumnsChanged, updateRowImpl, true);
     }
-
-    private void updateSelectedRowCellsBackground(int row, NodeList<TableRowElement> rows, boolean selected, int focusedColumn) {
-        TableRowElement tr = rows.getItem(row);
-        NodeList<TableCellElement> cells = tr.getCells();
-        for (int column = 0; column < cells.getLength(); column++) {
-            TableCellElement td = cells.getItem(column);
-
-            String background = td.getPropertyString(GPropertyTableBuilder.BKCOLOR);
-            if(background != null && background.isEmpty())
-                background = null;
-
-            String setColor;
-            if (selected) {
-                setColor = (column == focusedColumn) ? getFocusedCellBackgroundColor(true) : getSelectedRowBackgroundColor(true);
-                if (background != null)
-                    setColor = mixColors(background, setColor);
-            } else {
-                assert column != focusedColumn;
-                setColor = background != null ? getDisplayColor(background) : null;
-            }
-            onSelectedChanged(td, row, column, selected);
-
-            GFormController.setBackgroundColor(td, setColor);
-        }
-    }
-
-    protected abstract void onSelectedChanged(TableCellElement td, int row, int column, boolean selected);
 
     private void updateFocusedCellDOM() {
-        NodeList<TableRowElement> rows = tableData.tableElement.getRows();
-        NodeList<TableRowElement> headerRows = noHeaders ? null : tableHeader.tableElement.getTHead().getRows(); // we need headerRows for upper border
+        NodeList<TableRowElement> rows = tableWidget.getDataRows();
+        TableRowElement headerRow = noHeaders ? null : headerBuilder.getHeaderRow(); // we need headerRows for upper border
 
         int newLocalSelectedRow = getSelectedRow();
         int newLocalSelectedCol = getSelectedColumn();
@@ -1344,16 +1419,110 @@ public abstract class DataGrid<T> extends ResizableSimplePanel implements Focusa
         // if old row index is out of bounds only by 1, than we still need to clean top cell, which is in bounds (for vertical direction there is no such problem since we set outer border, and not inner, for horz it's not possible because of header)
         if (renderedSelectedRow >= 0 && renderedSelectedRow <= rows.getLength() && renderedSelectedCol >= 0 && renderedSelectedCol < columnCount &&
                 (renderedSelectedRow != newLocalSelectedRow || renderedSelectedCol != newLocalSelectedCol)) {
-            setFocusedCellStyles(renderedSelectedRow, renderedSelectedCol, rows, headerRows, false);
+            setFocusedCellStyles(renderedSelectedRow, renderedSelectedCol, rows, headerRow, false);
+            if(renderedSelectedRow < rows.getLength() && renderedLeftStickyCol >= 0 && renderedLeftStickyCol < columnCount) {
+                setLeftNeighbourRightBorder(new LeftNeighbourRightBorder(renderedSelectedRow, renderedLeftStickyCol, false));
+                renderedLeftStickyCol = -1;
+            }
         }
 
         // SET NEW STATE
         if (newLocalSelectedRow >= 0 && newLocalSelectedRow < rows.getLength() && newLocalSelectedCol >= 0 && newLocalSelectedCol < columnCount) {
-            setFocusedCellStyles(newLocalSelectedRow, newLocalSelectedCol, rows, headerRows, isFocused);
+            setFocusedCellStyles(newLocalSelectedRow, newLocalSelectedCol, rows, headerRow, isFocused());
         }
     }
 
-    private void setFocusedCellStyles(int row, int column, NodeList<TableRowElement> rows, NodeList<TableRowElement> headerRows, boolean focused) {
+    private LeftNeighbourRightBorder calcLeftNeighbourRightBorder(boolean set) {
+        //border for previous sticky cell
+        //focused is sticky: draw border if prev cell is invisible
+        //focused is not sticky and prev cell is sticky: draw border if focused is visible
+        //focused is not sticky and prev cell is not sticky: draw border if prev sticky is at the border of focused
+        LeftNeighbourRightBorder leftNeighbourRightBorder = null;
+        NodeList<TableRowElement> rows = tableWidget.getDataRows();
+
+        int row = getSelectedRow();
+        int column = getSelectedColumn();
+
+        if (row >= 0 && row < rows.getLength() && column >= 0 && column < getColumnCount()) {
+            NodeList<TableCellElement> cells = tableWidget.getDataRows().getItem(row).getCells();
+            TableCellElement focusedCell = cells.getItem(column);
+            TableCellElement prevCell = cells.getItem(column - 1);
+            Integer prevStickyCellNum = getPrevStickyCell(cells, column);
+            if (prevStickyCellNum != null) {
+                TableCellElement prevStickyCell = cells.getItem(prevStickyCellNum);
+                if (isStickyCell(focusedCell)) {
+                    leftNeighbourRightBorder = new LeftNeighbourRightBorder(row, prevStickyCellNum, set && getAbsoluteRight(prevCell) <= getAbsoluteRight(prevStickyCell));
+                } else if (prevCell.equals(prevStickyCell)) {
+                    leftNeighbourRightBorder = new LeftNeighbourRightBorder(row, prevStickyCellNum, set && getAbsoluteLeft(focusedCell) + 1 >= getAbsoluteRight(prevStickyCell));
+                } else if (!isStickyCell(prevCell)) {
+                    leftNeighbourRightBorder = new LeftNeighbourRightBorder(row, prevStickyCellNum, set && (getAbsoluteLeft(focusedCell) == getAbsoluteRight(prevStickyCell)));
+                }
+            }
+        }
+        return leftNeighbourRightBorder;
+    }
+
+    private void setLeftNeighbourRightBorder(LeftNeighbourRightBorder leftNeighbourRightBorder) {
+        if (leftNeighbourRightBorder != null) {
+            setLeftNeighbourRightBorder(tableWidget.getDataRows().getItem(leftNeighbourRightBorder.row).getCells().getItem(leftNeighbourRightBorder.column), leftNeighbourRightBorder.value);
+            if (leftNeighbourRightBorder.value) {
+                renderedLeftStickyCol = leftNeighbourRightBorder.column;
+            }
+        }
+    }
+
+    private Integer getPrevStickyCell(NodeList<TableCellElement> cells, int column) {
+        for (int i = column - 1; i >= 0; i--) {
+            TableCellElement prevCell = cells.getItem(i);
+            if (isStickyCell(prevCell)) {
+                return i;
+            }
+        }
+        return null;
+    }
+
+    private int getPrevStickyCellsOffsetWidth(NodeList<TableCellElement> cells, int column) {
+        int left = 0;
+        for (int i = column - 1; i >= 0; i--) {
+            TableCellElement prevCell = cells.getItem(i);
+            if (isStickyCell(prevCell)) {
+                left += prevCell.getOffsetWidth();
+            }
+        }
+
+        return left;
+    }
+
+    //use native getAbsoluteLeft, because GWT methods are casting to int incorrect
+    private native double getAbsoluteLeft(Element elem) /*-{
+        var left = 0;
+        var curr = elem;
+        // This intentionally excludes body which has a null offsetParent.
+        while (curr.offsetParent) {
+            left -= curr.scrollLeft;
+            curr = curr.parentNode;
+        }
+        while (elem) {
+            left += elem.offsetLeft;
+            elem = elem.offsetParent;
+        }
+        return left;
+    }-*/;
+
+    public final double getAbsoluteRight(Element elem) {
+        return getAbsoluteLeft(elem) + getOffsetWidth(elem);
+    }
+
+    private native double getOffsetWidth(Element elem) /*-{
+        return elem.offsetWidth || 0;
+    }-*/;
+
+
+    private boolean isStickyCell(TableCellElement cell) {
+        return cell.hasClassName("data-grid-sticky-cell") && !cell.hasClassName("data-grid-sticky-overflow");
+    }
+
+    private void setFocusedCellStyles(int row, int column, NodeList<TableRowElement> rows, TableRowElement headerRow, boolean focused) {
         // setting left and bottom borders since they are used to draw lines in grid
         int rowCount = rows.getLength();
         int columnCount = getColumnCount();
@@ -1365,9 +1534,10 @@ public abstract class DataGrid<T> extends ResizableSimplePanel implements Focusa
 
             TableCellElement thisCell = cells.getItem(column);
             if(column < columnCount) {
-                // LEFT BORDER
-//                if(column > 0) // we don't want focused border on leftmost border to prevent shifting leftmost cell
-                setFocusedCellLeftBorder(thisCell, focused);
+                // LEFT BORDER (RIGHT of left column)
+                if(column > 0) {
+                    setLeftNeighbourRightBorder(cells.getItem(column - 1), focused);
+                }
 
                 // in theory we might want to prevent extra border on the bottom and on the right (on the top there is no problem because of header)
                 // but there is a problem (with scroller, in that case we'll have to track hasVerticalScroller, hasHorizontalScroller) + table can be not full of rows (and we also have to track it)
@@ -1377,68 +1547,109 @@ public abstract class DataGrid<T> extends ResizableSimplePanel implements Focusa
                 setFocusedCellBottomBorder(thisCell, focused);
 
                 // RIGHT BORDER
-                if (column < columnCount - 1) {
-                    TableCellElement rightCell = cells.getItem(column + 1);
-                    setFocusedCellLeftBorder(rightCell, focused);
-                }
-                setFocusedCellRightBorder(thisCell, focused && column == columnCount - 1);
+                setFocusedCellRightBorder(thisCell, focused);
             }
+
+            setFocusedCell(thisCell, focused);
         }
 
         // TOP BORDER (BOTTOM of upper row)
         if(column < columnCount) {
-            TableCellElement upperCell = (row > 0 ? rows.getItem(row - 1) : headerRows.getItem(0)).getCells().getItem(column);
-            setFocusedCellBottomBorder(upperCell, focused);
+            TableRowElement upperRow = row > 0 ? rows.getItem(row - 1) : headerRow;
+            if(upperRow != null)
+                setFocusedCellBottomBorder(upperRow.getCells().getItem(column), focused);
+        }
+    }
+
+    private void setFocusedCell(Element element, boolean focused) {
+        if (focused) {
+            GwtClientUtils.addClassName(element, "focused-cell");
+        } else {
+            GwtClientUtils.removeClassName(element, "focused-cell");
+        }
+    }
+
+    private void setTableActive(Element element, boolean active) {
+        if (active) {
+            GwtClientUtils.addClassName(element, "table-active");
+        } else {
+            GwtClientUtils.removeClassName(element, "table-active");
         }
     }
 
     private void setFocusedCellBottomBorder(TableCellElement td, boolean focused) {
         if (focused) {
-            td.getStyle().setProperty("borderBottom", "1px solid " + getFocusedCellBorderColor());
+            GwtClientUtils.addClassName(td, "focused-cell-bottom-border", "focusedCellBottomBorder", v5);
         } else {
-            td.getStyle().clearProperty("borderBottom");
+            GwtClientUtils.removeClassName(td, "focused-cell-bottom-border", "focusedCellBottomBorder", v5);
         }
     }
 
     private void setFocusedCellRightBorder(TableCellElement td, boolean focused) {
         if (focused) {
-            td.getStyle().setProperty("borderRight", "1px solid " + getFocusedCellBorderColor());
+            GwtClientUtils.addClassName(td, "focused-cell-right-border", "focusedCellRightBorder", v5);
         } else {
-            td.getStyle().clearProperty("borderRight");
+            GwtClientUtils.removeClassName(td, "focused-cell-right-border", "focusedCellRightBorder", v5);
         }
     }
-    
-    private void setFocusedCellLeftBorder(TableCellElement td, boolean focused) {
+
+    private void setLeftNeighbourRightBorder(TableCellElement td, boolean focused) {
         if (focused) {
-            td.getStyle().setProperty("borderLeft", "1px solid " + getFocusedCellBorderColor());
+            GwtClientUtils.addClassName(td, "left-neighbour-right-border", "leftNeighbourRightBorder", v5);
         } else {
-            td.getStyle().clearProperty("borderLeft");
+            GwtClientUtils.removeClassName(td, "left-neighbour-right-border", "leftNeighbourRightBorder", v5);
         }
     }
 
     public void updateHeadersDOM(boolean columnsChanged) {
-        if (!noHeaders)
-            headerBuilder.update(columnsChanged);
-        if (!noFooters)
-            footerBuilder.update(columnsChanged);
+        // we always need headers and footers to support scroll arrows
+//        if(!noHeaders)
+        headerBuilder.update(columnsChanged);
+//        if(!noFooters)
+        footerBuilder.update(columnsChanged);
+    }
+
+    public Element getHeaderElement(int element) {
+        assert !noHeaders;
+        return headerBuilder.getHeaderRow().getCells().getItem(element);
+    }
+
+    public Element getWidthElement(int element) {
+        int shift = 0;
+        for(int i=0;i<element;i++) {
+            shift++;
+            if(isColumnFlex(i))
+                shift++;
+        }
+        return tableWidget.colRowElement.getCells().getItem(shift);
     }
 
     // mechanism is slightly different - removing redundant columns, resetting others, however there is no that big difference from other updates so will leave it this way
-    private void updateWidthsDOM(boolean columnsChanged) {
-        int columnCount = getColumnCount();
+    protected void updateWidthsDOM(boolean columnsChanged) {
+        if(columnsChanged) {
+            tableBuilder.rebuildColumnRow(tableWidget.colRowElement);
+//            tableWidget.rebuildColumnGroup();
+        }
 
-        if(columnsChanged)
-            removeUnusedColumnWidthsImpl(columnCount);
-        for (int i = 0; i < columnCount; i++)
-            updateColumnWidthImpl(i, getColumnWidth(columns.get(i)));
-    }
+        int colRowInd = 0;
+        for (int i = 0, columnCount = getColumnCount(); i < columnCount; i++) {
+            TableCellElement colElement = tableWidget.colRowElement.getCells().getItem(colRowInd++);
+//            TableColElement colElement = tableWidget.colGroupElement.getChild(i).cast();
 
-    private void removeUnusedColumnWidthsImpl(int columnCount) {
-        tableData.removeUnusedColumns(columnCount);
-        if(!noHeaders)
-            tableHeader.removeUnusedColumns(columnCount);
-        if(!noFooters)
-            tableFooter.removeUnusedColumns(columnCount);
+//            Column<T, ?> column = getColumn(i);
+//            Cell cell = new Cell(-1, i, column, null); // the same as in buildColumnRow
+//            Element sizeElement = SimpleTextBasedCellRenderer.getSizeElement(column.getSizedDom(cell, colElement));
+            Element sizeElement = colElement; // the problem is that table-loyout fixed doesn't care about the cell content, so it's not possible to do the sizing for the inner div / input components
+
+            FlexPanel.setGridWidth(sizeElement, getColumnWidth(i).getString());
+            GwtClientUtils.addClassName(sizeElement, "prop-size-value");
+
+            if(isColumnFlex(i)) {
+                double columnFlexPerc = getColumnFlexPerc(i);
+                colElement = tableWidget.colRowElement.getCells().getItem(colRowInd++);
+                FlexPanel.setGridWidth(colElement, columnFlexPerc + "%");
+            }
+        }
     }
 
     @Override
@@ -1455,6 +1666,21 @@ public abstract class DataGrid<T> extends ResizableSimplePanel implements Focusa
         private Integer top;
         private Integer left;
         private Boolean hasVertical;
+
+        private LeftNeighbourRightBorder leftNeighbourRightBorder;
+        private List<StickyParams> stickyLefts;
+    }
+
+    private static class LeftNeighbourRightBorder {
+        int row;
+        int column;
+        boolean value;
+
+        public LeftNeighbourRightBorder(int row, int column, boolean value) {
+            this.row = row;
+            this.column = column;
+            this.value = value;
+        }
     }
 
     // all this pending is needed for two reasons :
@@ -1465,8 +1691,13 @@ public abstract class DataGrid<T> extends ResizableSimplePanel implements Focusa
     private static class UpdateDOMCommand implements Scheduler.ScheduledCommand {
         private final ArrayList<DataGrid> grids = new ArrayList<>();
 
+        public boolean executed;
+
         @Override
         public void execute() {
+            if(executed)
+                return;
+
             for (DataGrid grid : grids)
                 grid.startResolving();
 
@@ -1475,7 +1706,7 @@ public abstract class DataGrid<T> extends ResizableSimplePanel implements Focusa
             SetPendingScrollState[] pendingStates = new SetPendingScrollState[size];
             for (int i = 0; i < size; i++) {
                 DataGrid grid = grids.get(i);
-                if(!grid.noScrollers && GwtClientUtils.isShowing(grid)) { // need this check, since grid can be already hidden (for example when SHOW DOCKED is executed), and in that case get*Width return 0, which leads for example to updateTablePaddings (removing scroll) and thus unnecessary blinking when the grid becomes visible again
+                if(GwtClientUtils.isShowing(grid.tableWidget)) { // need this check, since grid can be already hidden (for example when SHOW DOCKED is executed), and in that case get*Width return 0, which leads for example to updateTablePaddings (removing scroll) and thus unnecessary blinking when the grid becomes visible again
                     showing[i] = true;
                     pendingStates[i] = new SetPendingScrollState();
                 }
@@ -1500,6 +1731,7 @@ public abstract class DataGrid<T> extends ResizableSimplePanel implements Focusa
             for (DataGrid grid : grids)
                 grid.finishResolving();
 
+            executed = true;
             updateDOMCommandStatic = null;
         }
 
@@ -1510,6 +1742,11 @@ public abstract class DataGrid<T> extends ResizableSimplePanel implements Focusa
                 Scheduler.get().scheduleFinally(updateDOMCommandStatic);
             } else
                 updateDOMCommandStatic.add(grid);
+        }
+
+        public static void flush() {
+            if (updateDOMCommandStatic != null)
+                updateDOMCommandStatic.execute();
         }
 
         private void add(DataGrid grid) {
@@ -1525,104 +1762,66 @@ public abstract class DataGrid<T> extends ResizableSimplePanel implements Focusa
         UpdateDOMCommand.schedule(this);
     }
 
-    private abstract static class TableWrapperWidget extends Widget {
-        protected final TableElement tableElement;
-        protected final TableColElement colgroupElement;
-        protected final TableSectionElement sectionElement;
+    public static void flushUpdateDOM() {
+        UpdateDOMCommand.flush();
+    }
 
-        public TableWrapperWidget(String extraClass) {
+    protected class TableWidget extends Widget {
+        protected final TableElement tableElement;
+//        protected final TableColElement colGroupElement;
+        protected TableRowElement colRowElement;
+        protected TableSectionElement headerElement;
+        protected final TableSectionElement bodyElement;
+        protected TableSectionElement footerElement;
+
+        public TableWidget() {
             tableElement = Document.get().createTableElement();
 
-            tableElement.addClassName(DATA_GRID_CLASS);
-            if(extraClass != null)
-                tableElement.addClassName(extraClass);
+            GwtClientUtils.addClassName(tableElement, "table");
+            GwtClientUtils.addClassName(tableElement, "lsf-table");
+            if (noHeaders) {
+                GwtClientUtils.addClassName(tableElement, "empty-header");
+            }
+            if (noFooters) {
+                GwtClientUtils.addClassName(tableElement, "empty-footer");
+            }
 
-            colgroupElement = tableElement.appendChild(Document.get().createColGroupElement());
+            headerElement = tableElement.createTHead();
+            GwtClientUtils.addClassName(headerElement, "data-grid-header", "dataGridHeader", v5);
 
-            sectionElement = createSectionElement();
+            colRowElement = headerElement.insertRow(-1);
+
+            bodyElement = GwtClientUtils.createTBody(tableElement);
+            GwtClientUtils.addClassName(bodyElement, "data-grid-body", "dataGridBody", v5);
+
+            footerElement = tableElement.createTFoot();
+            GwtClientUtils.addClassName(footerElement, "data-grid-footer", "dataGridFooter", v5);
 
             setElement(tableElement);
         }
 
-        protected abstract TableSectionElement createSectionElement();
-
-        /**
-         * Get the {@link TableColElement} at the specified index, creating it if
-         * necessary.
-         *
-         * @param index the column index
-         * @return the {@link TableColElement}
-         */
-        public TableColElement ensureTableColElement(int index) {
-            // Ensure that we have enough columns.
-            for (int i = colgroupElement.getChildCount(); i <= index; i++) {
-                colgroupElement.appendChild(Document.get().createColElement());
-            }
-            return colgroupElement.getChild(index).cast();
-        }
-
-        /**
-         * Hide columns that aren't used in the table.
-         *
-         * @param start the first unused column index
-         */
-        void removeUnusedColumns(int start) {
-            // Remove all col elements that appear after the last column.
-            int colCount = colgroupElement.getChildCount();
-            for (int i = start; i < colCount; i++) {
-                colgroupElement.removeChild(ensureTableColElement(start));
-            }
-        }
-
+//        public void rebuildColumnGroup() {
+//            GwtClientUtils.removeAllChildren(colGroupElement);
+//
+//            for(int i = 0, columnCount = getColumnCount(); i < columnCount; i++) {
+//                colGroupElement.appendChild(Document.get().createColElement());
+//            }
+//        }
+//
         public TableSectionElement getSection() {
-            return sectionElement;
+            return bodyElement;
+        }
+
+        public NodeList<TableRowElement> getDataRows() {
+            return bodyElement.getRows();
         }
     }
 
-    private class HeaderWidget extends TableWrapperWidget {
-        public HeaderWidget() {
-            super(style.dataGridHeader());
-        }
 
-        @Override
-        protected TableSectionElement createSectionElement() {
-            return tableElement.createTHead();
-        }
-    }
-
-    private class FooterWidget extends TableWrapperWidget {
-        private FooterWidget() {
-            super(style.dataGridFooter());
-        }
-
-        @Override
-        protected TableSectionElement createSectionElement() {
-            return tableElement.createTFoot();
-        }
-    }
-
-    private class TableWidget extends TableWrapperWidget {
-//        private final DivElement containerElement;
-
-        public TableWidget() {
-            super(null);
-        }
-
-        @Override
-        protected TableSectionElement createSectionElement() {
-            if (tableElement.getTBodies().getLength() > 0) {
-                return tableElement.getTBodies().getItem(0);
-            } else {
-                return tableElement.appendChild(Document.get().createTBodyElement());
-            }
-        }
-    }
-
-    @Override
     public void onResize() {
-        if(!isResolvingState) // hack, because in preUpdateScroll there is browser event flush, which causes scheduleDeferred flush => HeaderPanel.forceLayout => onResize and IllegalStateException, everything is really twisted here, so will just suppress ensurePendingState
-            scheduleUpdateDOM();
-        super.onResize();
+        onResizeChanged();
+        //need to recalculate scrollTop in preAfterUpdateDOMScrollVertical
+        selectedRowChanged = true;
     }
 
     public static abstract class DataGridSelectionHandler<T> {
@@ -1632,20 +1831,29 @@ public abstract class DataGrid<T> extends ResizableSimplePanel implements Focusa
             this.display = display;
         }
 
-        public void onCellBefore(EventHandler handler, Cell cell, Function<Boolean, Boolean> isChangeOnSingleClick) {
+        public void onCellBefore(EventHandler handler, Cell cell, Function<Boolean, Boolean> isChangeOnSingleClick, Supplier<Element> getNativeEventElement) {
             Event event = handler.event;
             boolean changeEvent = GMouseStroke.isChangeEvent(event);
             if (changeEvent || GMouseStroke.isContextMenuEvent(event)) {
                 int col = cell.getColumnIndex();
                 int row = cell.getRowIndex();
                 boolean rowChanged = display.getSelectedRow() != row;
-                if ((display.getSelectedColumn() != col) || rowChanged) {
+                int selectedColumn = display.getSelectedColumn();
 
-                    changeColumn(col);
-                    changeRow(row);
+                if (selectedColumn != col || rowChanged) {
+                    FocusUtils.Reason reason = FocusUtils.Reason.MOUSENAVIGATE;
+                    if(!isFocusable(col))
+                        changeRow(row, reason);
+                    else
+                        changeCell(row, col, reason);
 
-                    if(changeEvent && !isChangeOnSingleClick.apply(rowChanged)) // we'll propagate native events to enable (support) "text selection" feature
-                        handler.consume(true, true); // we'll propagate events upper, to process bindings if there are any (for example CTRL+CLICK)
+                    if(changeEvent && !isChangeOnSingleClick.apply(rowChanged)) {
+                        Element nativeEventElement = getNativeEventElement.get();
+                        if(nativeEventElement != null)
+                            MainFrame.preventClickAfterDown(nativeEventElement, event); // most input elements show popups on mouse click (not mousedown)
+                        // we'll propagate native events by default, at least to enable (support) "text selection" feature
+                        handler.consume(nativeEventElement == null, true); // we'll propagate events upper, to process bindings if there are any (for example CTRL+CLICK)
+                    }
                 }
 //                else if(BrowserEvents.CLICK.equals(eventType) && // if clicked on grid and element is not natively focusable steal focus
 //                        !CellBasedWidgetImpl.get().isFocusable(Element.as(event.getEventTarget())))
@@ -1662,45 +1870,61 @@ public abstract class DataGrid<T> extends ResizableSimplePanel implements Focusa
 
         public boolean handleKeyEvent(Event event) {
             int keyCode = event.getKeyCode();
+            FocusUtils.Reason reason = FocusUtils.Reason.KEYMOVENAVIGATE;
             switch (keyCode) {
                 case KeyCodes.KEY_RIGHT:
-                    return nextColumn(true);
+                    nextColumn(true, reason);
+                    return true;
                 case KeyCodes.KEY_LEFT:
-                    return nextColumn(false);
+                    nextColumn(false, reason);
+                    return true;
                 case KeyCodes.KEY_DOWN:
-                    return nextRow(true);
+                    nextRow(true, reason);
+                    return true;
                 case KeyCodes.KEY_UP:
-                    return nextRow(false);
+                    nextRow(false, reason);
+                    return true;
                 case KeyCodes.KEY_PAGEDOWN:
-                    return changeRow(display.getSelectedRow() + display.pageIncrement);
+                    changeRow(display.getSelectedRow() + display.pageIncrement, reason);
+                    return true;
                 case KeyCodes.KEY_PAGEUP:
-                    return changeRow(display.getSelectedRow() - display.pageIncrement);
+                    changeRow(display.getSelectedRow() - display.pageIncrement, reason);
+                    return true;
                 case KeyCodes.KEY_HOME:
-                    return changeRow(0);
+                    changeRow(0, reason);
+                    return true;
                 case KeyCodes.KEY_END:
-                    return changeRow(display.getRowCount() - 1);
+                    changeRow(display.getRowCount() - 1, reason);
+                    return true;
             }
             return false;
         }
 
-        protected boolean changeColumn(int column) {
-            return display.changeSelectedColumn(column);
+        protected boolean isFocusable(int column) {
+            return display.isFocusable(column);
         }
-        protected boolean changeRow(int row) {
-            display.changeSelectedRow(row);
-            return true;
+        protected void changeCell(int row, int column, FocusUtils.Reason reason) {
+            display.changeSelectedCell(row, column, reason);
+        }
+        public void changeColumn(int column, FocusUtils.Reason reason) {
+            changeCell(display.getSelectedRow(), column, reason);
+        }
+        public void changeRow(int row, FocusUtils.Reason reason) {
+            changeCell(row, display.getSelectedColumn(), reason);
         }
 
-        public boolean nextRow(boolean down) {
+        public void nextRow(boolean down, FocusUtils.Reason reason) {
             int rowIndex = display.getSelectedRow();
-            return changeRow(down ? rowIndex + 1 : rowIndex - 1);
+            changeRow(down ? rowIndex + 1 : rowIndex - 1, reason);
         }
 
-        public boolean nextColumn(boolean forward) {
+        public void nextColumn(boolean forward, FocusUtils.Reason reason) {
             int rowCount = display.getRowCount();
             if(rowCount == 0) // not sure if it's needed
-                return false;
+                return;
             int columnCount = display.getColumnCount();
+            if(columnCount == 0)
+                return;
 
             int rowIndex = display.getSelectedRow();
             int columnIndex = display.getSelectedColumn();
@@ -1728,25 +1952,42 @@ public abstract class DataGrid<T> extends ResizableSimplePanel implements Focusa
                     }
                 }
 
-                if(changeColumn(columnIndex))
+                if(isFocusable(columnIndex))
                     break;
             }
 
-            return changeRow(rowIndex);
+            changeCell(rowIndex, columnIndex, reason);
         }
+    }
+
+    public void initArrow(Element parent, boolean bottom) {
+        Element button = GwtClientUtils.createFocusElement("button");
+        GwtClientUtils.addClassName(button, "btn");
+        GwtClientUtils.addClassName(button, "btn-light");
+        GwtClientUtils.addClassName(button, "btn-sm");
+        GwtClientUtils.addClassName(button, "arrow");
+        button.appendChild(bottom ? StaticImage.CHEVRON_DOWN.createImage() : StaticImage.CHEVRON_UP.createImage());
+        GwtClientUtils.setOnClick(button, event -> scrollToEnd(bottom));
+
+        Element arrowTH = Document.get().createElement("th");
+        GwtClientUtils.addClassName(arrowTH, "arrow-th");
+        GwtClientUtils.addClassName(arrowTH, bottom ? "bottom-arrow" : "top-arrow");
+
+        Element arrowContainer = Document.get().createElement("div");
+        GwtClientUtils.addClassName(arrowContainer, "arrow-container");
+        arrowContainer.appendChild(button);
+
+        arrowTH.appendChild(arrowContainer);
+        parent.appendChild(arrowTH);
     }
 
     private boolean wasUnloaded;
 
-    @Override
-    protected void onUnload() {
+    public void onTableContainerUnload() {
         wasUnloaded = true;
-        super.onUnload();
     }
 
-    @Override
-    protected void onLoad() {
-        super.onLoad();
+    public void onTableContainerLoad() {
         // when grid is unloaded and then loaded (when moving from one container to another in maximize / minimize tabspanel, not sure if there are other cases)
         // scroll position changes to 0 (without any event, but that doesn't matter), and we want to keep the selected row, so we mark it as changed, and in afterUpdateDOM method it is ensured that selected cell is visible
         if(wasUnloaded)

@@ -10,6 +10,26 @@ public enum ContainerViewExtraType {
         public byte getContainerReadType() {
             return PropertyReadType.CONTAINER_CAPTION;
         }
+    }, CAPTIONCLASS {
+        @Override
+        public byte getContainerReadType() {
+            return PropertyReadType.CONTAINER_CAPTIONCLASS;
+        }
+    }, VALUECLASS {
+        @Override
+        public byte getContainerReadType() {
+            return PropertyReadType.CONTAINER_VALUECLASS;
+        }
+    }, IMAGE {
+        @Override
+        public byte getContainerReadType() {
+            return PropertyReadType.CONTAINER_IMAGE;
+        }
+    }, CUSTOM {
+        @Override
+        public byte getContainerReadType() {
+            return PropertyReadType.CUSTOM;
+        }
     };
 
     public static final ImSet<ContainerViewExtraType> extras = SetFact.toSet(values());

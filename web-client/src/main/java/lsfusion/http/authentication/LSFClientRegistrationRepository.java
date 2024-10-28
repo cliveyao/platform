@@ -4,16 +4,16 @@ import com.google.common.base.Throwables;
 import lsfusion.base.file.FileData;
 import lsfusion.http.controller.LogicsRequestHandler;
 import lsfusion.http.controller.MainController;
+import lsfusion.http.provider.logics.LogicsProvider;
 import lsfusion.http.provider.navigator.NavigatorProviderImpl;
 import lsfusion.interop.base.exception.AuthenticationException;
 import lsfusion.interop.connection.AuthenticationToken;
-import lsfusion.interop.logics.LogicsRunnable;
 import lsfusion.interop.logics.LogicsSessionObject;
 import lsfusion.interop.logics.remote.RemoteLogicsInterface;
+import lsfusion.interop.session.ExternalRequest;
 import lsfusion.interop.session.ExternalResponse;
 import org.json.JSONArray;
 import org.json.JSONObject;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.lang.NonNull;
 import org.springframework.security.oauth2.client.registration.ClientRegistration;
 import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
@@ -32,10 +32,11 @@ import java.util.concurrent.ConcurrentHashMap;
 public class LSFClientRegistrationRepository extends LogicsRequestHandler implements ClientRegistrationRepository, Iterable<ClientRegistration> {
     private Map<String, ClientRegistration> registrations;
 
-    @Autowired
-    private ServletContext servletContext;
+    private final ServletContext servletContext;
 
-    public LSFClientRegistrationRepository() {
+    public LSFClientRegistrationRepository(LogicsProvider logicsProvider, ServletContext servletContext) {
+        super(logicsProvider);
+        this.servletContext = servletContext;
     }
 
     @Override
@@ -49,12 +50,7 @@ public class LSFClientRegistrationRepository extends LogicsRequestHandler implem
             HttpServletRequest request = LSFRemoteAuthenticationProvider.getHttpServletRequest();
             List<ClientRegistration> clientRegistrations;
             try {
-                clientRegistrations = runRequest(request, new LogicsRunnable<List<ClientRegistration>>() {
-                    @Override
-                    public List<ClientRegistration> run(LogicsSessionObject sessionObject) throws RemoteException {
-                        return getOauth2ClientCredentials(sessionObject.remoteLogics, request);
-                    }
-                });
+                clientRegistrations = runRequest(request, (sessionObject, retry) -> getOauth2ClientCredentials(sessionObject.remoteLogics, request));
             } catch (IOException e) {
                 throw Throwables.propagate(e);
             }
@@ -79,9 +75,9 @@ public class LSFClientRegistrationRepository extends LogicsRequestHandler implem
         String authSecret = servletContext.getInitParameter(OAuth2ToLSFTokenFilter.AUTH_SECRET_KEY);
         List<ClientRegistration> clientRegistrations = new ArrayList<>();
 
-        ExternalResponse result = remoteLogics.exec(AuthenticationToken.ANONYMOUS, NavigatorProviderImpl.getSessionInfo(request),
-                "Authentication.getClientCredentials", MainController.getExternalRequest(new Object[]{authSecret}, request));
-        JSONArray jsonArray = new JSONArray(new String(((FileData) result.results[0]).getRawFile().getBytes(), StandardCharsets.UTF_8));
+        ExternalResponse result = remoteLogics.exec(AuthenticationToken.ANONYMOUS, NavigatorProviderImpl.getConnectionInfo(request),
+                "Authentication.getClientCredentials", MainController.getExternalRequest(new ExternalRequest.Param[]{ExternalRequest.getSystemParam(authSecret)}, request));
+        JSONArray jsonArray = LogicsSessionObject.getJSONArrayResult(result);
 
         int jsonArrayLength = jsonArray.length();
         if (jsonArrayLength == 1 && jsonArray.getJSONObject(0).has("error")){
@@ -115,17 +111,5 @@ public class LSFClientRegistrationRepository extends LogicsRequestHandler implem
             return Collections.<String, ClientRegistration>emptyMap().values().iterator();
         }
         return registrations.values().iterator();
-    }
-
-    private boolean forbidAccessRegistrationPage;
-
-    public void setForbidAccessRegistrationPage(boolean forbidAccessRegistrationPage) {
-        this.forbidAccessRegistrationPage = forbidAccessRegistrationPage;
-    }
-
-    @SuppressWarnings("unused")
-    //used in applicationContext-security to forbid access to registration page when selfRegistrationRole is disabled
-    public boolean isForbidAccessRegistrationPage(){
-        return forbidAccessRegistrationPage;
     }
 }

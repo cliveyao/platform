@@ -1,5 +1,6 @@
 package lsfusion.client.form.property.cell;
 
+import lsfusion.base.Result;
 import lsfusion.client.classes.ClientType;
 import lsfusion.client.form.property.ClientPropertyDraw;
 import lsfusion.client.form.property.table.view.InternalEditEvent;
@@ -10,6 +11,7 @@ import javax.swing.*;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseEvent;
 import java.util.*;
+import java.util.function.Supplier;
 
 import static lsfusion.interop.form.event.KeyStrokes.getKeyStrokeForEvent;
 
@@ -25,8 +27,9 @@ public class EditBindingMap {
             setMouseAction(ServerResponse.CHANGE);
     }
 
-    public String getEventSID(EventObject editEvent, EditEventFilter editEventFilter, boolean hasEditObjectAction) {
-        if (hasEditObjectAction && KeyStrokes.isEditObjectEvent(editEvent)) // has to be before isChangeEvent, since also handles MOUSE CHANGE event
+    public String getEventSID(EventObject editEvent, Result<Integer> contextAction, EditEventFilter editEventFilter,
+                              boolean hasEditObjectAction, boolean hasChangeAction, Supplier<Integer> dialogActionIndexSupplier) {
+        if (KeyStrokes.isEditObjectEvent(editEvent, hasEditObjectAction, hasChangeAction)) // has to be before isChangeEvent, since also handles MOUSE CHANGE event
             return ServerResponse.EDIT_OBJECT;
 
         if (editEvent instanceof KeyEvent) {
@@ -34,6 +37,7 @@ public class EditBindingMap {
                 return null;
             }
         } else if (editEvent instanceof MouseEvent) {
+            contextAction.set(dialogActionIndexSupplier.get());
             return mouseBinding;
         } else if (editEvent instanceof InternalEditEvent) {
             return ((InternalEditEvent) editEvent).action;
@@ -81,23 +85,23 @@ public class EditBindingMap {
         return mouseBinding;
     }
 
-    public static boolean isEditableAwareEditEvent(String actionSID) {
-        return ServerResponse.changeEvents.indexOf(actionSID) >= 0;
+    public static boolean isChangeEvent(String actionSID) {
+        return ServerResponse.isChangeEvent(actionSID);
     }
 
-    public static String getPropertyEventActionSID(EventObject e, ClientPropertyDraw property, EditBindingMap overrideMap) {
+    public static String getPropertyEventActionSID(EventObject e, Result<Integer> contextAction, ClientPropertyDraw property, EditBindingMap overrideMap) {
         ClientType changeType = property.getChangeType();
         EditEventFilter eventFilter = changeType == null ? null : changeType.getEditEventFilter();
 
         String actionSID = null;
         if (property.editBindingMap != null) {
-            actionSID = property.editBindingMap.getEventSID(e, eventFilter, property.hasEditObjectAction);
+            actionSID = property.editBindingMap.getEventSID(e, contextAction, eventFilter, property.hasEditObjectAction, property.hasChangeAction, property::getDialogInputActionIndex);
         }
 
         if (actionSID == null) {
             actionSID = overrideMap.getKeyPressAction(e);
             if (actionSID == null) {
-                actionSID = overrideMap.getEventSID(e, eventFilter, property.hasEditObjectAction);
+                actionSID = overrideMap.getEventSID(e, contextAction, eventFilter, property.hasEditObjectAction, property.hasChangeAction, property::getDialogInputActionIndex);
             }
         }
         return actionSID;

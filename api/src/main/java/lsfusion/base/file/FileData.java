@@ -1,6 +1,8 @@
 package lsfusion.base.file;
 
+import com.google.common.primitives.Bytes;
 import lsfusion.base.mutability.TwinImmutableObject;
+import lsfusion.interop.session.ExternalUtils;
 
 import java.io.Serializable;
 
@@ -10,6 +12,10 @@ public class FileData extends TwinImmutableObject<FileData> implements Serializa
     private final String extension;
     
     public final static FileData EMPTY = new FileData(RawFileData.EMPTY, "");
+    public final static FileData NULL = new FileData(RawFileData.EMPTY, "null");
+    public boolean isNull() {
+        return getExtension().equals("null");
+    }
 
     public FileData(RawFileData fileData, String extension) {
         assert fileData != null;
@@ -17,10 +23,17 @@ public class FileData extends TwinImmutableObject<FileData> implements Serializa
         this.extension = extension;
     }
 
+    public static byte[] getNameBytes(String name) {
+        return name.getBytes(ExternalUtils.fileDataNameCharset);
+    }
+    public static String getNameString(byte[] bytes) {
+        return new String(bytes, ExternalUtils.fileDataNameCharset);
+    }
+
     public FileData(byte[] array) {
         byte ext[] = new byte[array[0]];
         System.arraycopy(array, 1, ext, 0, ext.length);
-        extension = new String(ext);
+        extension = getNameString(ext);
 
         byte fileArray[] = new byte[array.length - array[0] - 1];
         System.arraycopy(array, 1 + array[0], fileArray, 0, fileArray.length);
@@ -35,21 +48,13 @@ public class FileData extends TwinImmutableObject<FileData> implements Serializa
     }    
     
     public int getLength() {
-        return extension.getBytes().length + 1 + fileData.getLength();
+        return getNameBytes(extension).length + 1 + fileData.getLength();
     }
 
     public byte[] getBytes() {
         byte[] fileBytes = fileData.getBytes();
-        byte[] extensionBytes = extension.getBytes();        
-        
-        byte[] extBytes = new byte[0];
-        extBytes = new byte[extensionBytes.length + 1];
-        extBytes[0] = (byte) extensionBytes.length;
-        System.arraycopy(extensionBytes, 0, extBytes, 1, extensionBytes.length);
-        byte[] result = new byte[extBytes.length + fileBytes.length];
-        System.arraycopy(extBytes, 0, result, 0, extBytes.length);
-        System.arraycopy(fileBytes, 0, result, extBytes.length, fileBytes.length);
-        return result;
+        byte[] extensionBytes = getNameBytes(extension);
+        return Bytes.concat(new byte[] {(byte) extensionBytes.length}, extensionBytes, fileBytes);
     }
 
     @Override

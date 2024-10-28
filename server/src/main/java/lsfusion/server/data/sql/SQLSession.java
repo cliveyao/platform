@@ -7,10 +7,8 @@ import lsfusion.base.col.SetFact;
 import lsfusion.base.col.heavy.concurrent.weak.ConcurrentIdentityWeakHashMap;
 import lsfusion.base.col.heavy.concurrent.weak.ConcurrentWeakHashMap;
 import lsfusion.base.col.heavy.weak.WeakLinkedHashSet;
-import lsfusion.base.col.implementations.HMap;
 import lsfusion.base.col.interfaces.immutable.*;
 import lsfusion.base.col.interfaces.mutable.MExclMap;
-import lsfusion.base.col.interfaces.mutable.MExclSet;
 import lsfusion.base.col.interfaces.mutable.mapvalue.ImFilterValueMap;
 import lsfusion.base.col.lru.LRUUtil;
 import lsfusion.base.col.lru.LRUWSVSMap;
@@ -59,7 +57,6 @@ import lsfusion.server.data.type.exec.TypePool;
 import lsfusion.server.data.type.parse.AbstractParseInterface;
 import lsfusion.server.data.type.parse.ParseInterface;
 import lsfusion.server.data.type.parse.StringParseInterface;
-import lsfusion.server.data.type.reader.PGObjectReader;
 import lsfusion.server.data.type.reader.Reader;
 import lsfusion.server.data.value.DataObject;
 import lsfusion.server.data.value.ObjectValue;
@@ -70,6 +67,9 @@ import lsfusion.server.logics.BusinessLogics;
 import lsfusion.server.logics.action.session.change.modifier.Modifier;
 import lsfusion.server.logics.action.session.change.modifier.SessionModifier;
 import lsfusion.server.logics.classes.data.ArrayClass;
+import lsfusion.server.logics.classes.data.StringClass;
+import lsfusion.server.logics.classes.data.TSVectorClass;
+import lsfusion.server.logics.classes.data.file.AJSONClass;
 import lsfusion.server.logics.form.stat.struct.plain.JDBCTable;
 import lsfusion.server.logics.navigator.controller.env.SQLSessionContextProvider;
 import lsfusion.server.physics.admin.Settings;
@@ -103,12 +103,26 @@ import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
-import static lsfusion.server.physics.admin.log.ServerLoggers.explainLogger;
-import static lsfusion.server.physics.admin.log.ServerLoggers.sqlSuppLog;
+import static lsfusion.base.BaseUtils.nvl;
+import static lsfusion.server.data.table.IndexOptions.defaultIndexOptions;
+import static lsfusion.server.data.table.IndexType.*;
+import static lsfusion.server.physics.admin.log.ServerLoggers.*;
 
 public class SQLSession extends MutableClosedObject<OperationOwner> implements AutoCloseable {
-    private PreparedStatement executingStatement;
+
+    public static class ExecutingStatement {
+
+        public final PreparedStatement statement;
+        public Boolean forcedCancel;
+
+        public ExecutingStatement(PreparedStatement statement) {
+            this.statement = statement;
+        }
+    }
+    private ExecutingStatement executingStatement;
+
     private static final Logger logger = ServerLoggers.sqlLogger;
     private static final Logger handLogger = ServerLoggers.sqlHandLogger;
     private static final Logger sqlConflictLogger = ServerLoggers.sqlConflictLogger;
@@ -121,38 +135,23 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
     private Map<String, Integer> attemptCountMap = new HashMap<>();
     public StatusMessage statusMessage;
 
-    public static SQLSession getSQLSession(Integer sqlProcessId) {
-        if(sqlProcessId != null) {
-            for (SQLSession sqlSession : sqlSessionMap.keySet()) {
-                ExConnection connection = sqlSession.getDebugConnection();
-                if (connection != null && ((PGConnection) connection.sql).getBackendPID() == sqlProcessId)
-                    return sqlSession;
-            }
+    public static SQLSession getSQLSessionJava(Thread thread) {
+        for(SQLSession sqlSession : sqlSessionMap.keySet()) {
+            Thread activeThread = sqlSession.getActiveThread();
+            if(activeThread != null && activeThread == thread)
+                return sqlSession;
         }
+        logger.error(String.format("Failed to interrupt process %s: no private connection found", thread));
         return null;
     }
 
-    public static Integer getSQLProcessId(long processId) {
+    public static ExecutingStatement getExecutingStatementSQL(long processId) throws SQLException {
         for(SQLSession sqlSession : sqlSessionMap.keySet()) {
-            ExConnection connection = sqlSession.getDebugConnection();
-            if(connection != null) {
-                Thread activeThread = sqlSession.getActiveThread();
-                if(activeThread != null && activeThread.getId() == processId)
-                    return ((PGConnection) connection.sql).getBackendPID();
-            }
+            ExecutingStatement executingStatement = sqlSession.executingStatement;
+            if(executingStatement != null && ((PGConnection)executingStatement.statement.getConnection()).getBackendPID() == processId)
+                return executingStatement;
         }
-        logger.error(String.format("Failed to interrupt process %s: no private connection found", processId));
         return null;
-    }
-
-    public static Map<Integer, SQLSession> getSQLSessionMap() {
-        Map<Integer, SQLSession> sessionMap = new HashMap<>();
-        for(SQLSession sqlSession : sqlSessionMap.keySet()) {
-            ExConnection connection = sqlSession.getDebugConnection();
-            if(connection != null)
-                sessionMap.put(((PGConnection) connection.sql).getBackendPID(), sqlSession);
-        }
-        return sessionMap;
     }
 
     public static Map<Integer, SQLThreadInfo> getSQLThreadMap() {
@@ -160,16 +159,18 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
 
         Map<Integer, SQLThreadInfo> sessionMap = new HashMap<>();
         for (SQLSession sqlSession : sqlSessionMap.keySet()) {
-            SQLDebugInfo sqlDebugInfo = sqlDebugInfoMap.get(sqlSession.getActiveThread());
-            String debugInfo = sqlDebugInfo == null ? null : sqlDebugInfo.getDebugInfoForProcessMonitor();
+            Thread javaThread = sqlSession.getActiveThread();
+            SQLDebugInfo sqlDebugInfo = sqlDebugInfoMap.get(javaThread);
+            String debugInfo = sqlDebugInfo == null ? null : sqlDebugInfo.toString(sqlSession);
 
             ExConnection connection = sqlSession.getDebugConnection();
-            if (connection != null)
-                sessionMap.put(((PGConnection) connection.sql).getBackendPID(), new SQLThreadInfo(sqlSession.getActiveThread(),
+            if (connection != null) {
+                sessionMap.put(((PGConnection) connection.sql).getBackendPID(), new SQLThreadInfo(javaThread,
                         sqlSession.threadDebugInfo, sqlSession.isInTransaction(), sqlSession.startTransaction, sqlSession.getAttemptCountMap(),
-                        sqlSession.contextProvider.getCurrentUser(), sqlSession.contextProvider.getCurrentComputer(),
+                        sqlSession.contextProvider.getThreadCurrentUser(), sqlSession.contextProvider.getThreadCurrentComputer(),
                         sqlSession.getExecutingStatement(), sqlSession.isDisabledNestLoop, sqlSession.getQueryTimeout(),
                         debugInfo, sqlSession.statusMessage));
+            }
         }
         return sessionMap;
     }
@@ -194,26 +195,35 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
     }
 
     public String getExecutingStatement() {
-        return executingStatement == null ? null : executingStatement.toString();
+        return executingStatement == null ? null : executingStatement.statement.toString();
     }
 
-    public static void cancelExecutingStatement(DBManager dbManager, long processId, boolean interrupt) throws SQLException {
-        SQLSession sqlSession = dbManager.getStopSql();
-        if(sqlSession != null) {
-            Integer sqlProcessId = SQLSession.getSQLProcessId(processId);
-            if(sqlProcessId != null) {
-                SQLSession cancelSession = SQLSession.getSQLSession(sqlProcessId);
-                ServerLoggers.exinfoLog("SQL SESSION INTERRUPT " + cancelSession + " IN " + sqlSession + " PROCESS " + processId);
-                if (cancelSession != null)
-                    cancelSession.setForcedCancel(interrupt);
-                sqlSession.executeDDL(sqlSession.syntax.getCancelActiveTaskQuery(sqlProcessId));
-            }
+    public static void cancelExecutingStatement(DBManager dbManager, Thread thread, boolean interrupt) throws SQLException, SQLHandledException {
+        // having both thread and statement in executing statement is the only way to guarantee that we'll cancel the statement of the required processId
+        SQLSession cancelSession = SQLSession.getSQLSessionJava(thread);
+        if(cancelSession != null) {
+            cancelSession.runSyncActiveThread(thread, () -> {
+                ExecutingStatement executingStatement = cancelSession.executingStatement;
+                if(executingStatement != null) {
+                    ServerLoggers.exinfoLog("SQL SESSION INTERRUPT " + thread + " PROCESS " + thread.getId() + " SQL " + ((PGConnection) executingStatement.statement.getConnection()).getBackendPID() + " QUERY " + executingStatement.statement.toString());
+
+                    // we're trying to cancel executing statement, because ddl task might stop some query in pooled connection that is already used by some other thread
+                    executingStatement.forcedCancel = interrupt;
+                    executingStatement.statement.cancel();
+                }
+            });
+
+//                SQLSession sqlSession = dbManager.getStopSql();                
+//                ExConnection connection = cancelSession.getDebugConnection();
+//                if(connection != null)
+//                    int sqlProcessID = ((PGConnection) connection.sql).getBackendPID();
+//                sqlSession.executeDDL(sqlSession.syntax.getCancelActiveTaskQuery(sqlProcessID));
         }
     }
 
     public Integer getQueryTimeout() {
         try {
-            return executingStatement == null ? null : executingStatement.getQueryTimeout();
+            return executingStatement == null ? null : executingStatement.statement.getQueryTimeout();
         } catch (SQLException e) {
             return null;
         }
@@ -276,7 +286,7 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
 
         try {
             if (useCommon)
-                resultConnection = connectionPool.getCommon(this);
+                resultConnection = connectionPool.getCommon(this, contextProvider);
             resultConnection.checkClosed();
             resultConnection.updateLogLevel(syntax);
         } catch (Throwable t) {
@@ -322,15 +332,23 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
 
     public boolean inconsistent = false;
 
-    public final static String userParam = "adsadaweewuser";
-    public final static String authTokenParam = "vkljudfshldhfskjhdkjrraae";
-    public final static String isServerRestartingParam = "sdfisserverrestartingpdfdf";
-    public final static String computerParam = "fjruwidskldsor";
-    public final static String formParam = "yfifybdfnenfykfqyth";
-    public final static String connectionParam = "ntreottgjlrkxtybt";
-    public final static String isDevParam = "dsiljdsiowee";
+    public final static char paramPrefix = '\uE000';
+    public final static char paramPostfix = '\u2063';
+    public final static String userParam = getParamName("user");
+    public final static String authTokenParam = getParamName("authtoken");
+    public final static String isServerRestartingParam = getParamName("isServerRestarting");
+    public final static String computerParam = getParamName("computer");
+    public final static String formParam = getParamName("form");
+    public final static String connectionParam = getParamName("connection");
+    public final static String isDevParam = getParamName("isDev");
+    public final static String isLightStartParam = getParamName("isLightStart");
+    public final static String inTestModeParam = getParamName("inTestMode");
+    public final static String projectLSFDirParam = getParamName("projectLSFDirParam");
+    public final static String limitParam = getParamName("limitParam");
 
-    public final static String limitParam = "sdsnjklirens";
+    public static String getParamName(String param) {
+        return paramPrefix + param + paramPostfix;
+    }
 
     private ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
     private ReentrantLock temporaryTablesLock = new ReentrantLock(true);
@@ -344,6 +362,9 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
         typePool = adapter;
         this.contextProvider = contextProvider;
         sqlSessionMap.put(this, 1);
+
+        ServerLoggers.exinfoLog("SQL SESSION OPEN " + this);
+
         Thread currentThread = Thread.currentThread();
         threadDebugInfo = new ThreadDebugInfo(currentThread.getName(),
                 Settings.get().isStacktraceInSQLSession() ? ThreadUtils.getJavaStack(currentThread.getStackTrace()) : null);
@@ -353,7 +374,7 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
         assertLock();
         if(privateConnection ==null) {
             assert transactionTables.isEmpty();
-            privateConnection = connectionPool.getPrivate(this);
+            privateConnection = connectionPool.getPrivate(this, contextProvider);
 //            sqlHandLogger.info("Obtaining backend PID: " + ((PGConnection) privateConnection.sql).getBackendPID());
 //            System.out.println(this + " : NULL -> " + privateConnection + " " + " " + sessionTablesMap.keySet() + ExceptionUtils.getStackTrace());
         }
@@ -554,11 +575,11 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
         }
     }
 
-    public void startTransaction(int isolationLevel, OperationOwner owner) throws SQLException, SQLHandledException {
-        startTransaction(isolationLevel, owner, new HashMap<>(), false, 0);
+    public void startTransaction(boolean serializable, OperationOwner owner) throws SQLException, SQLHandledException {
+        startTransaction(serializable, owner, new HashMap<>(), false, 0, false);
     }
 
-    public void startTransaction(int isolationLevel, OperationOwner owner, Map<String, Integer> attemptCountMap, boolean useDeadLockPriority, long applyStartTime) throws SQLException, SQLHandledException {
+    public void startTransaction(boolean serializable, OperationOwner owner, Map<String, Integer> attemptCountMap, boolean useDeadLockPriority, long applyStartTime, boolean trueSerializable) throws SQLException, SQLHandledException {
         lockWrite(owner);
         startTransaction = System.currentTimeMillis();
         this.attemptCountMap = attemptCountMap;
@@ -567,14 +588,14 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
             if(Settings.get().isApplyVolatileStats())
                 pushVolatileStats(owner);
             if(isExplainTemporaryTablesEnabled())
-                fifo.add("ST"  + getCurrentTimeStamp() + " " + this + " " + ExecutionStackAspect.getExStackTrace());
+                addFifo("ST");
             if(inTransaction++ == 0) {
                 transStartTime = System.currentTimeMillis();
 
                 needPrivate();
-                if(isolationLevel > 0) {
+                if(serializable) {
                     prevIsolation = privateConnection.sql.getTransactionIsolation();
-                    privateConnection.sql.setTransactionIsolation(isolationLevel);
+                    privateConnection.sql.setTransactionIsolation(trueSerializable ? Connection.TRANSACTION_SERIALIZABLE : Connection.TRANSACTION_REPEATABLE_READ);
                 }
                 setACID(privateConnection.sql, true, syntax);
 
@@ -652,7 +673,7 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
 //                            returnUsed(transactionTable, sessionTablesMap);
                         WeakReference<TableOwner> tableOwner = sessionTablesMap.remove(transactionTable);
                         if(isExplainTemporaryTablesEnabled())
-                            fifo.add("TRANSRET " + getCurrentTimeStamp() + " " + transactionTable + " " + privateConnection.temporary + " " + BaseUtils.nullToString(tableOwner) + " " + BaseUtils.nullToString(tableOwner == null ? null : tableOwner.get()) + " " + owner + " " + SQLSession.this + " " + ExecutionStackAspect.getExStackTrace());
+                            addFifo("TRANSRET " + transactionTable + " " + privateConnection.temporary + " " + BaseUtils.nullToString(tableOwner) + " " + BaseUtils.nullToString(tableOwner == null ? null : tableOwner.get()) + " " + owner);
 //                            
 //                            if(Settings.get().isEnableHacks())
 //                                sessionTablesStackReturned.put(transactionTable, ExceptionUtils.getStackTrace());
@@ -673,7 +694,7 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
         }
 
         if(isExplainTemporaryTablesEnabled())
-            fifo.add("RBACK"  + getCurrentTimeStamp() + " " + this + " " + ExecutionStackAspect.getExStackTrace());
+            addFifo("RBACK");
 
         runSuppressed(() -> endTransaction(owner, true), firstException);
 
@@ -684,20 +705,28 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
         assert sessionTablesMap.get(table.getName()).get() == owner;
     }
 
-    public void commitTransaction() throws SQLException {
-        commitTransaction(OperationOwner.unknown);
+    public void commitTransaction() throws SQLException, SQLHandledException {
+        commitTransaction(OperationOwner.unknown, () -> {});
     }
-    public void commitTransaction(OperationOwner owner) throws SQLException {
-        if(inTransaction == 1)
-            privateConnection.sql.commit();
+    public void commitTransaction(OperationOwner owner, SQLRunnable afterCommit) throws SQLException, SQLHandledException {
+        if(inTransaction == 1) {
+            try {
+                privateConnection.sql.commit();
+            } catch (SQLException e) {
+                handleAndPropagate(e, "COMMIT TRANSACTION");
+            }
+        }
+
+        afterCommit.run();
+
         if(isExplainTemporaryTablesEnabled())
-            fifo.add("CMT"  + getCurrentTimeStamp() + " " + this + " " + ExecutionStackAspect.getExStackTrace());
+            addFifo("CMT");
 
         endTransaction(owner, false);
     }
 
     // удостоверивается что таблица есть
-    public void ensureTable(NamedTable table, Logger logger) throws SQLException {
+    public void ensureTable(StoredTable table) throws SQLException {
         lockRead(OperationOwner.unknown);
         ExConnection connection = getConnection();
 
@@ -716,9 +745,9 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
             DatabaseMetaData metaData = connection.sql.getMetaData();
             ResultSet tables = metaData.getTables(null, null, syntax.getMetaName(table.getName()), new String[]{"TABLE"});
             if (!tables.next()) {
-                createTable(table, table.keys, logger);
+                createTable(table, table.keys, false);
                 for (PropertyField property : table.properties)
-                    addColumn(table, property);
+                    addColumn(table, property, false);
             }
         } finally {
             try {
@@ -729,16 +758,15 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
         }
     }
 
-    public void addExtraIndices(NamedTable table, ImOrderSet<KeyField> keys, Logger logger) throws SQLException {
+    public void addExtraIndexes(StoredTable table, ImOrderSet<KeyField> keys, boolean ifNotExists) throws SQLException {
         for(int i=1;i<keys.size();i++)
-            addIndex(table, BaseUtils.<ImOrderSet<Field>>immutableCast(keys).subOrder(i, keys.size()).toOrderMap(true), logger);
+            addIndex(table, BaseUtils.<ImOrderSet<Field>>immutableCast(keys).subOrder(i, keys.size()).toOrderMap(true), defaultIndexOptions, ifNotExists);
     }
 
-    public void checkExtraIndices(SQLSession threadLocalSQL, NamedTable table, ImOrderSet<KeyField> keys, Logger logger) throws SQLException, SQLHandledException {
+    public void checkExtraIndexes(SQLSession threadLocalSQL, StoredTable table, ImOrderSet<KeyField> keys) throws SQLException, SQLHandledException {
         for(int i=1;i<keys.size();i++) {
             ImOrderMap<Field, Boolean> fields = BaseUtils.<ImOrderSet<Field>>immutableCast(keys).subOrder(i, keys.size()).toOrderMap(true);
-            if (!threadLocalSQL.checkIndex(table, fields, false) && !threadLocalSQL.checkIndex(table, fields, true))
-                addIndex(table, fields, logger);
+            threadLocalSQL.checkDefaultIndex(table, fields, defaultIndexOptions);
         }
     }
 
@@ -756,7 +784,7 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
         return SetFact.toOrderExclSet(keys.size(), i -> BaseUtils.<ImOrderSet<Field>>immutableCast(keys).subOrder(i, keys.size())).getSet();
     }
 
-    public void createTable(NamedTable table, ImOrderSet<KeyField> keys, Logger logger) throws SQLException {
+    public void createTable(StoredTable table, ImOrderSet<KeyField> keys, boolean ifNotExists) throws SQLException {
         MStaticExecuteEnvironment env = StaticExecuteEnvironmentImpl.mEnv();
 
         if (keys.size() == 0)
@@ -765,77 +793,129 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
         createString = createString + "," + getConstraintDeclare(table.getName(), keys, syntax);
 
 //        System.out.println("CREATE TABLE "+Table.Name+" ("+CreateString+")");
-        executeDDL("CREATE TABLE " + table.getName(syntax) + " (" + createString + ")", env.finish());
-        addExtraIndices(table, keys, null);
+        executeDDL("CREATE TABLE " + (ifNotExists ? "IF NOT EXISTS " : "")  + table.getName(syntax) + " (" + createString + ")", env.finish());
+        addExtraIndexes(table, keys, ifNotExists);
     }
 
-    public void renameTable(NamedTable table, String newTableName) throws SQLException {
+    public void renameTable(StoredTable table, String newTableName) throws SQLException {
         executeDDL("ALTER TABLE " + table.getName(syntax) + " RENAME TO " + syntax.getTableName(newTableName));
     }
 
-    public void dropTable(NamedTable table) throws SQLException {
+    public void dropTable(StoredTable table) throws SQLException {
         executeDDL("DROP TABLE " + table.getName(syntax));
     }
 
-    static String getIndexName(NamedTable table, ImOrderMap<String, Boolean> fields, SQLSyntax syntax) {
-        return syntax.getIndexName(fields.keyOrderSet().toString("_") + "_idx" + (syntax.isIndexNameLocal() ? "" : "_" + table.getName()));
+    static String getIndexName(StoredTable table, String dbName, ImOrderMap<String, Boolean> fields, SQLSyntax syntax) {
+        return getIndexName(table, fields, dbName, null, false, false, syntax);
     }
 
-    static String getOldIndexName(NamedTable table, ImOrderMap<String, Boolean> fields, SQLSyntax syntax) {
-        return syntax.getIndexName((syntax.isIndexNameLocal() ? "" : table.getName() + "_") + fields.keyOrderSet().toString("_") + "_idx");
+    public String getIndexName(StoredTable table, DBManager.IndexData<Field> index) {
+        return getIndexName(table, syntax, index.options.dbName, getOrderFields(table.keys, index.options, SetFact.fromJavaOrderSet(index.fields)), index.options.type.suffix());
     }
 
-    static String getIndexName(NamedTable table, SQLSyntax syntax, ImOrderMap<Field, Boolean> fields) {
-        return getIndexName(table, fields.mapOrderKeys(Field.nameGetter()), syntax);
+    static String getIndexName(StoredTable table, SQLSyntax syntax, String dbName, ImOrderMap<Field, Boolean> fields, String suffix) {
+        return getIndexName(table, syntax, dbName, fields, suffix, false, false);
     }
 
-    private ImOrderMap<String, Boolean> getOrderFields(ImOrderSet<KeyField> keyFields, ImOrderSet<String> fields, boolean order) {
+    static String getIndexName(StoredTable table, SQLSyntax syntax, String dbName, ImOrderMap<Field, Boolean> fields, String suffix, boolean suffixInTheEnd, boolean old) {
+        return getIndexName(table, fields.mapOrderKeys(Field.nameGetter()), dbName, suffix, suffixInTheEnd, old, syntax);
+    }
+
+    static String getIndexName(StoredTable table, ImOrderMap<String, Boolean> fields, String dbName, String suffix, boolean suffixInTheEnd, boolean old, SQLSyntax syntax) {
+        if(dbName != null)
+            return dbName;
+        if (suffixInTheEnd) {
+            return syntax.getIndexName(fields.keyOrderSet().toString("_") + "_idx" + (syntax.isIndexNameLocal() ? "" : "_" + table.getName())) + suffix;
+        } else if (old) { // old style before 2015
+            return syntax.getIndexName((syntax.isIndexNameLocal() ? "" : table.getName() + "_") + fields.keyOrderSet().toString("_") + "_idx");
+        } else { // new style
+            return syntax.getIndexName(fields.keyOrderSet().toString("_") + nvl(suffix, "") + "_idx" + (syntax.isIndexNameLocal() ? "" : "_" + table.getName()));
+        }
+    }
+
+    private ImOrderMap<String, Boolean> getOrderFields(ImOrderSet<KeyField> keyFields, ImOrderSet<String> fields, IndexOptions indexOptions) {
         ImOrderMap<String, Boolean> result = fields.toOrderMap(false);
-        if(order)
+        if(indexOptions.order && indexOptions.type.isDefault())
             result = result.addOrderExcl(keyFields.mapOrderSetValues(Field.nameGetter()).toOrderMap(true));
         return result;
     }
 
-    private ImOrderMap<Field, Boolean> getOrderFields(ImOrderSet<KeyField> keyFields, boolean order, ImOrderSet<Field> fields) {
+    private ImOrderMap<Field, Boolean> getOrderFields(ImOrderSet<KeyField> keyFields, IndexOptions indexOptions, ImOrderSet<Field> fields) {
         ImOrderMap<Field, Boolean> result = fields.mapOrderValues((Field value) -> value instanceof KeyField);
-        if(order)
+        if(indexOptions.order && indexOptions.type.isDefault())
             result = result.addOrderExcl(keyFields.toOrderMap(true));
         return result;
     }
-    
-    public void addIndex(NamedTable table, ImOrderSet<KeyField> keyFields, ImOrderSet<Field> fields, boolean order, Logger logger) throws SQLException {
-        addIndex(table, getOrderFields(keyFields, order, fields), logger);
-    }
 
-    public boolean checkIndex(NamedTable table, ImOrderSet<KeyField> keyFields, ImOrderSet<Field> fields, boolean order) throws SQLException, SQLHandledException {
-        return checkIndex(table, getOrderFields(keyFields, order, fields), false);
-     }
-
-    public boolean checkIndex(NamedTable table, ImOrderMap<Field, Boolean> fields, boolean old) throws SQLException, SQLHandledException {
-        //начиная с Postgres 9.5 можно заменить на 'create index if not exists', но непонятно, что тогда делать с логами, поэтому пока проверяем наличие индекса
-        //https://dba.stackexchange.com/questions/35616/create-index-if-it-does-not-exist
-        String command = "SELECT to_regclass('public." + (old ? getOldIndexName(table, fields.mapOrderKeys(Field.nameGetter()), syntax) : getIndexName(table, syntax, fields)) + "')";
-
-        MExclSet<String> propertyNames = SetFact.mExclSet();
-        propertyNames.exclAdd("to_regclass");
-        propertyNames.immutable();
-
-        MExclMap<String, Reader> propertyReaders = MapFact.mExclMap();
-        propertyReaders.exclAdd("to_regclass", PGObjectReader.instance);
-        propertyReaders.immutable();
-
-        ImOrderMap rs = executeSelect(command, OperationOwner.unknown, StaticExecuteEnvironmentImpl.EMPTY, (ImMap<String, ParseInterface>) MapFact.mExclMap(),
-                0, MapFact.EMPTYREV(), MapFact.EMPTY(), ((ImSet) propertyNames).toRevMap(), (ImMap) propertyReaders);
-
-        boolean exists = false;
-        for (Object rsValue : rs.values()) {
-            if (((HMap) rsValue).get("to_regclass") != null)
-                exists = true;
+    public void checkIndex(StoredTable table, ImOrderSet<KeyField> keyFields, ImOrderSet<Field> fields, IndexOptions indexOptions) throws SQLException, SQLHandledException {
+        ImOrderMap<Field, Boolean> fieldsMap = getOrderFields(keyFields, indexOptions, fields);
+        if (indexOptions.type.isDefault()) {
+            checkDefaultIndex(table, fieldsMap, indexOptions);
+        } else if (indexOptions.type.isLike()) {
+            checkLikeIndex(table, fieldsMap, indexOptions);
+        } else if (indexOptions.type.isMatch()) {
+            checkMatchIndex(table, fieldsMap, indexOptions);
         }
-        return exists;
     }
 
-    public void addConstraint(NamedTable table) {
+    private void checkLikeIndex(StoredTable table, ImOrderMap<Field, Boolean> fields, IndexOptions indexOptions) throws SQLException, SQLHandledException {
+        String newIndexName = getIndexName(table, syntax, indexOptions.dbName, fields, LIKE.suffix(), false, false);
+        if (!indexExists(newIndexName)) {
+            //deprecated old index name with _like in the end  (can be removed after checkIndices)
+            String oldIndexName = getIndexName(table, syntax, indexOptions.dbName, fields, LIKE.suffix(), true, false);
+            if (indexExists(oldIndexName)) {
+                renameIndex(oldIndexName, newIndexName);
+            } else {
+                createLikeIndex(table, fields, indexOptions.dbName, getColumns(fields, indexOptions), logger, true);
+            }
+        }
+    }
+
+    private void checkMatchIndex(StoredTable table, ImOrderMap<Field, Boolean> fields, IndexOptions indexOptions) throws SQLException, SQLHandledException {
+        String newIndexName = getIndexName(table, syntax, indexOptions.dbName, fields, MATCH.suffix(), false, false);
+        if (!indexExists(newIndexName)) {
+            //deprecated old index name with _match in the end  (can be removed after checkIndices)
+            String oldIndexName = getIndexName(table, syntax, indexOptions.dbName, fields, MATCH.suffix(), true, false);
+            if (indexExists(oldIndexName)) {
+                renameIndex(oldIndexName, newIndexName);
+            } else {
+                createMatchIndex(table, fields, indexOptions.dbName, getColumns(fields, indexOptions), indexOptions, logger, true);
+            }
+        }
+    }
+
+    private void checkDefaultIndex(StoredTable table, ImOrderMap<Field, Boolean> fields, IndexOptions indexOptions) throws SQLException, SQLHandledException {
+        String newIndexName = getIndexName(table, syntax, indexOptions.dbName, fields, null, false, false);
+        if (!indexExists(newIndexName)) {
+            //deprecated old index name with idx in the end (before 2015)  (can be removed after checkIndices)
+            String veryOldIndexName = getIndexName(table, syntax, indexOptions.dbName, fields, null, false, true);
+            if (indexExists(veryOldIndexName)) {
+                renameIndex(veryOldIndexName, newIndexName);
+            } else {
+                createDefaultIndex(table, fields, indexOptions.dbName, getColumns(fields, indexOptions), logger, true);
+            }
+        }
+    }
+
+    private boolean indexExists(String indexName) throws SQLException, SQLHandledException {
+        String queryString = "SELECT indexname FROM pg_indexes WHERE indexname = '" + indexName + "' AND schemaname = 'public'";
+
+        ImRevMap<String, String> propertyNames = MapFact.singletonRev("indexname", "indexname");
+        ImMap<String, Reader<?>> propertyReaders = MapFact.singleton("indexname", StringClass.instance);
+
+        ImOrderMap<ImMap<String, Object>, ImMap<String, Object>> rs = executeSelect(queryString, OperationOwner.unknown,
+                StaticExecuteEnvironmentImpl.EMPTY, MapFact.EMPTY(),0,
+                MapFact.EMPTYREV(), MapFact.EMPTY(), propertyNames, propertyReaders);
+
+        for (ImMap<String, ?> rsValue : rs.values()) {
+            if (indexName.equals(rsValue.get("indexname"))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public void addConstraint(StoredTable table) {
         try {
             if (!table.keys.isEmpty())
                 executeDDL("DO $$ BEGIN ALTER TABLE " + table.getName() + " ADD " + getConstraintDeclare(table.getName(), table.keys, syntax) +
@@ -845,43 +925,135 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
         }
     }
 
-    public void addIndex(NamedTable table, ImOrderMap<Field, Boolean> fields, Logger logger) throws SQLException {
-        String columns = fields.toString((key, value) -> {
+    public void addIndex(StoredTable table, ImOrderSet<KeyField> keyFields, ImOrderSet<Field> fields, IndexOptions indexOptions, boolean ifNotExists) throws SQLException {
+        addIndex(table, getOrderFields(keyFields, indexOptions, fields), indexOptions, ifNotExists);
+    }
+
+    public void addIndex(StoredTable table, ImOrderMap<Field, Boolean> fields) throws SQLException {
+        addIndex(table, fields, defaultIndexOptions, false);
+    }
+
+    public void addIndex(StoredTable table, ImOrderMap<Field, Boolean> fields, IndexOptions indexOptions, boolean ifNotExists) throws SQLException {
+        String columns = getColumns(fields, indexOptions);
+        if (indexOptions.type.isDefault()) {
+            createDefaultIndex(table, fields, indexOptions.dbName, columns, null, ifNotExists);
+        } else if (indexOptions.type.isLike()) {
+            checkIndexFieldTypes(fields);
+            createLikeIndex(table, fields, indexOptions.dbName, columns, null, ifNotExists);
+        } else if (indexOptions.type.isMatch()) {
+            checkIndexFieldTypes(fields);
+            if (fields.size() == 1 && fields.singleKey().type instanceof TSVectorClass) {
+                createMatchIndexForTsVector(table, indexOptions.dbName, fields, columns, indexOptions, null, ifNotExists);
+            } else {
+                createMatchIndex(table, fields, indexOptions.dbName, columns, indexOptions, null, ifNotExists);
+            }
+        }
+    }
+    
+    private void checkIndexFieldTypes(ImOrderMap<Field, Boolean> fields) {
+        for(Field field : fields.keys()) {
+            if(field.type instanceof AJSONClass) {
+                throw new UnsupportedOperationException("Indexes for JSON / JSONTEXT properties are not supported");
+            }
+        }
+    }
+
+    private String getColumns(ImOrderMap<Field, Boolean> fields, IndexOptions indexOptions) {
+        return fields.toString((key, value) -> {
             assert value || !(key instanceof KeyField);
-            return key.getName(syntax) + " " + syntax.getOrderDirection(false, value);
+            return key.getName(syntax) + (indexOptions.type.isDefault() ? (" " + syntax.getOrderDirection(false, value)) : "");
         }, ",");
+    }
 
+    private void createLikeIndex(StoredTable table, ImOrderMap<Field, Boolean> fields, String dbName, String columns, Logger logger, boolean ifNotExists) throws SQLException {
+        if (DataAdapter.hasTrgmExtension()) {
+            createIndex(table, getIndexName(table, syntax, dbName, fields, LIKE.suffix()),
+                    " USING GIN (" + columns + " gin_trgm_ops)", logger, ifNotExists);
+        }
+    }
+
+    private void createMatchIndex(StoredTable table, ImOrderMap<Field, Boolean> fields, String dbName, String columns, IndexOptions indexOptions, Logger logger, boolean ifNotExists) throws SQLException {
+        if(DataAdapter.hasTrgmExtension()) {
+            createIndex(table, getIndexName(table, syntax, dbName, fields, MATCH.suffix()),
+                    " USING GIN (to_tsvector(" + (indexOptions.language != null ? ("'" + indexOptions.language + "', ") : "") + columns + "))", logger, ifNotExists);
+        }
+    }
+
+    private void createMatchIndexForTsVector(StoredTable table, String dbName, ImOrderMap<Field, Boolean> fields, String columns, IndexOptions indexOptions, Logger logger, boolean ifNotExists) throws SQLException {
+        createIndex(table, getIndexName(table, syntax, dbName, fields, MATCH.suffix()),
+                " USING GIN (" + columns + ")", logger, ifNotExists);
+    }
+
+    private void createDefaultIndex(StoredTable table, ImOrderMap<Field, Boolean> fields, String dbName, String columns, Logger logger, boolean ifNotExists) throws SQLException {
+        createIndex(table, getIndexName(table, syntax, dbName, fields, null), " (" + columns + ")", logger, ifNotExists);
+    }
+
+    private void createIndex(StoredTable table, String nameIndex, String columnsPostfix, Logger logger, boolean ifNotExists) throws SQLException {
         long start = System.currentTimeMillis();
-        String nameIndex = getIndexName(table, syntax, fields);
-        if(logger != null)
+        if (logger != null) {
             logger.info(String.format("Adding index started: %s", nameIndex));
-        executeDDL("CREATE INDEX " + nameIndex + " ON " + table.getName(syntax) + " (" + columns + ")");
-        if(logger != null)
+        }
+        executeDDL("CREATE INDEX " + (ifNotExists ? "IF NOT EXISTS " : "") + nameIndex + " ON " + table.getName(syntax) + columnsPostfix);
+        if (logger != null) {
             logger.info(String.format("Adding index: %s, %sms", nameIndex, System.currentTimeMillis() - start));
+        }
     }
 
-    public void dropIndex(NamedTable table, ImOrderSet<KeyField> keyFields, ImOrderSet<String> fields, boolean order, boolean ifExists) throws SQLException {
-        dropIndex(table, getOrderFields(keyFields, fields, order), ifExists);
+    public void dropIndex(StoredTable table, ImOrderSet<KeyField> keyFields, ImOrderSet<String> fields, IndexOptions indexOptions, boolean ifExists) throws SQLException {
+        if (indexOptions.type.isDefault()) {
+            dropDefaultIndex(table, keyFields, fields, indexOptions, ifExists);
+        } else if (indexOptions.type.isLike()) {
+            dropLikeIndex(table, keyFields, fields, indexOptions);
+        } else if (indexOptions.type.isMatch()) {
+            dropMatchIndex(table, keyFields, fields, indexOptions);
+        }
     }
 
-    public void dropIndex(NamedTable table, ImOrderMap<String, Boolean> fields, boolean ifExists) throws SQLException {
-        executeDDL("DROP INDEX " + (ifExists ? "IF EXISTS " : "" ) + getIndexName(table, fields, syntax) + (syntax.isIndexNameLocal() ? " ON " + table.getName(syntax) : ""));
+    public void dropLikeIndex(StoredTable table, ImOrderSet<KeyField> keyFields, ImOrderSet<String> fields, IndexOptions indexOptions) throws SQLException {
+        if (DataAdapter.hasTrgmExtension()) {
+            ImOrderMap<String, Boolean> orderFields = getOrderFields(keyFields, fields, indexOptions);
+            //ifExists true for both, because we don't know which of indexes exists
+            dropIndex(table, getIndexName(table, orderFields, indexOptions.dbName, LIKE.suffix(), false, false, syntax), true);
+            //deprecated old index name with _like in the end (can be removed after checkIndices)
+            dropIndex(table, getIndexName(table, orderFields, indexOptions.dbName, LIKE.suffix(), true, false, syntax), true);
+        }
     }
 
-    public void renameIndex(NamedTable table, ImOrderSet<KeyField> keyFields, ImOrderSet<String> fields, boolean order) throws SQLException {
-        renameIndex(table, getOrderFields(keyFields, fields, order));
+    public void dropMatchIndex(StoredTable table, ImOrderSet<KeyField> keyFields, ImOrderSet<String> fields, IndexOptions indexOptions) throws SQLException {
+        if (DataAdapter.hasTrgmExtension()) {
+            ImOrderMap<String, Boolean> orderFields = getOrderFields(keyFields, fields, indexOptions);
+            //ifExists true for both, because we don't know which of indexes exists
+            dropIndex(table, getIndexName(table, orderFields, indexOptions.dbName, MATCH.suffix(), false, false, syntax), true);
+            //deprecated old index name with _match in the end  (can be removed after checkIndices)
+            dropIndex(table, getIndexName(table, orderFields, indexOptions.dbName, MATCH.suffix(), true, false, syntax), true);
+        }
     }
 
-    public void renameIndex(NamedTable table, ImOrderSet<KeyField> keyFields, ImOrderSet<String> oldFields, ImOrderSet<String> newFields, boolean order, boolean ifExists) throws SQLException {
-        renameIndex(table, getOrderFields(keyFields, oldFields, order), getOrderFields(keyFields, newFields, order), ifExists);
+    public void dropDefaultIndex(StoredTable table, ImOrderSet<KeyField> keyFields, ImOrderSet<String> fields, IndexOptions indexOptions, boolean ifExists) throws SQLException {
+        //ifExists true for both, because we don't know which of indexes exists
+        ImOrderMap<String, Boolean> orderFields = getOrderFields(keyFields, fields, indexOptions);
+        if (!ifExists)
+            dropIndex(table, getIndexName(table, orderFields, indexOptions.dbName, null, false, true, syntax), true);
+        //deprecated old index name with idx in the end (before 2015)  (can be removed after checkIndices)
+        dropIndex(table, getIndexName(table, orderFields, indexOptions.dbName, null, false, false, syntax), true);
     }
 
-    public void renameIndex(NamedTable table, ImOrderMap<String, Boolean> fields) throws SQLException {
-        executeDDL("ALTER INDEX " + getOldIndexName(table, fields, syntax) + " RENAME TO " + getIndexName(table, fields, syntax));
+    public void dropIndex(StoredTable table, String indexName, boolean ifExists) throws SQLException {
+        executeDDL("DROP INDEX " + (ifExists ? "IF EXISTS " : "") + indexName + (syntax.isIndexNameLocal() ? " ON " + table.getName(syntax) : ""));
     }
 
-    public void renameIndex(NamedTable table, ImOrderMap<String, Boolean> oldFields, ImOrderMap<String, Boolean> newFields, boolean ifExists) throws SQLException {
-        executeDDL("ALTER INDEX " + (ifExists ? "IF EXISTS " : "" ) + getIndexName(table, oldFields, syntax) + " RENAME TO " + getIndexName(table, newFields, syntax));
+    public void renameIndex(StoredTable table, ImOrderSet<KeyField> keyFields, ImOrderSet<String> oldFields, ImOrderSet<String> newFields, IndexOptions oldOptions, IndexOptions newOptions, boolean ifExists) throws SQLException {
+        String oldIndexNameSuffix = (oldOptions.type == DEFAULT ? null : oldOptions.type.suffix());
+        String newIndexNameSuffix = (newOptions.type == DEFAULT ? null : newOptions.type.suffix());
+        String oldIndexName = getIndexName(table, getOrderFields(keyFields, oldFields, oldOptions), oldOptions.dbName, oldIndexNameSuffix, false, false, syntax);
+        String newIndexName = getIndexName(table, getOrderFields(keyFields, newFields, newOptions), newOptions.dbName, newIndexNameSuffix, false, false, syntax);
+        logger.info("Renaming index from " + oldIndexName + " to " + newIndexName);
+        executeDDL("ALTER INDEX " + (ifExists ? "IF EXISTS " : "" ) + oldIndexName + " RENAME TO " + newIndexName);
+    }
+
+    public void renameIndex(String oldIndexName, String newIndexName) throws SQLException {
+        logger.info("Renaming index from " + oldIndexName + " to " + newIndexName);
+        executeDDL("ALTER INDEX " + oldIndexName + " RENAME TO " + newIndexName);
     }
 
 /*    public void addKeyColumns(String table, Map<KeyField, Object> fields, List<KeyField> keys) throws SQLException {
@@ -910,13 +1082,9 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
 //        executeDerived("CREATE INDEX " + "idx_" + table + "_" + field.name + " ON " + table + " (" + field.name + ")"); //COLUMN
     }*/
 
-    public void addColumn(NamedTable table, PropertyField field) throws SQLException {
+    public void addColumn(StoredTable table, PropertyField field, boolean ifNotExists) throws SQLException {
         MStaticExecuteEnvironment env = StaticExecuteEnvironmentImpl.mEnv();
-        executeDDL("ALTER TABLE " + table.getName(syntax) + " ADD " + field.getDeclare(syntax, env), env.finish()); //COLUMN
-    }
-
-    public void dropColumn(NamedTable table, Field field, boolean ifExists) throws SQLException {
-        innerDropColumn(table.getName(syntax), field.getName(syntax), ifExists);
+        executeDDL("ALTER TABLE " + table.getName(syntax) + " ADD " + (ifNotExists ? "IF NOT EXISTS " : "") + field.getDeclare(syntax, env), env.finish()); //COLUMN
     }
 
     public void dropColumn(String table, String field, boolean ifExists) throws SQLException {
@@ -927,16 +1095,21 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
         executeDDL("ALTER TABLE " + table + " DROP COLUMN " + (ifExists ? "IF EXISTS " : "" ) + field);
     }
 
+    public void dropColumns(String table, List<String> fields) throws SQLException {
+        executeDDL("ALTER TABLE " + syntax.getTableName(table) + " " + fields.stream().map(
+                field -> "DROP COLUMN IF EXISTS " + syntax.getFieldName(field)).collect(Collectors.joining(", ")));
+    }
+
     public void renameColumn(String table, String columnName, String newColumnName) throws SQLException {
         executeDDL(syntax.getRenameColumn(table, columnName, newColumnName));
     }
 
-    public void modifyColumn(Table table, Field field, Type oldType) throws SQLException {
+    public void modifyColumn(StoredTable table, Field field, Type oldType) throws SQLException {
         MStaticExecuteEnvironment env = StaticExecuteEnvironmentImpl.mEnv();
         executeDDL("ALTER TABLE " + table + " ALTER COLUMN " + field.getName(syntax) + " " + syntax.getTypeChange(oldType, field.type, field.getName(syntax), env));
     }
 
-    public void modifyColumns(Table table, Map<Field, Type> fieldTypeMap) throws SQLException {
+    public void modifyColumns(StoredTable table, Map<Field, Type> fieldTypeMap) throws SQLException {
         MStaticExecuteEnvironment env = StaticExecuteEnvironmentImpl.mEnv();
         String ddl = "";
         for(Map.Entry<Field, Type> entry : fieldTypeMap.entrySet()) {
@@ -947,7 +1120,7 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
         executeDDL("ALTER TABLE " + table + " " + ddl);
     }
 
-    public void packTable(NamedTable table, OperationOwner owner, TableOwner tableOwner) throws SQLException {
+    public void packTable(StoredTable table, OperationOwner owner, TableOwner tableOwner) throws SQLException {
         checkTableOwner(table, tableOwner);
         
         String dropWhere = table.properties.toString(value -> value.getName(syntax) + " IS NULL", " AND ");
@@ -955,7 +1128,7 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
     }
 
     private final Map<String, WeakReference<TableOwner>> sessionTablesMap = MapFact.mAddRemoveMap(); // все использования assertLock
-    private final Map<String, String> sessionDebugInfo = MapFact.mAddRemoveMap(); // все использования assertLock
+    public final Map<String, String> sessionDebugInfo = MapFact.mAddRemoveMap(); // все использования assertLock
     private final Map<String, Long> lastReturnedStamp = MapFact.mAddRemoveMap(); // все использования assertLock
 
     private int totalSessionTablesCount; // lockRead
@@ -1039,6 +1212,9 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
     }
 
     public static Buffer fifo = BufferUtils.synchronizedBuffer(new CircularFifoBuffer(10000));
+    public void addFifo(String log) {
+        fifo.add(log + " " + getCurrentTimeStamp() + " " + this + " " + ExecutionStackAspect.getExStackTrace());
+    }
     public static void outFifo(String filename) throws IOException {
         // "e:\\out.txt";
         BufferedWriter outputWriter = new BufferedWriter(new FileWriter(filename));
@@ -1076,11 +1252,13 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
                 temporaryTablesLock.unlock();
             }
             if(isExplainTemporaryTablesEnabled())
-                fifo.add("GET " + getCurrentTimeStamp() + " " + table + " " + privateConnection.temporary + " " + owner + " " + opOwner  + " " + this + " " + ExecutionStackAspect.getExStackTrace());
+                addFifo("GET " + table + " " + privateConnection.temporary + " " + owner + " " + opOwner);
             try {
                 privateConnection.temporary.fillData(this, fill, count, actual, table, opOwner);
             } catch (Throwable t) {
-                returnTemporaryTable(table, owner, opOwner, t instanceof lsfusion.server.data.sql.exception.SQLTimeoutException || fill.canBeNotEmptyIfFailed(), null); // вернем таблицу, если не смогли ее заполнить, truncate при timeoutе потому как в остальных случаях и так должна быть пустая (строго говоря с timeout'ом это тоже перестраховка)
+                returnTemporaryTable(table, owner, opOwner, true, null); // вернем таблицу, если не смогли ее заполнить, truncate при timeoutе потому как в остальных случаях и так должна быть пустая (строго говоря с timeout'ом это тоже перестраховка)
+                // "truncate" changed from "t instanceof lsfusion.server.data.sql.exception.SQLTimeoutException || fill.canBeNotEmptyIfFailed()" to "true",
+                // because if you run out of disk space for temporary tables, there is a large file lying on the disk, which blocks further work with temporary tables
                 try { ServerLoggers.assertLog(problemInTransaction != null || (!Settings.get().isCheckSessionCount() || getSessionCount(table, opOwner) == 0), "TEMPORARY TABLE AFTER FILL NOT EMPTY"); } catch (Throwable i) { ServerLoggers.sqlSuppLog(i); }
                 throw ExceptionUtils.propagate(t, SQLException.class, SQLHandledException.class);
             }
@@ -1108,7 +1286,7 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
             if (force || tableOwner == null) {
 //                    dropTemporaryTableFromDB(entry.getKey());
                 if(isExplainTemporaryTablesEnabled())
-                    fifo.add("RU " + getCurrentTimeStamp() + " " + force + " " + entry.getKey() + " " + privateConnection.temporary + " " + (tableOwner == null ? TableOwner.none : tableOwner) + " " + opOwner + " " + this + " " + ExecutionStackAspect.getExStackTrace());
+                    addFifo("RU " + force + " " + entry.getKey() + " " + privateConnection.temporary + " " + (tableOwner == null ? TableOwner.none : tableOwner) + " " + opOwner);
                 lastReturnedStamp.put(entry.getKey(), System.currentTimeMillis());
                 truncateSession(entry.getKey(), opOwner, null, (tableOwner == null ? TableOwner.none : tableOwner));
                 logger.info("REMOVE UNUSED TEMP TABLE : " + entry.getKey() + ", DEBUG INFO : " + sessionDebugInfo.get(entry.getKey())); // потом надо будет больше инфы по owner'у добавить, в основном keysTable из-за pendingCleaners 
@@ -1144,7 +1322,7 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
         try {
             Result<Throwable> firstException = new Result<>();
             if(isExplainTemporaryTablesEnabled())
-                fifo.add("RETURN " + getCurrentTimeStamp() + " " + truncate + " " + table + " " + privateConnection.temporary + " " + BaseUtils.nullToString(sessionTablesMap.get(table)) +  " " + owner + " " + opOwner  + " " + this + " " + ExecutionStackAspect.getExStackTrace());
+                addFifo("RETURN " + truncate + " " + table + " " + privateConnection.temporary + " " + BaseUtils.nullToString(sessionTablesMap.get(table)) +  " " + owner + " " + opOwner);
             lastReturnedStamp.put(table, System.currentTimeMillis());
             if(truncate) {
                 runSuppressed(() -> truncateSession(table, opOwner, count, owner), firstException);
@@ -1182,7 +1360,7 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
 
                 WeakReference<TableOwner> value = new WeakReference<>(owner);
                 if(isExplainTemporaryTablesEnabled())
-                    fifo.add("RGET " + getCurrentTimeStamp() + " " + table + " " + privateConnection.temporary + " " + value + " " + owner + " " + opOwner  + " " + this + " " + ExecutionStackAspect.getExStackTrace());
+                    addFifo("RGET " + table + " " + privateConnection.temporary + " " + value + " " + owner + " " + opOwner);
                 WeakReference<TableOwner> prevOwner = sessionTablesMap.put(table.getName(), value);
                 sessionDebugInfo.put(table.getName(), owner.getDebugInfo());
 
@@ -1612,10 +1790,11 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
                 }
                 double ttime = BaseUtils.nullAdd(rtime, ptime);
                 if (noAnalyze || thr == 0 || ttime >= thr) {
-                    String statementInfo = statement.toString() + " timeout : " + getQueryTimeout() + " actual time : " + actualTime + '\n' +
-                                            ExecutionStackAspect.getStackString();
+                    String statementInfo = statement.toString() + " timeout : " + getQueryTimeout() + " actual time : " + actualTime +
+                                    '\n' + "LSF stack:" + BaseUtils.tab('\n' + ExecutionStackAspect.getStackString());
+                    statementInfo += '\n' + "Params debug info: " + BaseUtils.tab('\n' + SQLDebugInfo.getSqlDebugInfo(this));
                     if (Settings.get().isExplainJavaStack())
-                        statementInfo += '\n' + ExceptionUtils.getStackTrace();
+                        statementInfo += '\n' + "Java stack: " + BaseUtils.tab('\n' + ExceptionUtils.getStackTrace());
                     explainLogger.info(statementInfo);
 
                     for (String outRow : out)
@@ -1652,10 +1831,10 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
     private Problem problemInTransaction = null;
 
     private Throwable handle(SQLException e, String message, ExConnection connection) {
-        return handle(e, message, false, connection, true);
+        return handle(e, message, false, connection, true, null);
     }
 
-    private Throwable handle(Throwable t, String message, boolean isTransactTimeout, ExConnection connection, boolean errorPrivate) {
+    private Throwable handle(Throwable t, String message, boolean isTransactTimeout, ExConnection connection, boolean errorPrivate, Boolean forcedCancel) {
         if(!(t instanceof SQLException))
             return t;
         
@@ -1664,7 +1843,7 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
             message = "PREPARING STATEMENT";
         
         if(isExplainTemporaryTablesEnabled())
-            fifo.add("E"  + getCurrentTimeStamp() + " " + this + " " + e.getStackTrace());
+            addFifo("E");
 
         boolean inTransaction = isInTransaction();
         if(inTransaction && syntax.hasTransactionSavepointProblem())
@@ -1674,7 +1853,7 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
         boolean deadLock = false;
         if(syntax.isUpdateConflict(e) || (deadLock = syntax.isDeadLock(e))) {
             handled = new SQLConflictException(!deadLock);
-            sqlConflictLogger.info((inTransaction ? "TRANSACTION " : "") + " " + handled.toString() + " " + message + (Settings.get().isLogConflictStack() ? '\n' + ExecutionStackAspect.getStackString() + '\n' + ExceptionUtils.getStackTrace() : ""));
+            sqlConflictLogger.info((inTransaction ? "TRANSACTION " : "") + " " + handled.toString() + " " + message + (Settings.get().isLogConflictStack() ? ExecutionStackAspect.getExStackTrace() : ""));
         }
 
         // duplicate keys валится при :
@@ -1686,6 +1865,8 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
         //      также при нарушении GROUP AGGR может возникать, так как GROUP AGGR тоже не детерминирован 
         // неправильный вывод классов в таблицах (см. SessionTable.assertCheckClasses),
         // !!! также при нарушении checkSessionCount (тестится fifo.add логом)
+        //еще может быть ситуация при материализации подзапросов, если она выполняется не в транзакции (скорее всего в длинных запросах)
+        //      что одни и те же ключи появляются в двух подзапросах и при объединении дублируются
         if(syntax.isUniqueViolation(e))
             handled = new SQLUniqueViolationException(false);
 
@@ -1697,15 +1878,15 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
             handled = new SQLRetryException(reason);
 
         if(syntax.isTimeout(e))
-            handled = new lsfusion.server.data.sql.exception.SQLTimeoutException(isTransactTimeout, isForcedCancel());
-        
+            handled = new lsfusion.server.data.sql.exception.SQLTimeoutException(isTransactTimeout, forcedCancel);
+
         if(syntax.isConnectionClosed(e)) {
             handled = new SQLClosedException(connection.sql, inTransaction, e, errorPrivate);
             problemInTransaction = Problem.CLOSED;
         }
 
         if(handled != null) {
-            handLogger.info((inTransaction ? "TRANSACTION " : "") + " " + handled.toString() + message + (handled instanceof SQLUniqueViolationException ? " " + ExceptionUtils.getStackTrace() : ""));
+            handLogger.info((inTransaction ? "TRANSACTION " : "") + " " + handled + message + (handled instanceof SQLUniqueViolationException ? " " + ExceptionUtils.getStackTrace() : ""));
             return handled;
         }
         
@@ -1809,9 +1990,9 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
             temporaryTablesLock.unlock();
         }
     }
-    public static RegisterChange register(Table table, TableOwner tableOwner, TableChange tableChange) {
+    public static RegisterChange register(StoredTable table, TableOwner tableOwner, TableChange tableChange) {
         if(table instanceof SessionTable)
-            return register(((SessionTable)table).getName(), tableOwner, tableChange);
+            return register(table.getName(), tableOwner, tableChange);
         else
             return RegisterChange.VOID;
     }
@@ -1859,10 +2040,6 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
         }
     }
 
-    // системные вызовы
-    public <K,V> void executeDML(String update) throws SQLException, SQLHandledException {
-        executeDML(new SQLDML(update, Cost.MIN, MapFact.EMPTY(), StaticExecuteEnvironmentImpl.EMPTY, false), OperationOwner.unknown, TableOwner.global, MapFact.EMPTY(), DynamicExecuteEnvironment.DEFAULT, null, PureTime.VOID, 0, RegisterChange.VOID);
-    }
     public <K,V> void executeSelect(String select, OperationOwner owner, StaticExecuteEnvironment env, ImRevMap<K, String> keyNames, final ImMap<String, ? extends Reader> keyReaders, ImRevMap<V, String> propertyNames, ImMap<String, ? extends Reader> propertyReaders, ResultHandler<K, V> handler) throws SQLException, SQLHandledException {
         executeSelect(select, owner, env, MapFact.EMPTY(), 0, keyNames, keyReaders, propertyNames, propertyReaders, false, handler);
     }
@@ -2019,6 +2196,7 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
         StaticExecuteEnvironment env = command.env;
 
         Savepoint savepoint = null;
+        ExecutingStatement executingStatement = null;
         try {
             snapEnv.beforeConnection(this, owner);
 
@@ -2055,13 +2233,25 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
             snapEnv.beforeExec(statement, this);
 
             long started = System.currentTimeMillis();
+            executingStatement = new ExecutingStatement(statement);
+
+            String checkStatementSubstring = Settings.get().getCheckStatementSubstring();
+            if(checkStatementSubstring != null && !checkStatementSubstring.isEmpty() && statement.toString().contains(checkStatementSubstring)) {
+                String checkExcludeStatementSubstring = Settings.get().getCheckExcludeStatementSubstring();
+                if(checkExcludeStatementSubstring == null || !statement.toString().contains(checkExcludeStatementSubstring))
+                    ServerLoggers.handledExLog("FOUND STATEMENT : " + statement);
+            }
 
             try {
                 try {
-                    executingStatement = statement;
+                    this.executingStatement = executingStatement;
+
+                    if(Thread.interrupted()) // since interruptThread usually interrupts thread, so we won't event send it
+                        throw new InterruptedException();
+
                     command.execute(statement, handler, this);
                 } finally {
-                    executingStatement = null;
+                    this.executingStatement = null;
                 }
             } finally {
                 runTime = System.currentTimeMillis() - started;
@@ -2069,7 +2259,7 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
                 connection.registerExecute(length.result, runTime);
             }
         } catch (Throwable t) { // по хорошему тоже надо через runSuppressed, но будут проблемы с final'ами
-            t = handle(t, statement != null ? statement.toString() : "PREPARING STATEMENT", snapEnv.isTransactTimeout(), connection, privateConnection != null);
+            t = handle(t, statement != null ? statement.toString() : "PREPARING STATEMENT", snapEnv.isTransactTimeout(), connection, privateConnection != null, executingStatement != null ? executingStatement.forcedCancel : null);
             firstException.set(t);
 
             if(savepoint != null && t instanceof SQLHandledException && ((SQLHandledException)t).repeatCommand()) {
@@ -2238,120 +2428,97 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
         statement.executeBatch();
     }
 
-    private void insertParamRecord(NamedTable table, ImMap<KeyField, DataObject> keyFields, ImMap<PropertyField, ObjectValue> propFields, OperationOwner owner, TableOwner tableOwner) throws SQLException {
-        checkTableOwner(table, tableOwner);
-        
-        String insertString = "";
-        String valueString = "";
+    public void insertRecord(StoredTable table, ImMap<KeyField, DataObject> keyFields, ImMap<PropertyField, ObjectValue> propFields, TableOwner owner, OperationOwner opOwner) throws SQLException, SQLHandledException {
+        modifyRecords(table, MapFact.addExcl(keyFields, propFields), new ModifyRecord() {
+            private StringBuilder insertString;
+            private StringBuilder valueString;
 
-        int paramNum = 0;
-        MExclMap<String, ParseInterface> params = MapFact.mExclMapMax(keyFields.size()+propFields.size());
-
-        // пробежим по KeyFields'ам
-        for (int i=0,size=keyFields.size();i<size;i++) {
-            KeyField key = keyFields.getKey(i);
-            insertString = (insertString.length() == 0 ? "" : insertString + ',') + key.getName(syntax);
-            DataObject keyValue = keyFields.getValue(i);
-            if (keyValue.isSafeString(syntax))
-                valueString = (valueString.length() == 0 ? "" : valueString + ',') + keyValue.getString(syntax);
-            else {
-                String prm = "qxprm" + (paramNum++) + "nx";
-                valueString = (valueString.length() == 0 ? "" : valueString + ',') + prm;
-                params.exclAdd(prm, new TypeObject(keyValue, key, syntax));
+            public void proceed(String fieldName, String valueName) {
+                if(insertString == null) {
+                    insertString = new StringBuilder();
+                    valueString = new StringBuilder();
+                } else {
+                    insertString.append(',');
+                    valueString.append(',');
+                }
+                insertString.append(fieldName);
+                valueString.append(valueName);
             }
-        }
 
-        for (int i=0,size=propFields.size();i<size;i++) {
-            PropertyField property = propFields.getKey(i);
-            insertString = (insertString.length() == 0 ? "" : insertString + ',') + property.getName(syntax);
-            ObjectValue fieldValue = propFields.getValue(i);
-            if (fieldValue.isSafeString(syntax))
-                valueString = (valueString.length() == 0 ? "" : valueString + ',') + fieldValue.getString(syntax);
-            else {
-                String prm = "qxprm" + (paramNum++) + "nx";
-                valueString = (valueString.length() == 0 ? "" : valueString + ',') + prm;
-                params.exclAdd(prm, new TypeObject((DataObject) fieldValue, property, syntax));
+            public String finish(String tableName) {
+                return "INSERT INTO " + tableName + " (" + insertString + ") VALUES (" + valueString + ")";
             }
-        }
-
-        if(insertString.length()==0) {
-            assert valueString.length()==0;
-            insertString = "dumb";
-            valueString = "0";
-        }
-
-        try {
-            executeDML(new SQLDML("INSERT INTO " + table.getName(syntax) + " (" + insertString + ") VALUES (" + valueString + ")", Cost.MIN, MapFact.EMPTY(), StaticExecuteEnvironmentImpl.EMPTY, false), owner, tableOwner, params.immutable(), DynamicExecuteEnvironment.DEFAULT, null, PureTime.VOID, 0, register(table, tableOwner, TableChange.INSERT));
-        } catch (SQLHandledException e) {
-            throw new UnsupportedOperationException(); // по идее ни deadlock'а, ни update conflict'а, ни timeout'а
-        }
+        }, TableChange.INSERT, owner, opOwner);
     }
 
-    public void insertRecord(NamedTable table, ImMap<KeyField, DataObject> keyFields, ImMap<PropertyField, ObjectValue> propFields, TableOwner owner, OperationOwner opOwner) throws SQLException {
+    private int modifyRecords(StoredTable table, ImMap<? extends Field, ? extends ObjectValue> fields, ModifyRecord command, TableChange tableChange, TableOwner owner, OperationOwner opOwner) throws SQLException, SQLHandledException {
         checkTableOwner(table, owner);
 
-        boolean needParam = false;
+        MExclMap<String, ParseInterface> mParams = MapFact.mExclMapMax(fields.size());
+        for (int i = 0, size = fields.size(); i<size; i++) {
+            Field field = fields.getKey(i);
+            ObjectValue value = fields.getValue(i);
 
-        for (int i=0,size=keyFields.size();i<size;i++)
-            if (!keyFields.getValue(i).isSafeString(syntax)) {
-                needParam = true;
+            String stringValue;
+            if (value.isSafeString(syntax))
+                stringValue = value.getString(syntax);
+            else {
+                stringValue = SQLSession.getParamName("mr" + i);
+                mParams.exclAdd(stringValue, new TypeObject((DataObject) value, field, syntax));
             }
-
-        for (int i=0,size=propFields.size();i<size;i++)
-            if (!propFields.getValue(i).isSafeString(syntax)) {
-                needParam = true;
-            }
-
-        if (needParam) {
-            insertParamRecord(table, keyFields, propFields, opOwner, owner);
-            return;
+            command.proceed(field.getName(syntax), stringValue);
         }
+        ImMap<String, ParseInterface> params = mParams.immutable();
+        if(fields.isEmpty())
+            command.proceed("dumb", "0");
 
-        String insertString = "";
-        String valueString = "";
+        String stringCommand = command.finish(table.getName(syntax));
 
-        // пробежим по KeyFields'ам
-        for (int i=0,size=keyFields.size();i<size;i++) { // нужно сохранить общий порядок, поэтому без toString
-            insertString = (insertString.length() == 0 ? "" : insertString + ',') + keyFields.getKey(i).getName(syntax);
-            valueString = (valueString.length() == 0 ? "" : valueString + ',') + keyFields.getValue(i).getString(syntax);
-        }
-
-        // пробежим по Fields'ам
-        for (int i=0,size=propFields.size();i<size;i++) { // нужно сохранить общий порядок, поэтому без toString
-            insertString = (insertString.length() == 0 ? "" : insertString + ',') + propFields.getKey(i).getName(syntax);
-            valueString = (valueString.length() == 0 ? "" : valueString + ',') + propFields.getValue(i).getString(syntax);
-        }
-
-        if(insertString.length()==0) {
-            assert valueString.length()==0;
-            insertString = "dumb";
-            valueString = "0";
-        }
-
-        executeDML("INSERT INTO " + table.getName(syntax) + " (" + insertString + ") VALUES (" + valueString + ")", opOwner, owner, register(table, owner, TableChange.INSERT));
+        if(!params.isEmpty())
+            return executeDML(new SQLDML(stringCommand, Cost.MIN, MapFact.EMPTY(), StaticExecuteEnvironmentImpl.EMPTY, false), opOwner, owner, params, DynamicExecuteEnvironment.DEFAULT, null, PureTime.VOID, 0, register(table, owner, tableChange));
+        else
+            return executeDML(stringCommand, opOwner, owner, register(table, owner, TableChange.INSERT));
     }
 
-    public boolean isRecord(Table table, ImMap<KeyField, DataObject> keyFields, OperationOwner owner) throws SQLException, SQLHandledException {
+    public <X> int deleteKeyRecords(StoredTable table, ImMap<KeyField, DataObject> keys, OperationOwner owner, TableOwner tableOwner) throws SQLException, SQLHandledException {
+        return modifyRecords(table, keys, new ModifyRecord() {
+            private StringBuilder deleteString;
+
+            public void proceed(String fieldName, String valueName) {
+                if(deleteString == null)
+                    deleteString = new StringBuilder();
+                else
+                    deleteString.append(" AND ");
+                deleteString.append(fieldName).append("=").append(valueName);
+            }
+
+            public String finish(String tableName) {
+                return "DELETE FROM " + tableName + " WHERE " + deleteString;
+            }
+        }, TableChange.DELETE, tableOwner, owner);
+    }
+
+    public boolean isRecord(StoredTable table, ImMap<KeyField, DataObject> keyFields, OperationOwner owner) throws SQLException, SQLHandledException {
 
         // по сути пустое кол-во ключей
         return new Query<KeyField, String>(MapFact.EMPTYREV(),
                 table.join(DataObject.getMapExprs(keyFields)).getWhere()).execute(this, owner).size() > 0;
     }
 
-    public void ensureRecord(NamedTable table, ImMap<KeyField, DataObject> keyFields, ImMap<PropertyField, ObjectValue> propFields, TableOwner tableOwner, OperationOwner owner) throws SQLException, SQLHandledException {
+    public void ensureRecord(StoredTable table, ImMap<KeyField, DataObject> keyFields, ImMap<PropertyField, ObjectValue> propFields, TableOwner tableOwner, OperationOwner owner) throws SQLException, SQLHandledException {
         if (!isRecord(table, keyFields, owner))
             insertRecord(table, keyFields, propFields, tableOwner, owner);
     }
 
-    public void updateRecords(NamedTable table, ImMap<KeyField, DataObject> keyFields, ImMap<PropertyField, ObjectValue> propFields, OperationOwner owner, TableOwner tableOwner) throws SQLException, SQLHandledException {
+    public void updateRecords(StoredTable table, ImMap<KeyField, DataObject> keyFields, ImMap<PropertyField, ObjectValue> propFields, OperationOwner owner, TableOwner tableOwner) throws SQLException, SQLHandledException {
         updateRecords(table, false, keyFields, propFields, owner, tableOwner);
     }
 
-    public int updateRecordsCount(NamedTable table, ImMap<KeyField, DataObject> keyFields, ImMap<PropertyField, ObjectValue> propFields, OperationOwner owner, TableOwner tableOwner) throws SQLException, SQLHandledException {
+    public int updateRecordsCount(StoredTable table, ImMap<KeyField, DataObject> keyFields, ImMap<PropertyField, ObjectValue> propFields, OperationOwner owner, TableOwner tableOwner) throws SQLException, SQLHandledException {
         return updateRecords(table, true, keyFields, propFields, owner, tableOwner);
     }
 
-    private int updateRecords(NamedTable table, boolean count, ImMap<KeyField, DataObject> keyFields, ImMap<PropertyField, ObjectValue> propFields, OperationOwner owner, TableOwner tableOwner) throws SQLException, SQLHandledException {
+    private int updateRecords(StoredTable table, boolean count, ImMap<KeyField, DataObject> keyFields, ImMap<PropertyField, ObjectValue> propFields, OperationOwner owner, TableOwner tableOwner) throws SQLException, SQLHandledException {
         if(!propFields.isEmpty()) // есть запись нужно Update лупить
             return updateRecords(new ModifyQuery(table, new Query<>(table.getMapKeys(), Where.TRUE(), keyFields, ObjectValue.getMapExprs(propFields)), owner, tableOwner));
         if(count)
@@ -2360,7 +2527,7 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
 
     }
 
-    public boolean insertRecord(NamedTable table, ImMap<KeyField, DataObject> keyFields, ImMap<PropertyField, ObjectValue> propFields, boolean update, TableOwner tableOwner, OperationOwner owner) throws SQLException, SQLHandledException {
+    public boolean insertRecord(StoredTable table, ImMap<KeyField, DataObject> keyFields, ImMap<PropertyField, ObjectValue> propFields, boolean update, TableOwner tableOwner, OperationOwner owner) throws SQLException, SQLHandledException {
         if(update && isRecord(table, keyFields, owner)) {
             updateRecords(table, keyFields, propFields, owner, tableOwner);
             return false;
@@ -2370,7 +2537,7 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
         }
     }
 
-    public Object readRecord(Table table, ImMap<KeyField, DataObject> keyFields, PropertyField field, OperationOwner owner) throws SQLException, SQLHandledException {
+    public Object readRecord(StoredTable table, ImMap<KeyField, DataObject> keyFields, PropertyField field, OperationOwner owner) throws SQLException, SQLHandledException {
         // по сути пустое кол-во ключей
         return new Query<>(MapFact.<KeyField, KeyExpr>EMPTYREV(),
                 table.join(DataObject.getMapExprs(keyFields)).getExpr(field), "result", Where.TRUE()).
@@ -2406,7 +2573,7 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
         return getCount(syntax.getSessionTableName(table), opOwner);
     }
 
-    public int getCount(NamedTable table, OperationOwner opOwner) throws SQLException {
+    public int getCount(StoredTable table, OperationOwner opOwner) throws SQLException {
         return getCount(table.getName(syntax), opOwner);
     }
 
@@ -2419,19 +2586,17 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
         }
     }
 
-    public <X> int deleteKeyRecords(NamedTable table, ImMap<KeyField, X> keys, OperationOwner owner, TableOwner tableOwner) throws SQLException {
-        checkTableOwner(table, tableOwner);
-        
-        String deleteWhere = keys.toString((key, value) -> key.getName(syntax) + "=" + value, " AND ");
+    private interface ModifyRecord {
+        void proceed(String fieldName, String valueName);
 
-        return executeDML("DELETE FROM " + table.getName(syntax) + (deleteWhere.length() == 0 ? "" : " WHERE " + deleteWhere), owner, tableOwner, register(table, tableOwner, TableChange.DELETE));
+        String finish(String tableName);
     }
 
     private static int readInt(Object value) {
         return ((Number)value).intValue();
     }
 
-    private static Statement createSingleStatement(Connection connection) throws SQLException {
+    public static Statement createSingleStatement(Connection connection) throws SQLException {
         Statement statement = connection.createStatement();
         statement.setEscapeProcessing(false); // для preparedStatement'ов эту операцию не имеет смысл делать
         return statement;
@@ -2553,9 +2718,9 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
                 ServerLoggers.assertLog(false, "UPDATED FOREIGN TABLE : " + table + " " + currentOwner + " " + owner + ", DEBUG INFO : " + sessionDebugInfo.get(table));
         }
     }
-    private void checkTableOwner(Table table, TableOwner owner) {
+    private void checkTableOwner(StoredTable table, TableOwner owner) {
         if(table instanceof SessionTable)
-            checkTableOwner(((SessionTable)table).getName(), owner);
+            checkTableOwner(table.getName(), owner);
         else
             ServerLoggers.assertLog(owner == TableOwner.global || owner == TableOwner.debug, "THERE SHOULD BE NO OWNER FOR GLOBAL TABLE " + table + " " + owner);
     }
@@ -2606,12 +2771,12 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
     }
 
     public int insertSessionSelect(String name, final IQuery<KeyField, PropertyField> query, final QueryEnvironment env, final TableOwner owner) throws SQLException, SQLHandledException {
-        return insertSessionSelect(name, query, env, owner, 0);
+        return insertSessionSelect(name, query, env, owner, MapFact.EMPTYORDER(), 0);
     }
 
-    public int insertSessionSelect(String name, final IQuery<KeyField, PropertyField> query, final QueryEnvironment env, final TableOwner owner, int selectTop) throws SQLException, SQLHandledException {
+    public int insertSessionSelect(String name, final IQuery<KeyField, PropertyField> query, final QueryEnvironment env, final TableOwner owner, ImOrderMap<PropertyField, Boolean> ordersTop, int selectTop) throws SQLException, SQLHandledException {
         checkTableOwner(name, owner);
-        return insertSessionSelect(ModifyQuery.getInsertSelect(syntax.getSessionTableName(name), query, env, owner, syntax, contextProvider, null, register(name, owner, TableChange.INSERT), selectTop), () -> query.outSelect(SQLSession.this, env, true));
+        return insertSessionSelect(ModifyQuery.getInsertSelect(syntax.getSessionTableName(name), query, env, owner, syntax, contextProvider, null, register(name, owner, TableChange.INSERT), ordersTop, selectTop), () -> query.outSelect(SQLSession.this, env, true));
     }
 
     public int insertLeftSelect(ModifyQuery modify, boolean updateProps, boolean insertOnlyNotNull) throws SQLException, SQLHandledException {
@@ -2640,7 +2805,7 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
         }
 
         int result = 0;
-        if (modify.table.isSingle()) {// потому как запросом никак не сделаешь, просто вкинем одну пустую запись
+        if (modify.table.isSingle()) {
             if (!isRecord(modify.table, MapFact.EMPTY(), modify.getOwner()))
                 result = insertSelect(modify);
         } else
@@ -2758,15 +2923,6 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
 
         checkSessionTables(paramObjects);
 
-        ImMap<String, String> reparse;
-        if(BusinessLogics.useReparse && (reparse = BusinessLogics.reparse.get()) != null) { // временный хак
-            paramObjects = paramObjects.addExcl(reparse.mapValues((String value) -> new StringParseInterface() {
-                public String getString(SQLSyntax syntax1, StringBuilder envString, boolean usedRecursion) {
-                    return value;
-                }
-            }));
-        }
-
         final PreParsedStatement parse = command.preparseStatement(poolPrepared, paramObjects, syntax, isVolatileStats(), snapEnv.getMaterializedQueries(), env.hasRecursion());
 
         ParsedStatement parsed = null;
@@ -2803,6 +2959,15 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
     private final static BiFunction<String, String, String> addFieldAliases = (key, value) -> value + " AS " + key;
     // вспомогательные методы
 
+    public static String getSelect(SQLSyntax syntax, String fromSelect, ImMap<String, String> keySelect, ImMap<String, String> propertySelect, ImCol<String> whereSelect, int top) {
+        return syntax.getSelect(fromSelect, stringExpr(keySelect, propertySelect), whereSelect.toString(" AND "), "", top > 0 ? String.valueOf(top) : "", false);
+    }
+    public static String getSelect(SQLSyntax syntax, String fromSelect, ImMap<String, String> keySelect, ImMap<String, String> propertySelect, ImCol<String> whereSelect) {
+        return getSelect(syntax, fromSelect, keySelect.toOrderMap(), propertySelect.toOrderMap(), whereSelect);
+    }
+    public static String getSelect(SQLSyntax syntax, String fromSelect, ImOrderMap<String, String> keySelect, ImOrderMap<String, String> propertySelect, ImCol<String> whereSelect) {
+        return syntax.getSelect(fromSelect, stringExpr(keySelect, propertySelect), whereSelect.toString(" AND "));
+    }
     public static String stringExpr(ImMap<String, String> keySelect, ImMap<String, String> propertySelect) {
         return stringExpr(keySelect.toOrderMap(), propertySelect.toOrderMap());
     }
@@ -2844,7 +3009,7 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
             Thread activeThread = activeThreads.first();
             if(activeThread != null)
                 return activeThread;
-            
+
             return lastActiveSyncThread == null ? null : lastActiveSyncThread.get();
         }
     }
@@ -2852,6 +3017,16 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
     private void setActiveThread(boolean async) {
         synchronized (activeThreadLock) {
             activeThreads.add(Thread.currentThread()); // не excl, потому как сначала lockWrite берет поток, а потом lockRead
+        }
+    }
+
+    // the main usage - canceling sql statement of a particular thread
+    // the problem is that statement.cancel can cancel the statement of another thread, since this method implementation is not synchronized for connection
+    // so we have to guarantee that statement canceling is done for the specific thread
+    private void runSyncActiveThread(Thread thread, SQLRunnable runnable) throws SQLException, SQLHandledException {
+        synchronized (activeThreadLock) {
+            if (activeThreads.contains(thread))
+                runnable.run();
         }
     }
 
@@ -2878,7 +3053,6 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
                 return;
 
             try {
-
                 if (isClosed())
                     return;
 
@@ -3105,15 +3279,13 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
         if(isClosed())
             return false;
 
-        OperationOwner owner = OperationOwner.unknown;
-
         Connection newConnection = notUsedConnections.remove(connectionPool);
         if(newConnection == null)
             newConnection = connectionPool.newRestartConnection(); // за пределами lockWrite чтобы не задерживать connection
 
         boolean noError = false;
         try {
-            boolean locked = tryLockWrite(owner);
+            boolean locked = tryLockWrite(OperationOwner.unknown);
             try {
                 if(locked)
                     isRestarting = true;
@@ -3133,7 +3305,7 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
                         SQLTemporaryPool.FieldStruct struct = privateConnection.temporary.getStruct(table);
                         uploadTableToConnection(table, struct, newConnection, OperationOwner.unknown);
                     }
-                } catch (SQLException | SQLHandledException t) { // если проблема в SQL, пишем в лог / игнорируем
+                } catch (Throwable t) { // если проблема в SQL, пишем в лог / игнорируем
                     logger.error("RESTART CONNECTION ERROR : " + description.result, t);
                     return false;
                 }
@@ -3145,6 +3317,7 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
 
                 // если все ок, подменяем connection
                 privateConnection.sql = newConnection;
+                privateConnection.restartConnection(newConnection, contextProvider);
                 privateConnection.timeScore = 0;
                 privateConnection.lengthScore = 0;
                 long currentTime = System.currentTimeMillis();
@@ -3191,7 +3364,7 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
         vacuumAnalyzeSessionTable(table, connection, typePool, syntax, owner);
     }
     private static void vacuumAnalyzeSessionTable(String table, Connection connection, TypePool typePool, SQLSyntax syntax, OperationOwner owner) throws SQLException {
-        Pair<String, StaticExecuteEnvironment> ddl = getVacuumAnalyzeDDL(table, syntax);
+        Pair<String, StaticExecuteEnvironment> ddl = getVacuumAnalyzeDDL(syntax.getSessionTableName(table), syntax);
         executeDDL(ddl, connection, typePool, owner);
     }
 
@@ -3290,7 +3463,7 @@ public class SQLSession extends MutableClosedObject<OperationOwner> implements A
         public void ensureConcType(ConcatenateType concType) {
             throw new UnsupportedOperationException();
         }
-        public void ensureSafeCast(Pair<Type, Boolean> type) {
+        public void ensureSafeCast(Pair<Type, Integer> type) {
             throw new UnsupportedOperationException();
         }
         public void ensureGroupAggOrder(Pair<GroupType, ImList<Type>> groupAggOrder) {

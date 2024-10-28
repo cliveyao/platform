@@ -1,6 +1,6 @@
 MODULE Backup;
 
-REQUIRE System, Reflection, SchedulerDefaultData;
+REQUIRE System, Reflection, Scheduler, DefaultData;
 
 makeBackup '{backup.make.backup}' INTERNAL  'lsfusion.server.physics.admin.backup.action.BackupAction' () TOOLBAR;
 makeBackupAction '{backup.make.backup}'  { 
@@ -20,10 +20,10 @@ deleteAction '{backup.delete.backup}' (Backup b)  {
     formRefresh();
 } CONFIRM;
 
-binPath '{backup.bin.path}' = DATA STRING[100] ();
+binPath '{backup.bin.directory.path}' = DATA STRING ();
 setBinPath  INTERNAL 'lsfusion.server.physics.admin.backup.action.SetBinPathAction'();
 WHEN CHANGED(binPath()) DO setBinPath();
-dumpDir '{backup.dump.dir}' = DATA STRING[100] ();
+dumpDir '{backup.dump.directory.path}' = DATA STRING ();
 setDumpDir  INTERNAL 'lsfusion.server.physics.admin.backup.action.SetDumpDirAction'();
 WHEN CHANGED(dumpDir()) DO setDumpDir();
 onStarted() + {
@@ -42,10 +42,10 @@ decimateBackupsAction '{backup.decimate.backups}'  {
 }
 
 customRestore '{backup.custom.restore}'  INTERNAL  'lsfusion.server.physics.admin.backup.action.CustomRestoreAction' (Backup);
-inCustomRestore '{backup.in.custom.restore}' = DATA BOOLEAN (Table);
-restoreObjects '{backup.restore.objects}' = DATA BOOLEAN (Table);
-inCustomRestore '{backup.in.custom.restore}' = DATA BOOLEAN (TableColumn);
-replaceOnlyNull '{backup.replace.only.null}' = DATA BOOLEAN (TableColumn);
+inCustomRestore '{backup.in.custom.restore}' = DATA  LOCAL NESTED BOOLEAN (Table);
+restoreObjects '{backup.restore.objects}' = DATA LOCAL NESTED BOOLEAN (Table);
+inCustomRestore '{backup.in.custom.restore}' = DATA LOCAL NESTED  BOOLEAN (TableColumn);
+replaceOnlyNull '{backup.replace.only.null}' = DATA LOCAL NESTED  BOOLEAN (TableColumn);
 
 CLASS Backup '{backup.backup}';
 TABLE backup(Backup);
@@ -57,12 +57,9 @@ file '{backup.file.backup}' = DATA STRING[200] (Backup);
 name '{backup.name.backup}' = DATA STRING[100] (Backup);
 fileLog '{backup.file.log.backup}' = DATA STRING[200] (Backup);
 isMultithread '{backup.file.is.multithread}' = DATA BOOLEAN (Backup);
-fileDeleted '{backup.file.deleted.backup}' = DATA BOOLEAN (Backup);
+fileDeleted '{backup.file.deleted}' = DATA BOOLEAN (Backup);
 log '{backup.log.backup}' = DATA TEXT (Backup);
 notSucceeded '{backup.not.succeeded.backup}' (Backup b) = NOT log(b);
-
-backupFileName '{backup.backup.file.name}' = DATA LOCAL STRING[100] ();
-backupFilePath '{backup.backup.file.path}' = DATA LOCAL STRING[200]();
 
 exclude '{backup.exclude.table}' = DATA BOOLEAN (Table);
 
@@ -91,10 +88,10 @@ FORM backup '{backup.backup}'
 DESIGN backup {
     NEW pane {
         fill = 1;
-        type = TABBED;
+        tabbed = TRUE;
         NEW pane1 {
             caption = '{backup.backups}';
-            type = CONTAINERH;
+            horizontal = TRUE;
             NEW leftPane {
                 fill = 1;
                 MOVE BOX(b);
@@ -155,8 +152,8 @@ NAVIGATOR {
     }
 }
 
-loadDefaultScheduledTasks () + {     
-    loadDefaultScheduledTask ('{backup.backuping}', 2014_07_01_01:00, 86400, SchedulerStartType.afterStart);
-    loadDefaultScheduledTaskDetail ('{backup.backuping}', 1, 'Backup.makeBackup[]');
-    loadDefaultScheduledTaskDetail ('{backup.backuping}', 2, 'Backup.decimateBackups[]');        
+loadDefaultData () + {     
+    createScheduledTask ('{backup.backuping}',dateTimeToDateTime(currentDate(), 01:00), 86400, SchedulerStartType.afterStart);
+    createScheduledTaskDetail ('{backup.backuping}', 1, 'Backup.makeBackup[]');
+    createScheduledTaskDetail ('{backup.backuping}', 2, 'Backup.decimateBackups[]');        
 }

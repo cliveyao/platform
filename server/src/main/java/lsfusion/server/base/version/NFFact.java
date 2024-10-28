@@ -13,6 +13,13 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public class NFFact {
     
+    public static <K> NFComplexOrderSet<K> complexOrderSet() {
+        return new NFComplexOrderSetImpl<>();
+    }
+    public static <K> NFComplexOrderSet<K> complexOrderSet(boolean allowVersionFinalRead) {
+        return new NFComplexOrderSetImpl<>(allowVersionFinalRead);
+    }
+
     public static <K> NFOrderSet<K> orderSet() {
         return new NFOrderSetImpl<>();
     }
@@ -25,7 +32,7 @@ public class NFFact {
         return new NFSimpleOrderSetImpl<>(orderSet);
     }
 
-    public static <K, V> Map<K, V> simpleMap(Map<K, V> map) {
+    public static <K, V> Map<K, V> concurrentMap(Map<K, V> map) {
         return new ConcurrentHashMap<>(map);
     }
 
@@ -41,14 +48,6 @@ public class NFFact {
         return finalList(ListFact.fromJavaList(list));
     }
 
-    public static <K> NFOrderSet<K> finalOrderSet(ImOrderSet<K> list) {
-        return new NFOrderSetImpl<>(list);
-    }
-
-    public static <K> NFOrderSet<K> finalOrderSet(List<K> list) {
-        return finalOrderSet(SetFact.fromJavaOrderSet(list));
-    }
-
     public static <K> NFSet<K> finalSet(ImSet<K> set) {
         return new NFSetImpl<>(set); 
     }
@@ -60,7 +59,11 @@ public class NFFact {
     public static <K> NFSet<K> set() {
         return new NFSetImpl<>();
     }
-    
+
+    public static <K, V> NFMap<K, V> map() {
+        return new NFMapImpl<>();
+    }
+
     public static <K, V> NFOrderMap<K, V> orderMap() {
         return new NFOrderMapImpl<>();
     }

@@ -1,82 +1,153 @@
 package lsfusion.gwt.client.form.property.cell.classes.controller;
 
+import com.google.gwt.core.client.JavaScriptObject;
 import com.google.gwt.dom.client.Element;
 import com.google.gwt.user.client.Event;
 import lsfusion.gwt.client.base.GwtClientUtils;
-import lsfusion.gwt.client.base.Pair;
 import lsfusion.gwt.client.base.view.EventHandler;
+import lsfusion.gwt.client.classes.GType;
+import lsfusion.gwt.client.form.object.table.grid.view.GSimpleStateTableView;
 import lsfusion.gwt.client.form.property.GPropertyDraw;
+import lsfusion.gwt.client.form.property.PValue;
+import lsfusion.gwt.client.form.property.cell.controller.CommitReason;
 import lsfusion.gwt.client.form.property.cell.controller.EditManager;
-import lsfusion.gwt.client.form.property.cell.controller.ReplaceCellEditor;
 import lsfusion.gwt.client.form.property.cell.view.RenderContext;
 
-public class CustomReplaceCellEditor implements ReplaceCellEditor {
+public class CustomReplaceCellEditor extends RequestReplaceValueCellEditor implements CustomCellEditor {
 
-    private final EditManager editManager;
     private final GPropertyDraw property;
 
-    private final String startEditingFunction;
-    private final String commitEditingFunction;
     private final String renderFunction;
-    private final String clearRenderFunction;
-    private final String onBrowserEventFunction;
+    private final GType type;
+    private final JavaScriptObject customEditor;
 
-    public CustomReplaceCellEditor(EditManager editManager, GPropertyDraw property, String customEditorFunctions) {
-        this.editManager = editManager;
+    @Override
+    public String getRenderFunction() {
+        return renderFunction;
+    }
+
+    @Override
+    public GType getType() {
+        return type;
+    }
+
+    @Override
+    public JavaScriptObject getCustomEditor() {
+        return customEditor;
+    }
+
+    public CustomReplaceCellEditor(EditManager editManager, GPropertyDraw property, GType type, String renderFunction, JavaScriptObject customEditor) {
+        super(editManager);
         this.property = property;
 
-        String[] functions = customEditorFunctions.split(":");
-        this.renderFunction = functions[0];
-        this.startEditingFunction = functions[1];
-        this.commitEditingFunction = functions[2];
-        this.clearRenderFunction = functions[3];
-        this.onBrowserEventFunction = functions[4];
+        this.renderFunction = renderFunction;
+        this.type = type;
+        this.customEditor = customEditor;
     }
 
     @Override
-    public void render(Element cellParent, RenderContext renderContext, Pair<Integer, Integer> renderedSize) {
-        render(cellParent);
+    public void render(Element cellParent, RenderContext renderContext, PValue oldValue, Integer renderedWidth, Integer renderedHeight) {
+        CustomCellEditor.super.render(cellParent, renderContext, oldValue, renderedWidth, renderedHeight);
     }
-
-    protected native void render(Element element)/*-{
-        $wnd[this.@CustomReplaceCellEditor::renderFunction](element);
-    }-*/;
 
     @Override
-    public void clearRender(Element cellParent, RenderContext renderContext) {
-        clearRender(cellParent);
-        GwtClientUtils.removeAllChildren(cellParent);
+    public void start(EventHandler handler, Element parent, RenderContext renderContext, boolean notFocusable, PValue oldValue) {
+        // we'll assume that everything is done in render method
     }
-
-    protected native void clearRender(Element element)/*-{
-        $wnd[this.@CustomReplaceCellEditor::clearRenderFunction](element);
-    }-*/;
 
     @Override
-    public void commitEditing(Element parent) {
-        commit(parent);
+    public void clearRender(Element cellParent, RenderContext renderContext, boolean cancel) {
+        super.clearRender(cellParent, renderContext, cancel);
+
+        CustomCellEditor.super.clearRender(cellParent, renderContext, cancel);
     }
-
-    protected native void commit(Element element)/*-{
-        $wnd[this.@CustomReplaceCellEditor::commitEditingFunction](element);
-    }-*/;
-
-    @Override
-    public void startEditing(Event editEvent, Element parent, Object oldValue) {
-        startEditing(parent);
-    }
-
-    protected native void startEditing(Element element)/*-{
-        $wnd[this.@CustomReplaceCellEditor::startEditingFunction](element);
-    }-*/;
 
     @Override
     public void onBrowserEvent(Element parent, EventHandler handler) {
-        if (onBrowserEventFunction != null)
-            onBrowserEvent();
+        super.onBrowserEvent(parent, handler);
+
+        CustomCellEditor.super.onBrowserEvent(parent, handler);
     }
 
-    protected native void onBrowserEvent()/*-{
-        $wnd[this.@CustomReplaceCellEditor::onBrowserEventFunction]();
+    // actually should be in CustomCellRenderer but it's an interface and in GWT it's not possible
+
+    // FACTORY
+
+    public static CustomCellEditor create(EditManager editManager, GPropertyDraw property, GType type, String customEditorFunction) {
+        JavaScriptObject customEditor = getCustomFunction(customEditorFunction);
+
+        String functionName = "Input";
+        if(hasRenderFunction(functionName, customEditor))
+            return new CustomTextCellEditor(editManager, property, type, functionName, customEditor);
+
+        functionName = "Dialog";
+        if(hasRenderFunction(functionName, customEditor))
+            return new CustomWindowCellEditor(editManager, property, type, functionName, customEditor);
+
+        return new CustomReplaceCellEditor(editManager, property, type, "", customEditor);
+    }
+
+    public static JavaScriptObject getCustomFunction(String customEditorFunction) {
+        return GwtClientUtils.call(GwtClientUtils.getGlobalField(customEditorFunction));
+    }
+
+    // COMMON METHODS
+
+    private static native boolean hasRenderFunction(String functionName, JavaScriptObject customEditor)/*-{
+        return customEditor['render' + functionName] !== undefined;
+    }-*/;
+
+    public static native void render(String functionName, JavaScriptObject customEditor, Element element, JavaScriptObject controller, JavaScriptObject value)/*-{
+        customEditor['render' + functionName](element, controller, value);
+    }-*/;
+
+    private static void forceCommit(CustomCellEditor cellEditor, Element parent) {
+        cellEditor.commit(parent);
+    }
+
+    private static void commitJSValue(CustomCellEditor cellEditor, JavaScriptObject value) {
+        cellEditor.commitValue(GSimpleStateTableView.convertFromJSValue(cellEditor.getType(), value));
+    }
+
+    private static void setDeferredCommit(CustomCellEditor cellEditor, boolean deferredCommitOnBlur) {
+        cellEditor.setDeferredCommitOnBlur(deferredCommitOnBlur);
+    }
+
+    public static native JavaScriptObject getController(CustomCellEditor thisObj, Element cellParent)/*-{
+        return {
+            setDeferredCommitOnBlur: function (deferredCommitOnBlur) {
+                @CustomReplaceCellEditor::setDeferredCommit(*)(thisObj, deferredCommitOnBlur);
+            },
+            commit: function (value) {
+                if(arguments.length === 1)
+                    @lsfusion.gwt.client.form.property.cell.classes.controller.CustomReplaceCellEditor::commitJSValue(*)(thisObj, value);
+                else
+                    @CustomReplaceCellEditor::forceCommit(*)(thisObj, cellParent);
+            },
+            cancel: function () {
+                thisObj.@CustomReplaceCellEditor::cancel()();
+            },
+            getColorThemeName: function () {
+                return @lsfusion.gwt.client.view.MainFrame::colorTheme.@java.lang.Enum::name()();
+            }
+        }
+    }-*/;
+
+    public static native boolean hasGetValue(JavaScriptObject customEditor)/*-{
+        return customEditor.getValue !== undefined;
+    }-*/;
+
+    public static native JavaScriptObject getValue(JavaScriptObject customEditor, Element element)/*-{
+        return customEditor.getValue(element);
+    }-*/;
+
+    public static native void clear(JavaScriptObject customEditor, Element element, boolean cancel)/*-{
+        if (customEditor.clear !== undefined)
+            customEditor.clear(element, cancel);
+    }-*/;
+
+    public static native void onBrowserEvent(JavaScriptObject customEditor, Event event, Element element)/*-{
+        if (customEditor.onBrowserEvent !== undefined)
+            customEditor.onBrowserEvent(event, element);
     }-*/;
 }

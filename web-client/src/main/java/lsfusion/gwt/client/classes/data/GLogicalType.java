@@ -1,39 +1,59 @@
 package lsfusion.gwt.client.classes.data;
 
 import lsfusion.gwt.client.ClientMessages;
-import lsfusion.gwt.client.base.GwtSharedUtils;
+import lsfusion.gwt.client.base.size.GSize;
+import lsfusion.gwt.client.classes.GInputType;
 import lsfusion.gwt.client.form.design.GFont;
 import lsfusion.gwt.client.form.property.GPropertyDraw;
+import lsfusion.gwt.client.form.property.PValue;
+import lsfusion.gwt.client.form.property.async.GInputList;
+import lsfusion.gwt.client.form.property.async.GInputListAction;
 import lsfusion.gwt.client.form.property.cell.classes.controller.LogicalCellEditor;
+import lsfusion.gwt.client.form.property.cell.classes.controller.RequestValueCellEditor;
 import lsfusion.gwt.client.form.property.cell.classes.view.LogicalCellRenderer;
+import lsfusion.gwt.client.form.property.cell.controller.EditContext;
 import lsfusion.gwt.client.form.property.cell.controller.EditManager;
-import lsfusion.gwt.client.form.property.cell.controller.CellEditor;
 import lsfusion.gwt.client.form.property.cell.view.CellRenderer;
 
 import java.text.ParseException;
 
 public class GLogicalType extends GDataType {
-    public static GLogicalType instance = new GLogicalType();
+    public static GLogicalType instance = new GLogicalType(false);
 
-    @Override
-    public CellRenderer createGridCellRenderer(GPropertyDraw property) {
-        return new LogicalCellRenderer(property);
-}
+    public static GLogicalType threeStateInstance = new GLogicalType(true);
 
-    @Override
-    public CellEditor createGridCellEditor(EditManager editManager, GPropertyDraw editProperty) {
-        return new LogicalCellEditor(editManager);
+    public boolean threeState;
+
+    public GLogicalType() {
+    }
+
+    public GLogicalType(boolean threeState) {
+        this.threeState = threeState;
     }
 
     @Override
-    public int getDefaultWidth(GFont font, GPropertyDraw propertyDraw) {
-        return 30;
+    public CellRenderer createCellRenderer(GPropertyDraw property) {
+        return new LogicalCellRenderer(property, threeState);
     }
 
     @Override
-    public Object parseString(String s, String pattern) throws ParseException {
+    public RequestValueCellEditor createCellEditor(EditManager editManager, GPropertyDraw editProperty, GInputList inputList, GInputListAction[] inputListActions, EditContext editContext) {
+        return new LogicalCellEditor(editManager, threeState);
+    }
+
+    @Override
+    public GSize getDefaultWidth(GFont font, GPropertyDraw propertyDraw, boolean globalCaptionIsDrawn) {
+        return GSize.CONST(30);
+    }
+
+    @Override
+    public PValue parseString(String s, String pattern) throws ParseException {
         try {
-            return GwtSharedUtils.nullBoolean(Boolean.parseBoolean(s));
+            if(threeState) {
+                return PValue.getPValue(s != null ? Boolean.parseBoolean(s) : null);
+            } else {
+                return PValue.getPValue(Boolean.parseBoolean(s));
+            }
         } catch (NumberFormatException nfe) {
             throw new ParseException("string " + s + "can not be converted to logical", 0);
         }
@@ -42,5 +62,11 @@ public class GLogicalType extends GDataType {
     @Override
     public String toString() {
         return ClientMessages.Instance.get().typeLogicalCaption();
+    }
+
+    private final static GInputType inputType = new GInputType("checkbox");
+    @Override
+    public GInputType getValueInputType() {
+        return inputType;
     }
 }

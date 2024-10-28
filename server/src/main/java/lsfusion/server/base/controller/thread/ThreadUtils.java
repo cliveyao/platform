@@ -34,8 +34,9 @@ public class ThreadUtils {
     public static void interruptThread(DBManager dbManager, Thread thread) throws SQLException, SQLHandledException {
         if(thread != null) {
             ServerLoggers.exinfoLog("THREAD INTERRUPT " + thread);
-            SQLSession.cancelExecutingStatement(dbManager, thread.getId(), true);
-            thread.interrupt();
+            thread.interrupt(); // it's better to do it before to prevent sql query execution
+            ServerLoggers.exinfoLog("THREAD INTERRUPT ENDED " + thread);
+            SQLSession.cancelExecutingStatement(dbManager, thread, true);
         }
     }
 
@@ -43,9 +44,9 @@ public class ThreadUtils {
         SystemUtils.sleep(millis);
     }
 
-    public static void interruptThread(DBManager dbManager, Long threadId, Future future) throws SQLException, SQLHandledException {
-        if(threadId != null)
-            SQLSession.cancelExecutingStatement(dbManager, threadId, true);
+    public static void interruptThread(DBManager dbManager, Thread thread, Future future) throws SQLException, SQLHandledException {
+        if(thread != null)
+            SQLSession.cancelExecutingStatement(dbManager, thread, true);
         future.cancel(true);
     }
 
@@ -55,7 +56,7 @@ public class ThreadUtils {
 
     public static void cancelThread(DBManager dbManager, Thread thread) throws SQLException, SQLHandledException {
         if(thread != null)
-            SQLSession.cancelExecutingStatement(dbManager, thread.getId(), false);
+            SQLSession.cancelExecutingStatement(dbManager, thread, false);
     }
     public static ThreadGroup getRootThreadGroup( ) {
         ThreadGroup tg = Thread.currentThread( ).getThreadGroup( );
@@ -111,7 +112,9 @@ public class ThreadUtils {
         return status != null && (status.equals("RUNNABLE") || status.equals("BLOCKED")) && (stackTrace != null
                 && !stackTrace.startsWith("java.net.DualStackPlainSocketImpl")
                 && !stackTrace.startsWith("sun.awt.windows.WToolkit.eventLoop")
-                && (ignoreSocketRead || !stackTrace.startsWith("java.net.SocketInputStream.socketRead0"))
+                && (ignoreSocketRead || !stackTrace.contains("java.net.SocketInputStream.socketRead0"))
+                && !stackTrace.contains("sun.nio.ch.Net.poll") //java 17
+                && !stackTrace.contains("sun.nio.ch.WEPoll.wait") //java 21
                 && !stackTrace.startsWith("sun.management.ThreadImpl.dumpThreads0")
                 && !stackTrace.startsWith("java.net.SocketOutputStream.socketWrite")
                 && !stackTrace.startsWith("java.net.PlainSocketImpl")

@@ -1,163 +1,186 @@
 package lsfusion.gwt.client.form.property.cell.classes.view;
 
 import com.google.gwt.dom.client.Element;
-import com.google.gwt.dom.client.Style;
+import com.google.gwt.dom.client.InputElement;
+import com.google.gwt.dom.client.TextAreaElement;
 import lsfusion.gwt.client.base.EscapeUtils;
-import lsfusion.gwt.client.form.design.GFont;
+import lsfusion.gwt.client.base.GwtClientUtils;
 import lsfusion.gwt.client.form.property.GPropertyDraw;
+import lsfusion.gwt.client.form.property.PValue;
+import lsfusion.gwt.client.form.property.cell.classes.controller.TextBasedCellEditor;
 import lsfusion.gwt.client.form.property.cell.view.CellRenderer;
 import lsfusion.gwt.client.form.property.cell.view.RenderContext;
+import lsfusion.gwt.client.form.property.cell.view.RendererType;
 import lsfusion.gwt.client.form.property.cell.view.UpdateContext;
-import lsfusion.gwt.client.view.MainFrame;
 
-import static lsfusion.gwt.client.base.EscapeUtils.unicodeEscape;
-import static lsfusion.gwt.client.view.StyleDefaults.CELL_HORIZONTAL_PADDING;
-import static lsfusion.gwt.client.view.StyleDefaults.TEXT_MULTILINE_PADDING;
+import java.util.Objects;
 
-public abstract class TextBasedCellRenderer<T> extends CellRenderer<T> {
+// the renderer which may be renderered as plain input (or td in table)
+public abstract class TextBasedCellRenderer extends InputBasedCellRenderer {
 
-    protected TextBasedCellRenderer(GPropertyDraw property) {
+    public TextBasedCellRenderer(GPropertyDraw property) {
         super(property);
     }
 
-    @Override
-    protected boolean isSimpleText(RenderContext renderContext) {
-        return !isMultiLine();
+    private static void renderText(Element element, boolean multiLine) {
+        GwtClientUtils.addClassName(element, "text-based-prop-value");
     }
 
-    @Override
-    protected boolean isSimpleText(UpdateContext updateContext) {
-        return !isMultiLine();
+    private static void clearRenderText(Element element, boolean multiLine) {
+        GwtClientUtils.removeClassName(element, "text-based-prop-value");
     }
 
-    @Override
-    protected String getDefaultVertAlignment() {
-        if(isMultiLine())
-            return "stretch";
-        return super.getDefaultVertAlignment();
+    public static void setTextPadding(Element element) {
+        GwtClientUtils.addClassName(element, "text-based-prop-sized");
     }
 
-    public void renderStaticContent(Element element, RenderContext renderContext) {
-        render(property, element, renderContext, isMultiLine(), isWordWrap());
+    public static void clearTextPadding(Element element) {
+        GwtClientUtils.removeClassName(element, "text-based-prop-sized");
     }
 
-    public static void render(GPropertyDraw property, Element element, RenderContext renderContext, boolean multiLine, boolean wordWrap) {
-        Style style = element.getStyle();
-        setPadding(style, multiLine);
-        style.setWhiteSpace(multiLine ? Style.WhiteSpace.PRE_WRAP : Style.WhiteSpace.PRE);
-        setBasedTextFonts(property, element, renderContext);
-        if(wordWrap)
-            style.setProperty("wordBreak", "break-word"); // wordWrap (overflow-wrap) doesn't work as expected
+    public static boolean isMultiLineInput(Element parent) {
+        return TextAreaElement.is(getInputElement(parent));
     }
 
-    @Override
-    public void clearRenderContent(Element element, RenderContext renderContext) {
-        element.getStyle().clearPadding();
-        clearBasedTextFonts(property, element.getStyle(), renderContext);
-
-        if(isWordWrap())
-            element.getStyle().clearProperty("wordBreak");
-    }
 
     protected boolean isMultiLine() {
         return false;
     }
 
-    protected boolean isWordWrap() {
-        return false;
+    @Override
+    protected Object getExtraValue(UpdateContext updateContext) {
+        return new ExtraValue(updateContext.getPlaceholder(), updateContext.getPattern());
     }
 
     @Override
-    public int getWidthPadding() {
-        return CELL_HORIZONTAL_PADDING;
-    }
-    public int getHeightPadding() {
-        return getHeightPadding(isMultiLine());
-    }
+    public boolean canBeRenderedInTD() {
+        if(super.canBeRenderedInTD())
+            return true;
 
-    public static int getHeightPadding(boolean multiLine) {
-        if(multiLine)
-            return TEXT_MULTILINE_PADDING;
-        return 0;
-    }
-    public static void setPadding(Style style, boolean multiLine) {
-        if(multiLine) {
-            style.setPaddingTop(TEXT_MULTILINE_PADDING, Style.Unit.PX);
-            style.setPaddingBottom(TEXT_MULTILINE_PADDING, Style.Unit.PX);
-        } else {
-            // since we are aligning text with lineheight set vertical padding to 0
-            style.setPaddingBottom(0, Style.Unit.PX);
-            style.setPaddingTop(0, Style.Unit.PX);
-        }
+        // td always respects the inner text height, so if it is multi line and not autosized, we have wrap the content into a div
+        if (isMultiLine() && !property.hasAutoHeight())
+            return false;
 
-        style.setPaddingRight(CELL_HORIZONTAL_PADDING, Style.Unit.PX);
-        style.setPaddingLeft(CELL_HORIZONTAL_PADDING, Style.Unit.PX);
+        // input we have to render in td, since input is a void element, and it can not have children (and they are needed for the toolbar)
+        // so the hack is to render it
+        return getTag() == null;
     }
 
-    public static void setBasedTextFonts(GPropertyDraw property, Element element, RenderContext renderContext) {
-        GFont font = property.font != null ? property.font : renderContext.getFont();
+    @Override
+    public boolean renderContent(Element element, RenderContext renderContext) {
+        boolean renderedAlignment = super.renderContent(element, renderContext);
 
-        if (font != null) {
-            font.apply(element.getStyle());
-        }
-    }
-    public static void clearBasedTextFonts(GPropertyDraw property, Style style, RenderContext renderContext) {
-        GFont font = property.font != null ? property.font : renderContext.getFont();
+        Element mainElement = getMainElement(element);
+        GwtClientUtils.initDataHtmlOrText(mainElement, property.getDataHtmlOrTextType());
+        if(!renderedAlignment) // not rendered text alignment
+            CellRenderer.renderWrapTextAlignment(mainElement, property.getHorzTextAlignment(), property.getVertTextAlignment());
 
-        if (font != null) {
-            font.clear(style);
-        }
-    }
+        // TEXT PART
+        setTextPadding(getSizeElement(element));
 
-    public void renderDynamicContent(Element element, Object value, UpdateContext updateContext) {
-        if (value == null) {
-            element.setTitle(property.isEditableNotNull() ? REQUIRED_VALUE : "");
-            setInnerText(element, null);
-        } else {
-            String stringValue = unicodeEscape(format((T) value));
-            setInnerText(element, stringValue);
-            element.setTitle(property.echoSymbols ? "" : stringValue);
-        }
+        if(property.isEditableNotNull())
+            GwtClientUtils.addClassName(element, "text-based-value-required");
+
+        if(getInputElement(element) == null)
+            renderText(element, isMultiLine());
+
+        return renderedAlignment;
     }
 
+    @Override
+    public boolean clearRenderContent(Element element, RenderContext renderContext) {
 
-    public abstract String format(T value);
+        // TEXT PART
+        clearTextPadding(getSizeElement(element));
 
-    protected void setInnerText(Element element, String innerText) {
-        if (innerText == null) {
-            if (property.isEditableNotNull()) {
-                setInnerHTML(element, getRequiredStringValue(element));
-                element.addClassName("requiredValueString");
-            } else {
-                setInnerContent(element, getNullStringValue(element));
-                element.removeClassName("requiredValueString");
+        if (property.isEditableNotNull())
+            GwtClientUtils.removeClassName(element, "text-based-value-required");
+
+        GwtClientUtils.removeClassName(element, "text-based-value-null");
+        GwtClientUtils.removeClassName(element, "text-based-value-empty");
+
+        Element inputElement = getInputElement(element);
+        if(property.isEditableNotNull()) {
+            if(inputElement != null) {
+                GwtClientUtils.removeClassName(inputElement, "is-invalid");
             }
-        } else {
-            setInnerContent(element, getNotNullStringValue(innerText, element));
-            element.removeClassName("requiredValueString");
         }
+
+        if(inputElement == null) // !isTagInput()
+            clearRenderText(element, isMultiLine());
+
+        GwtClientUtils.clearDataHtmlOrText(getMainElement(element), property.getDataHtmlOrTextType());
+
+        return super.clearRenderContent(element, renderContext);
     }
 
-    protected String getRequiredStringValue(Element element) {
-        return MainFrame.showNotDefinedStrings ? REQUIRED_VALUE : "<div class=\"notNullLine\">" + EscapeUtils.UNICODE_NBSP + "</div>";
+    public boolean updateContent(Element element, PValue value, Object extraValue, UpdateContext updateContext) {
+        boolean isNull = value == null;
+
+        String placeholder = ((ExtraValue) extraValue).placeholder;
+        String pattern = ((ExtraValue) extraValue).pattern;
+
+        RendererType rendererType = updateContext.getRendererType();
+        String innerText = isNull ? "" : format(value, rendererType, pattern);
+        if(isNull) {
+            GwtClientUtils.addClassName(element, "text-based-value-null");
+        } else {
+            GwtClientUtils.removeClassName(element, "text-based-value-null");
+            if(innerText.isEmpty()) {
+                innerText = EMPTY_VALUE;
+                GwtClientUtils.addClassName(element, "text-based-value-empty");
+            } else
+                GwtClientUtils.removeClassName(element, "text-based-value-empty");
+        }
+        //title is shown as an embedded tooltip on mouseover
+        element.setTitle(property.echoSymbols || property.valueTooltip != null ? "" : innerText);
+
+        Element inputElement = getInputElement(element);
+        if(inputElement != null) {
+            assert isTagInput();
+            if(property.isEditableNotNull()) {
+                if (isNull) {
+                    GwtClientUtils.addClassName(inputElement, "is-invalid");
+                } else {
+                    GwtClientUtils.removeClassName(inputElement, "is-invalid");
+                }
+            }
+            updateInputContent(inputElement.cast(), innerText, value, rendererType);
+            if (placeholder != null)
+                inputElement.setAttribute("placeholder", placeholder);
+            else
+                inputElement.removeAttribute("placeholder");
+            return false;
+        }
+
+        // important to make paste work (otherwise DataGrid.sinkPasteEvent cannot put empty selection), plus for sizing
+        GwtClientUtils.setDataHtmlOrText(element, isNull ? (placeholder != null ? placeholder : EscapeUtils.UNICODE_NBSP) : innerText, false);
+        return true;
     }
 
-    protected String getNullStringValue(Element element) {
-        return EscapeUtils.UNICODE_NBSP;
+    protected void updateInputContent(InputElement inputElement, String innerText, PValue value, RendererType rendererType) {
+        TextBasedCellEditor.setTextInputValue(inputElement, innerText);
     }
 
-    protected String getNotNullStringValue(String innerText, Element element) {
-        assert !innerText.isEmpty();
-        return innerText;
-    }
+    public static class ExtraValue {
+        public final String placeholder;
+        public final String pattern;
 
-    protected void setInnerContent(Element element, String innerText) {
-        assert !innerText.isEmpty(); // important to make paste work (otherwise DataGrid.sinkPasteEvent cannot put empty selection)
-        element.setInnerText(innerText);
-    }
+        public ExtraValue(String placeholder, String pattern) {
+            this.placeholder = placeholder;
+            this.pattern = pattern;
+        }
 
-    protected void setInnerHTML(Element element, String innerHTML) {
-        // assert that innerHTML has text inside, important to make paste work (otherwise DataGrid.sinkPasteEvent cannot put empty selection)
-        element.setInnerHTML(innerHTML);
+        @Override
+        public boolean equals(Object o) {
+            return this == o || o instanceof ExtraValue
+                    && GwtClientUtils.nullEquals(placeholder, ((ExtraValue) o).placeholder)
+                    && GwtClientUtils.nullEquals(pattern, ((ExtraValue) o).pattern);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(placeholder, pattern);
+        }
     }
 }

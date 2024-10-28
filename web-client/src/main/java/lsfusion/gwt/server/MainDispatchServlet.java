@@ -7,7 +7,7 @@ import lsfusion.gwt.client.base.exception.AuthenticationDispatchException;
 import lsfusion.gwt.client.base.exception.RemoteInternalDispatchException;
 import lsfusion.gwt.client.base.exception.RemoteMessageDispatchException;
 import lsfusion.gwt.client.base.exception.RemoteRetryException;
-import lsfusion.gwt.client.controller.remote.action.RequestAction;
+import lsfusion.gwt.client.controller.remote.action.BaseAction;
 import lsfusion.gwt.server.form.handlers.*;
 import lsfusion.gwt.server.logics.handlers.GenerateIDHandler;
 import lsfusion.gwt.server.navigator.handlers.*;
@@ -18,6 +18,7 @@ import lsfusion.http.provider.navigator.NavigatorProvider;
 import lsfusion.interop.base.exception.AuthenticationException;
 import lsfusion.interop.base.exception.RemoteInternalException;
 import lsfusion.interop.base.exception.RemoteMessageException;
+import lsfusion.interop.logics.ServerSettings;
 import net.customware.gwt.dispatch.server.DefaultActionHandlerRegistry;
 import net.customware.gwt.dispatch.server.Dispatch;
 import net.customware.gwt.dispatch.server.InstanceActionHandlerRegistry;
@@ -26,7 +27,6 @@ import net.customware.gwt.dispatch.shared.Action;
 import net.customware.gwt.dispatch.shared.DispatchException;
 import net.customware.gwt.dispatch.shared.Result;
 import org.apache.log4j.Logger;
-import org.springframework.beans.factory.annotation.Autowired;
 
 import javax.servlet.ServletContext;
 import javax.servlet.ServletException;
@@ -41,26 +41,26 @@ import java.text.ParseException;
 public class MainDispatchServlet extends net.customware.gwt.dispatch.server.standard.AbstractStandardDispatchServlet implements org.springframework.web.HttpRequestHandler, org.springframework.beans.factory.InitializingBean, org.springframework.beans.factory.BeanNameAware {
     public final static Logger logger = Logger.getLogger(MainDispatchServlet.class);
 
+    public MainDispatchServlet(LogicsProvider logicsProvider, NavigatorProvider navigatorProvider, FormProvider formProvider, ServletContext servletContext) {
+        this.logicsProvider = logicsProvider;
+        this.navigatorProvider = navigatorProvider;
+        this.formProvider = formProvider;
+        this.servletContext = servletContext;
+    }
+
     protected Dispatch dispatch;
-
-    @Autowired
-    private LogicsProvider logicsProvider;
-    @Autowired
-    private NavigatorProvider navigatorProvider;
-    @Autowired
-    private FormProvider formProvider;
-
-    @Autowired
-    private ServletContext servletContext;
+    private final LogicsProvider logicsProvider;
+    private final NavigatorProvider navigatorProvider;
+    private final FormProvider formProvider;
+    private final ServletContext servletContext;
 
     private boolean useGETForGwtRPC;
     private String rpcPolicyLocation;
     private String beanName;
 
-    protected void addHandlers(InstanceActionHandlerRegistry registry) {
-        // global
-        registry.addHandler(new CreateNavigatorHandler(this));
+    public String staticImagesURL;
 
+    protected void addHandlers(InstanceActionHandlerRegistry registry) {
         // logics
         registry.addHandler(new GenerateIDHandler(this));
 
@@ -68,10 +68,12 @@ public class MainDispatchServlet extends net.customware.gwt.dispatch.server.stan
         registry.addHandler(new CloseNavigatorHandler(this));
         registry.addHandler(new ClientPushMessagesHandler(this));
         registry.addHandler(new ContinueNavigatorActionHandler(this));
+        registry.addHandler(new VoidNavigatorActionHandler(this));
+        registry.addHandler(new VoidFormActionHandler(this));
         registry.addHandler(new ExecuteNavigatorActionHandler(this));
-        registry.addHandler(new GetNavigatorInfoHandler(this));
-        registry.addHandler(new GetClientSettingsHandler(this));
+        registry.addHandler(new InitializeNavigatorHandler(this));
         registry.addHandler(new LogClientExceptionActionHandler(this));
+        registry.addHandler(new UpdateServiceClientInfoActionHandler(this));
         registry.addHandler(new GainedFocusHandler(this));
         registry.addHandler(new ThrowInNavigatorActionHandler(this));
         registry.addHandler(new GetRemoteNavigatorActionMessageHandler(this));
@@ -83,32 +85,32 @@ public class MainDispatchServlet extends net.customware.gwt.dispatch.server.stan
         registry.addHandler(new ChangeGroupObjectHandler(this));
         registry.addHandler(new ChangePageSizeHandler(this));
         registry.addHandler(new ChangeModeHandler(this));
-        registry.addHandler(new ChangePropertiesHandler(this));
         registry.addHandler(new ChangePropertyOrderHandler(this));
         registry.addHandler(new SetPropertyOrdersHandler(this));
-        registry.addHandler(new ClosePressedHandler(this));
         registry.addHandler(new CollapseGroupObjectHandler(this));
         registry.addHandler(new CollapseGroupObjectRecursiveHandler(this));
         registry.addHandler(new ContinueInvocationHandler(this));
         registry.addHandler(new CountRecordsHandler(this));
         registry.addHandler(new ExecuteEventActionHandler(this));
+        registry.addHandler(new ExecuteFormEventActionHandler(this));
         registry.addHandler(new ExecuteNotificationHandler(this));
         registry.addHandler(new ExpandGroupObjectHandler(this));
         registry.addHandler(new ExpandGroupObjectRecursiveHandler(this));
-        registry.addHandler(new GetInitialFilterPropertyHandler(this));
         registry.addHandler(new GetRemoteActionMessageHandler(this));
         registry.addHandler(new CloseHandler(this));
+        registry.addHandler(new GetAsyncValuesHandler(this));
+        registry.addHandler(new GetPriorityAsyncValuesHandler(this));
         registry.addHandler(new GetRemoteActionMessageListHandler(this));
         registry.addHandler(new GetRemoteChangesHandler(this));
         registry.addHandler(new GroupReportHandler(this));
         registry.addHandler(new InterruptHandler(this));
         registry.addHandler(new PasteExternalTableHandler(this));
-        registry.addHandler(new PasteSingleCellValueHandler(this));
         registry.addHandler(new RefreshUPHiddenPropsActionHandler(this));
         registry.addHandler(new SaveUserPreferencesActionHandler(this));
         registry.addHandler(new ScrollToEndHandler(this));
         registry.addHandler(new SetRegularFilterHandler(this));
-        registry.addHandler(new SetTabVisibleHandler(this));
+        registry.addHandler(new SetTabActiveHandler(this));
+        registry.addHandler(new SetContainerCollapsedHandler(this));
         registry.addHandler(new SetUserFiltersHandler(this));
         registry.addHandler(new ThrowInInvocationHandler(this));
         registry.addHandler(new SetViewFiltersHandler(this));
@@ -134,10 +136,6 @@ public class MainDispatchServlet extends net.customware.gwt.dispatch.server.stan
         this.rpcPolicyLocation = rpcPolicyLocation;
     }
 
-    public void setLogicsProvider(LogicsProvider logicsProvider) {
-        this.logicsProvider = logicsProvider;
-    }
-
     @Override
     public void setBeanName(String name) {
         beanName = name;
@@ -145,7 +143,7 @@ public class MainDispatchServlet extends net.customware.gwt.dispatch.server.stan
 
     @Override
     public void afterPropertiesSet() throws Exception {
-        FileUtils.createThemedClientImages();
+        staticImagesURL = FileUtils.createThemedClientImages(servletContext);
         
         InstanceActionHandlerRegistry registry = new DefaultActionHandlerRegistry();
         addHandlers(registry);
@@ -228,16 +226,19 @@ public class MainDispatchServlet extends net.customware.gwt.dispatch.server.stan
         if(e instanceof DispatchException) // mainly AppServerNotAvailableDispatchException, but in theory can be some InvalidSessionException
             return (DispatchException) e;
         // we need to wrap next two exceptions, otherwise they will be treated like RemoteInternalDispatchException (unknown server exception)
+        DispatchException clientException;
         if(e instanceof AuthenticationException)
-            return new AuthenticationDispatchException(e.getMessage());
-        if(e instanceof RemoteMessageException)
-            return new RemoteMessageDispatchException(e.getMessage());
-        if(e instanceof RemoteException && !(ExceptionUtils.getRootCause(e) instanceof ClassNotFoundException)) // when client action goes to web, because there is no classloader like in desktop, we'll get ClassNotFoundException, and we don't want to consider it connection problem
-            return new RemoteRetryException(e, e instanceof SessionInvalidatedException ? 3 : ExceptionUtils.getFatalRemoteExceptionCount(e));
-
-        RemoteInternalDispatchException clientException = new RemoteInternalDispatchException(ExceptionUtils.copyMessage(e), RemoteInternalException.getLsfStack(e));
-        //we do it because of problem with deserialization of exception's stacktrace
-        clientException.javaStack = RemoteInternalException.getJavaStack(e);
+            clientException = new AuthenticationDispatchException(e.getMessage());
+        else if(e instanceof RemoteMessageException)
+            clientException = new RemoteMessageDispatchException(e.getMessage());
+        else if(e instanceof RemoteException && !(ExceptionUtils.getRootCause(e) instanceof ClassNotFoundException)) // when client action goes to web, because there is no classloader like in desktop, we'll get ClassNotFoundException, and we don't want to consider it connection problem
+            clientException = new RemoteRetryException(e, e instanceof SessionInvalidatedException ? 3 : ExceptionUtils.getFatalRemoteExceptionCount(e));
+        else {
+            RemoteInternalDispatchException clientInternalException = new RemoteInternalDispatchException(ExceptionUtils.copyMessage(e), RemoteInternalException.getLsfStack(e));
+            //we do it because of problem with deserialization of exception's stacktrace
+            clientInternalException.javaStack = RemoteInternalException.getJavaStack(e);
+            clientException = clientInternalException;
+        }
         ExceptionUtils.copyStackTraces(e, clientException);
         return clientException;
     }
@@ -249,11 +250,15 @@ public class MainDispatchServlet extends net.customware.gwt.dispatch.server.stan
             logger.error("Error in LogicsAwareDispatchServlet.execute: ", e);
     }
 
+    public ServerSettings getServerSettings(String sessionId) throws SessionInvalidatedException {
+        return getNavigatorProvider().getServerSettings(sessionId);
+    }
+
     private void logRemoteRetryException(Action<?> action, RemoteRetryException et) {
-        if (!(action instanceof RequestAction) || ((RequestAction) action).logRemoteException()) {
+        if (!(action instanceof BaseAction) || ((BaseAction) action).logRemoteException()) {
             String actionTry = "";
-            if(action instanceof RequestAction) {
-                actionTry = "\n" + action + " try: " + ((RequestAction) action).requestTry + ", maxTries: " + et.maxTries;
+            if(action instanceof BaseAction) {
+                actionTry = "\n" + action + " try: " + ((BaseAction) action).requestAttempt + ", maxTries: " + et.maxTries;
             }
             logger.error("Error in LogicsAwareDispatchServlet.execute: " + actionTry, et);
         }

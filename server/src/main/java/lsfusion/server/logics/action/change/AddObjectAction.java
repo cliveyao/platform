@@ -25,6 +25,8 @@ import lsfusion.server.logics.classes.user.AbstractCustomClass;
 import lsfusion.server.logics.classes.user.ConcreteCustomClass;
 import lsfusion.server.logics.classes.user.CustomClass;
 import lsfusion.server.logics.classes.user.ObjectClass;
+import lsfusion.server.logics.form.interactive.action.async.map.AsyncMapAdd;
+import lsfusion.server.logics.form.interactive.action.async.map.AsyncMapEventExec;
 import lsfusion.server.logics.property.Property;
 import lsfusion.server.logics.property.PropertyFact;
 import lsfusion.server.logics.property.data.DataProperty;
@@ -36,13 +38,15 @@ import lsfusion.server.physics.dev.i18n.LocalizedString;
 
 import java.sql.SQLException;
 
+import static lsfusion.server.logics.ServerResourceBundle.getString;
+
 public class AddObjectAction<T extends PropertyInterface, I extends PropertyInterface> extends ExtendContextAction<I> {
 
     protected final CustomClass valueClass; // обозначает класс объекта, который нужно добавить
     private final boolean autoSet;
 
     protected PropertyMapImplement<T, I> where;
-    private PropertyMapImplement<?, I> result; // только extend интерфейсы
+    protected PropertyMapImplement<?, I> result; // только extend интерфейсы
 
     private final ImOrderMap<PropertyInterfaceImplement<I>, Boolean> orders; // calculate
     private final boolean ordersNotNull;
@@ -70,7 +74,9 @@ public class AddObjectAction<T extends PropertyInterface, I extends PropertyInte
 
         assert where==null || result==null || innerInterfaces.containsAll(where.mapping.valuesSet().merge(result.mapping.valuesSet()));
     }
-    
+
+    // not sure that we gonna support this branch
+    @Deprecated
     protected boolean needDialog() {
         return valueClass instanceof AbstractCustomClass;  // || (forceDialog && valueClass.hasChildren())
     }
@@ -80,7 +86,7 @@ public class AddObjectAction<T extends PropertyInterface, I extends PropertyInte
     }
 
     @Override
-    public ImMap<Property, Boolean> aspectUsedExtProps() {
+    public ImMap<Property, Boolean> calculateUsedExtProps() {
         if(where==null)
             return MapFact.EMPTY();
         return getUsedProps(where);
@@ -111,9 +117,9 @@ public class AddObjectAction<T extends PropertyInterface, I extends PropertyInte
     }
 
     @Override
-    public CustomClass getSimpleAdd() {
+    public AsyncMapEventExec<PropertyInterface> calculateAsyncEventExec(boolean optimistic, boolean recursive) {
         if(where==null && !needDialog())
-            return valueClass;
+            return new AsyncMapAdd<>(valueClass);
         return null;
     }
 
@@ -129,11 +135,13 @@ public class AddObjectAction<T extends PropertyInterface, I extends PropertyInte
     private ObjectClass getConcreteClass(ExecutionContext<PropertyInterface> context) throws SQLException, SQLHandledException {
         ObjectClass readClass;
         if (needDialog()) {
-            ObjectValue objectValue = context.requestUserClass(valueClass, valueClass, true);
-            if (!(objectValue instanceof DataObject)) // cancel
-                readClass = null;
-            else
-                readClass = valueClass.getBaseClass().findClassID((Long) ((DataObject) objectValue).object);
+            throw new UnsupportedOperationException(getString("logics.error.unable.create.object.of.abstract.class"));
+            //disabled class dialog, throw error as in ForAction
+            //ObjectValue objectValue = context.requestUserClass(valueClass, valueClass, true);
+            //if (!(objectValue instanceof DataObject)) // cancel
+            //    readClass = null;
+            //else
+            //    readClass = valueClass.getBaseClass().findClassID((Long) ((DataObject) objectValue).object);
         } else
             readClass = valueClass;
         return readClass;
@@ -180,6 +188,10 @@ public class AddObjectAction<T extends PropertyInterface, I extends PropertyInte
     @Override
     public boolean hasFlow(ChangeFlowType type) {
         if(type.isChange())
+            return true;
+        if(type == ChangeFlowType.PRIMARY)
+            return true;
+        if(type == ChangeFlowType.ANYEFFECT)
             return true;
         return super.hasFlow(type);
     }

@@ -6,11 +6,13 @@ import lsfusion.base.BaseUtils;
 import lsfusion.base.ReflectionUtils;
 import lsfusion.base.lambda.ERunnable;
 import lsfusion.client.base.view.SwingDefaults;
+import lsfusion.client.controller.MainController;
 import lsfusion.client.form.design.view.ClientFormLayout;
 import lsfusion.client.form.object.ClientGroupObject;
 import lsfusion.client.form.property.table.view.TableTransferHandler;
 import lsfusion.client.view.MainFrame;
 import lsfusion.interop.form.event.KeyStrokes;
+import lsfusion.interop.form.property.Compare;
 import org.jdesktop.swingx.SwingXUtilities;
 
 import javax.swing.Timer;
@@ -18,6 +20,7 @@ import javax.swing.*;
 import javax.swing.border.Border;
 import javax.swing.filechooser.FileSystemView;
 import java.awt.*;
+import java.awt.datatransfer.StringSelection;
 import java.awt.event.*;
 import java.io.File;
 import java.io.IOException;
@@ -27,6 +30,8 @@ import java.util.*;
 
 import static java.lang.Math.max;
 import static java.lang.Math.min;
+import static javax.swing.BorderFactory.createEmptyBorder;
+import static lsfusion.base.BaseUtils.isRedundantString;
 import static lsfusion.client.base.view.SwingDefaults.getSingleCellTableIntercellSpacing;
 
 public class SwingUtils {
@@ -57,6 +62,12 @@ public class SwingUtils {
         }
 
         return comp == null ? MainFrame.instance : (Window) comp;
+    }
+
+    //need only Frame or Dialog in Dialog constructor, in popup menu getWindow returns Popup.HeavyWeightWindow
+    public static Window getModalFormOwner(Component comp) {
+        Window owner = getWindow(comp);
+        return owner instanceof Frame || owner instanceof Dialog ? owner : MainFrame.instance;
     }
 
     public static void assertDispatchThread() {
@@ -158,7 +169,7 @@ public class SwingUtils {
             options = BaseUtils.add(options, UIManager.getString("OptionPane.cancelButtonText"));
         }
 
-        JOptionPane dialogPane = new JOptionPane(getMessageTextPane(message),
+        JOptionPane dialogPane = new JOptionPane(getMessageTextPane(message, null),
                 messageType,
                 cancel ? JOptionPane.YES_NO_CANCEL_OPTION : JOptionPane.YES_NO_OPTION,
                 null, options, options[initialValue]);
@@ -193,18 +204,40 @@ public class SwingUtils {
         }
     }
 
-    public static JTextPane getMessageTextPane(Object message) {
+    public static Object getMessageTextPane(Object message, Color backgroundColor) {
         JTextPane textPane = new JTextPane();
-        textPane.setText(String.valueOf(message)); //message can be null
+        textPane.setContentType("text/html");
+        textPane.setText(toHtml(message)); //message can be null
         textPane.setEditable(false);
-        int width = (int) (MainFrame.instance.getRootPane().getWidth() * 0.3);
-        textPane.setSize(new Dimension(width, 10));
-        if(getWidth(String.valueOf(message)) >= width) { //set preferred size only for text with long lines
-            int height = Math.min((int) (MainFrame.instance.getRootPane().getHeight() * 0.9), textPane.getPreferredSize().height);
-            textPane.setPreferredSize((new Dimension(width, height)));
+        JRootPane rootPane = MainFrame.instance.getRootPane();
+        if (rootPane != null) {
+            int width = (int) (rootPane.getWidth() * 0.3);
+            textPane.setSize(new Dimension(width, 10));
+            if (getWidth(String.valueOf(message)) >= width) { //set preferred size only for text with long lines
+                int height = Math.min((int) (rootPane.getHeight() * 0.9), textPane.getPreferredSize().height);
+                textPane.setPreferredSize((new Dimension(width, height)));
+            }
         }
-        textPane.setBackground(null);
-        return textPane;
+        textPane.setBackground(backgroundColor);
+
+        if(rootPane != null && rootPane.getHeight() * 0.3 < textPane.getPreferredSize().height)
+            return wrapScroll(MainFrame.instance, textPane);
+        else
+            return textPane;
+    }
+
+    private static JScrollPane wrapScroll(Container parentContainer, JTextPane textPane) {
+        textPane.setCaretPosition(0); //scroll to top
+        JScrollPane scrollPane = new JScrollPane(textPane);
+        scrollPane.setBorder(createEmptyBorder());
+
+        int prefWidth = (int) scrollPane.getPreferredSize().getWidth();
+        int prefHeight = (int) scrollPane.getPreferredSize().getHeight();
+        int width = (int) (parentContainer.getWidth() * 0.75);
+        int height = (int) (parentContainer.getHeight() * 0.75);
+        scrollPane.setPreferredSize(new Dimension(Math.min(prefWidth, width), Math.min(prefHeight, height)));
+
+        return scrollPane;
     }
 
     private static int getWidth(String message) {
@@ -269,6 +302,10 @@ public class SwingUtils {
         return new Dimension(bounds.width, bounds.height);
     }
 
+    public static String toHtml(Object value) {
+        return String.valueOf(value).replace("\n", "<br>");
+    }
+
     public static String toMultilineHtml(String text, Font font) {
         String result = "<html>";
         String line = "";
@@ -318,24 +355,10 @@ public class SwingUtils {
             } catch (IOException e) {
                 e.printStackTrace();
             } finally {
-                if(file != null && !file.delete()) {
-                    file.deleteOnExit();
-                }
+                BaseUtils.safeDelete(file);
             }
             return icon;
         }
-    }
-
-    public static Dimension overrideSize(Dimension base, Dimension override) {
-        if (override != null) {
-            if (override.width >= 0) {
-                base.width = override.width;
-            }
-            if (override.height >= 0) {
-                base.height = override.height;
-            }
-        }
-        return base;
     }
 
     public static ClientFormLayout getClientFormLayout(Component comp) {
@@ -635,14 +658,14 @@ public class SwingUtils {
     private static double reducePrefsToBase(double prevFlexWidth, int column, double[] prefs, double[] flexes, int[] basePrefs) {
         double reduce = prefs[column] - basePrefs[column];
         assert greaterEquals(reduce, 0.0);
-        if(equals(reduce, 0.0))
+        if (equals(reduce, 0.0))
             return prevFlexWidth;
 
         double newFlexWidth = prevFlexWidth + reduce;
         double newTotalFlexes = 0.0;
         double prevTotalFlexes = 0.0;
-        for(int i=0;i<prefs.length;i++) {
-            if(i!=column) {
+        for (int i = 0; i < prefs.length; i++) {
+            if (i != column) {
                 double prevFlex = flexes[i];
                 double newFlex = prevFlex * prevFlexWidth / newFlexWidth;
                 flexes[i] = newFlex;
@@ -650,7 +673,7 @@ public class SwingUtils {
                 prevTotalFlexes += prevFlex;
             }
         }
-        assert newTotalFlexes < prevTotalFlexes;
+        assert greaterEquals(prevTotalFlexes, newTotalFlexes);
         flexes[column] += prevTotalFlexes - newTotalFlexes;
         prefs[column] = basePrefs[column];
         return newFlexWidth;
@@ -662,31 +685,21 @@ public class SwingUtils {
     private static boolean greaterEquals(double a, double b) {
         return a - b > -0.001;
     }
-    private static boolean equals(double a, double b) {
+    public static boolean equals(double a, double b) {
         return Math.abs(a - b) < 0.001;
     }
 
-    // prefs на double'ах чтобы не "дрожало", из-за преобразований в разные стороны (строго говоря наверное без adjustTableFixed и overflow дрожать не будет)
-    public static void calculateNewFlexes(int column, int delta, int viewWidth, double[] prefs, double[] flexes, int[] basePrefs, double[] baseFlexes, boolean overflow) {
-        // проблема в том, что в desktop-client'е вся resizing model построена что у колонки не может увеличиться размер за счет левой части (так как колонке сразу же выставляется delta расположения мышки и получается что одна и та же delta применяется по многу раз, по этой же причине в desktop-client'е не поддерживается resizing fixed колонок) 
-        boolean removeLeftPref = false; // вообще так как removeLeftFlex false, логично иметь симметричное поведение, но больше не меньше (removeRightPref и add*Pref не имеют смысла, так как вся delta просто идет в pref колонки)
+    // viewfixed if view is fixed we can convert flex to pref, otherwise we can't
+    public static double calculateNewFlexes(int column, double delta, int viewWidth, double[] prefs, double[] flexes, int[] basePrefs, double[] baseFlexes, boolean[] flexPrefs, boolean noParentFlex, Boolean resizeOverflow, int margins) {
 
         // ищем первую динамическую компоненту слева (она должна получить +delta, соответственно правая часть -delta)
         // тут есть варианты -delta идет одной правой колонке, или всем правых колонок, но так как
         // a) так как выравнивание по умолчанию левое, интуитивно при перемещении изменяют именно размер левой колонки, б) так как есть де-факто ограничение Preferred, вероятность получить нужный размер уменьшая все колонки куда выше
         // будем распределять между всеми правыми колонками
 
-        // находим левую flex
-        while(column >= 0 && baseFlexes[column] == 0)
-            column--;
-        if(column < 0) // нет левой flex колонки - ничего не делаем
-            return;
-
-        int rightFlex = column + 1;
-        while(rightFlex < baseFlexes.length && baseFlexes[rightFlex] == 0)
-            rightFlex++;
-        if(rightFlex >= baseFlexes.length) // не нашли правй flex - ничего не делаем
-            return;        
+        int flexColumn = column;
+        while (flexColumn >= 0 && baseFlexes[flexColumn] == 0)
+            flexColumn--;
 
         // считаем общий текущий preferred
         double totalPref = 0;
@@ -694,117 +707,111 @@ public class SwingUtils {
             totalPref += pref;
         }
 
+        if (flexColumn < 0) {
+            double restDelta = 0.0;
+            if(resizeOverflow != null && !resizeOverflow) { // we shouldn't exceed viewWidth, but only if it is set explicitly (otherwise behaviour is pretty normal)
+                double restWidth = viewWidth - totalPref - margins;
+                if(delta > restWidth) {
+                    restDelta = delta - restWidth;
+                    delta = restWidth;
+                }
+            }
+
+            return restDelta + (-reducePrefs(-delta, column, prefs, basePrefs, flexPrefs));
+        }
+        column = flexColumn;
+
         // сначала списываем delta справа налево pref (но не меньше basePref), ПОКА сумма pref > viewWidth !!! ( то есть flex не работает, работает ширина контейнера или minTableWidth в таблице)
         // тут можно было бы если идет расширение - delta > 0.0, viewWidth приравнять totalPref (соответственно запретить adjust, то есть pref'ы остались такими же) и reduce'ить остальные, но это пойдет в разрез с уменьшением (когда нужно уменьшать pref'ы иначе в исходное состояние не вернешься), поэтому логичнее исходить из концепции когда если есть scroll тогда просто расширяем колонки, если нет scroll'а пытаемся уместить все без скролла
         double exceedPrefWidth = totalPref - viewWidth;
-        if(greater(exceedPrefWidth, 0.0)) {
-            if(!overflow)
-                return;
-
+        if (greaterEquals(exceedPrefWidth, 0.0)) {
             double prefReduceDelta = Math.min(-delta, exceedPrefWidth);
             delta += prefReduceDelta;
-            for(int i=column;i>=0;i--) {
-                double maxReduce = prefs[i] - basePrefs[i];
-                double reduce = Math.min(prefReduceDelta, maxReduce);
-                prefs[i] -= reduce;
-                prefReduceDelta -= reduce;
-                if(!removeLeftPref || equals(prefReduceDelta, 0.0)) // если delta не осталось нет смысла продолжать, у нас либо viewWidth либо уже все расписали
-                    break;
-            }
+            reducePrefs(prefReduceDelta, column, prefs, basePrefs, null);
 
             assert greaterEquals(0.0, delta);
 
             exceedPrefWidth = 0;
         }
 
-        if(delta == 0) // все расписали
-            return;
+        if (equals(delta, 0.0)) // все расписали
+            return delta;
 
         double flexWidth = -exceedPrefWidth;
         assert greaterEquals(flexWidth, 0.0);
 
         // можно переходить на basePref - flex (с учетом того что viewWidth может измениться, pref'ы могут быть как равны viewWidth в результате предыдущего шага, так и меньше)
-        for(int i=0;i<prefs.length;i++)
+        for (int i = 0; i < prefs.length; i++)
             flexWidth = reducePrefsToBase(flexWidth, i, prefs, flexes, basePrefs);
 
         //если flexWidth все еще равно 0 - вываливаемся (так как нельзя меньше preferred опускаться)
-        if(equals(flexWidth,0.0))
-            return;
+        if (equals(flexWidth, 0.0))
+            return delta; // or maybe 0.0
 
         // запускаем изменение flex'а (пропорциональное)
         double totalFlex = 0;
-        double totalBaseFlex = 0;
         double totalRightFlexes = 0.0;
         double totalRightBaseFlexes = 0.0;
-        for(int i=0;i<flexes.length;i++) {
+        for (int i = 0; i < flexes.length; i++) {
             double flex = flexes[i];
             double baseFlex = baseFlexes[i];
-            if(i>column) {
+            if (i > column) {
                 totalRightFlexes += flex;
                 totalRightBaseFlexes += baseFlex;
             }
             totalFlex += flex;
-            totalBaseFlex += baseFlex;
         }
 
         // flex колонки увеличиваем на нужную величину, соответственно остальные flex'ы надо уменьшить на эту величину
-        double toAddFlex = (double) delta * totalFlex / flexWidth;
-        if(greater(0.0, toAddFlex + flexes[column])) // не shrink'аем, но и левые столбцы не уменьшаются (то есть removeLeftFlex false)
+        double toAddFlex = delta * totalFlex / flexWidth;
+        if (greater(0.0, toAddFlex + flexes[column])) // не shrink'аем, но и левые столбцы не уменьшаются (то есть removeLeftFlex false)
             toAddFlex = -flexes[column];
 
-        // сначала уменьшаем правые flex'ы
-        double restFlex = 0.0;
+        double restFlex = 0.0; // flex that wasn't added to the right flexes
         double toAddRightFlex = toAddFlex;
-        if(toAddRightFlex > totalRightFlexes) {
-            restFlex = toAddRightFlex - totalRightFlexes;
-            toAddRightFlex = totalRightFlexes;
-        }
-        for(int i=column+1;i<flexes.length;i++) {
-            if(greater(totalRightFlexes, 0.0))
-                flexes[i] -= flexes[i] * toAddRightFlex / totalRightFlexes;
-            else {
-                assert equals(flexes[i], 0.0);
-                flexes[i] = - baseFlexes[i] * toAddRightFlex / totalRightBaseFlexes;
+        if(equals(totalRightBaseFlexes, 0.0)) { // if there are no right flex columns, we don't change flexes
+            restFlex = toAddRightFlex;
+        } else {
+            if (toAddRightFlex > totalRightFlexes) { // we don't want to have negative flexes
+                restFlex = toAddRightFlex - totalRightFlexes;
+                toAddRightFlex = totalRightFlexes;
             }
-        }
-
-
-        // может остаться delta, тогда раскидываем ее для левых компонент
-        boolean addLeftFlex = !overflow; // (если не overflow, потому как в противном случае все же не очень естественное поведение)
-        if(addLeftFlex && greater(restFlex, 0.0)) {
-            double totalLeftFlexes = totalFlex - totalRightFlexes - flexes[column];
-            double totalLeftBaseFlexes = totalBaseFlex - totalRightBaseFlexes - baseFlexes[column];
-
-            double toAddLeftFlex = restFlex; // надо изменять preferred - то есть overflow'ить / добавлять scroll по сути
-            restFlex = 0.0;
-            if(toAddLeftFlex > totalLeftFlexes) {
-                restFlex = toAddLeftFlex - totalLeftFlexes;
-                toAddLeftFlex = totalLeftFlexes;
-            }
-            for(int i=0;i<column;i++) {
-                if(greater(totalLeftFlexes, 0.0))
-                    flexes[i] -= flexes[i] * toAddLeftFlex / totalLeftFlexes;
+            for (int i = column + 1; i < flexes.length; i++) {
+                if (greater(totalRightFlexes, 0.0))
+                    flexes[i] -= flexes[i] * toAddRightFlex / totalRightFlexes;
                 else {
                     assert equals(flexes[i], 0.0);
-                    flexes[i] = - baseFlexes[i] * toAddLeftFlex / totalLeftBaseFlexes;
+                    flexes[i] = -baseFlexes[i] * toAddRightFlex / totalRightBaseFlexes;
                 }
             }
         }
 
-        toAddFlex = toAddFlex - restFlex;
-        flexes[column] += toAddFlex;
+        flexes[column] += toAddFlex - restFlex;
 
         // если и так осталась, то придется давать preferred (соответственно flex не имеет смысла) и "здравствуй" scroll
-        if(greater(restFlex, 0.0)) {
-            assert !addLeftFlex || equals(flexes[column], totalFlex); // по сути записываем все в эту колонку
-            if(overflow) {
-                if(!addLeftFlex) {
-                    for (int i = 0; i < column; i++)
-                        prefs[i] += flexWidth * flexes[i] / totalFlex;
-                }
-                prefs[column] += flexWidth * ((flexes[column] + restFlex) / totalFlex);
+        if (!equals(restFlex, 0.0) && noParentFlex && (resizeOverflow != null ? resizeOverflow : true)) {
+            // we can't increase / decrease right part using flexes (we're out of it they are zero already, since restflex is not zero), so we have to use prefs instead
+            // assert that right flexes are zero (so moving flex width to prefs in left part won't change anything)
+            for (int i = 0; i < column; i++)
+                prefs[i] += flexWidth * flexes[i] / totalFlex;
+            prefs[column] += flexWidth * ((flexes[column] + restFlex) / totalFlex);
+            restFlex = 0.0;
+        }
+        return restFlex * flexWidth / totalFlex;
+    }
+
+    private static double reducePrefs(double delta, int column, double[] prefs, int[] basePrefs, boolean[] filterColumns) {
+        for (int i = column; i >= 0; i--) {
+            if(filterColumns == null || filterColumns[i]) {
+                double maxReduce = prefs[i] - basePrefs[i];
+                double reduce = Math.min(delta, maxReduce);
+                prefs[i] -= reduce;
+                delta -= reduce;
+                if (equals(delta, 0.0))
+                    break;
             }
         }
+        return delta;
     }
 
     private static void adjustFlexesToFixedTableLayout(int viewWidth, double[] prefs, boolean[] flexes, double[] flexValues) {
@@ -827,9 +834,10 @@ public class SwingUtils {
     }
 
     // изменяется prefs
-    public static void calculateNewFlexesForFixedTableLayout(int column, int delta, int viewWidth, double[] prefs, int[] basePrefs, boolean[] flexes) {
+    public static void calculateNewFlexesForFixedTableLayout(int column, int delta, int viewWidth, double[] prefs, int[] basePrefs, boolean[] flexes, Boolean resizeOverflow) {
         double[] flexValues = new double[prefs.length];
         double[] baseFlexValues = new double[prefs.length];
+        boolean[] flexPrefs = new boolean[prefs.length];
         for(int i=0;i<prefs.length;i++) {
             if(flexes[i]) {
                 flexValues[i] = prefs[i];
@@ -838,10 +846,55 @@ public class SwingUtils {
                 flexValues[i] = 0.0;
                 baseFlexValues[i] = 0.0;
             }
+            flexPrefs[i] = false;
         }
 
-        calculateNewFlexes(column, delta, viewWidth, prefs, flexValues, basePrefs, baseFlexValues, true);
+        calculateNewFlexes(column, delta, viewWidth, prefs, flexValues, basePrefs, baseFlexValues, flexPrefs, true, resizeOverflow, 0);
 
         adjustFlexesToFixedTableLayout(viewWidth, prefs, flexes, flexValues);
+    }
+
+    private static String showIfVisible = "showIfVisible";
+    public static void setShowIfVisible(JComponent component, boolean visible) {
+        component.putClientProperty(showIfVisible, String.valueOf(visible));
+        updateVisibility(component);
+    }
+
+    private static String gridVisible = "gridVisible";
+    public static void setGridVisible(JComponent component, boolean visible) {
+        component.putClientProperty(gridVisible, String.valueOf(visible));
+        updateVisibility(component);
+    }
+
+    private static void updateVisibility(JComponent component) {
+        component.setVisible(isVisible(component, showIfVisible) && isVisible(component, gridVisible));
+    }
+
+    private static boolean isVisible(JComponent component, String key) {
+        Object value = component.getClientProperty(key);
+        return isRedundantString(value) || Boolean.parseBoolean((String) value);
+    }
+
+    public static Object escapeSeparator(Object value, Compare compare) {
+        if(value instanceof String && compare != null) {
+            if(compare.escapeSeparator())
+                value = ((String) value).replace(MainController.matchSearchSeparator, "\\" + MainController.matchSearchSeparator);
+            if(compare == Compare.CONTAINS)
+                value = ((String) value).replace("%", "\\%").replace("_", "\\_");
+            return value;
+        }
+        return value;
+    }
+
+    public static void copyToClipboard(String value) {
+        Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(value), null);
+    }
+
+    public static String getEventCaption(String keyEventCaption, String mouseEventCaption) {
+        return keyEventCaption != null ? (mouseEventCaption != null ? (keyEventCaption + " / " + mouseEventCaption) : keyEventCaption) : mouseEventCaption;
+    }
+
+    public static String wrapHtml(Object value) {
+        return value != null ? ("<html>" + value + "</html>") : null;
     }
 }

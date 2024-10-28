@@ -1,0 +1,389 @@
+.js-plotly-plot {
+    width: 100%;
+    height: 100%;
+
+    /* for the svg-container inside absolute width / height is set and it seems that this sizes are not that precise (a little bit lager than the container sizes), so the scroll appears,
+       to avoid this we just clip it */
+    overflow: hidden;
+}
+
+.pivotTable {
+    /*need for correct work of descendants with position: absolute*/
+    position: relative;
+}
+
+.pvtUiWrapperDiv {
+    /* Since .pivotTable has flex-basis: auto, we can't use height: 100% here.
+    Even though Chrome and Firefox allows this, Safari doesn't.
+    Maybe flex-basis should be propagated to .pivotTable if we want to see scrollbar. */
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    right: 0;
+}
+
+.pvtUiContainer {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    right: 0;
+}
+
+.pvtUnusedCellDivWrapper {
+    position: relative;
+    height: 100%;
+    width: 100%;
+    display: table;
+}
+
+.pvtUiCellVDiv {
+    height: 100%;
+    /*overflow: hidden auto;  Multiple keyword syntax is not supported in Safari */
+    overflow-x: hidden;
+    overflow-y: auto;
+}
+
+.pvtUiCellHDiv {
+    width: 100%;
+    /*overflow: auto hidden; Multiple keyword syntax is not supported in Safari */
+    overflow-x: auto;
+    overflow-y: hidden;
+}
+
+.pvtUnusedCellDiv {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: unset;  /* to reset 100% */
+    width: unset;
+}
+
+.pvtUi {
+    color: var(--text-color);
+    /*to stretch last empty paxis*/
+    height:100%;
+    width: 100%;
+
+    /* there are plenty of elements using padding (see below) but also having height:100% width:100% leading to unnecessary scrolls */
+    /*.pvtUiCell > div:not(.pvtUnusedCellDivWrapper), .pvtUnusedCellDivWrapper > div {*/
+    overflow: hidden;
+}
+
+.pvtUi-noSettings {
+    border-spacing: 0;
+}
+
+table.pvtTable {
+    color: var(--text-color);
+    text-align: left;
+
+    /* see DataGrid.css, dataGridTableWrapperWidget*/
+    border-spacing: 0;
+
+    height: fit-content; /* it's even more odd - without this height : 100% in tds won't work */
+}
+
+table.pvtTable tbody tr td,
+table.pvtTable tbody tr th,
+table.pvtTable thead tr th {
+    overflow: hidden;
+    white-space: nowrap;
+    font-weight: normal;
+}
+
+table.pvtTable tbody tr th,
+table.pvtTable thead tr th {
+    color: var(--text-color);
+}
+
+table.pvtTable thead tr th {
+    background-color: var(--background-color);
+}
+
+table.pvtTable thead tr th:last-of-type,
+table.pvtTable tbody tr td:last-of-type{
+    /* the same as data-grid-last-cell, data-grid-last-header-cell, table.pvtTable thead tr th:last-of-type */
+    /*border-right: 1px solid var(--grid-separator-border-color);*/
+}
+
+table.pvtTable .pvtColLabel {
+    text-align: center
+}
+
+table.pvtTable .pvtColLabel .wrapperDiv {
+    text-align: left
+}
+
+table.pvtTable .pvtTotalLabel {
+    text-align: right
+}
+
+table.pvtTable .data-grid-sticky-cell {
+    position: sticky;
+    z-index: 1000;
+    background-color: var(--component-background-color);
+}
+
+table.pvtTable .data-grid-sticky-header {
+    position: sticky;
+    z-index: 1000;
+    background-color: var(--background-color);
+}
+
+table.pvtTable tbody tr td {
+    background-color: var(--component-background-color);
+
+    vertical-align: top;
+    text-align: right
+}
+
+.pvtVals {
+    text-align: center;
+    white-space: nowrap
+}
+
+.pvtCols {
+    width: 100%;
+}
+
+.pvtRows, .pvtCols {
+    border: 1px solid var(--panel-border-color);
+    border-radius: var(--panel-border-radius);
+    -webkit-border-radius: var(--panel-border-radius);
+    -moz-border-radius: var(--panel-border-radius);
+}
+
+.pvtColumnsTable {
+    border-spacing: 0;
+    /*to stretch last empty paxis*/
+    width:100%;
+}
+
+.pvtColumnsTable .paxis.stretch {
+    /*to stretch last empty paxis*/
+    width:100%;
+}
+
+.pvtColumnsTable .paxis:empty {
+    min-width: 0;
+}
+
+.pvtColOrder,
+.pvtRowOrder {
+    font-size: 10pt;
+    
+    cursor: pointer;
+    width: 15px;
+    margin-left: 5px;
+    display: inline-block
+}
+
+.pvtColOrder {
+    margin-right: 2px;
+}
+
+.pvtAxisContainer,
+.pvtVals {
+    border: 1px solid var(--panel-border-color);
+    border-radius: var(--panel-border-radius);
+    user-select: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -khtml-user-select: none;
+    -ms-user-select: none;
+    -webkit-border-radius: var(--panel-border-radius);
+    -moz-border-radius: var(--panel-border-radius);
+}
+
+.pvtAxisContainer li, 
+.pvtUiContainer > li /* dragged */ {
+    list-style-type: none;
+    display: flex;
+    flex-direction: column;
+}
+
+.pvtAxisContainer li.pvtPlaceholder {
+    vertical-align: bottom;
+    outline: 1px dashed var(--component-border-color);
+    outline-offset: -1px;
+}
+
+/*.paxis.pvtHorizList: there is a bug with incorrect width when drag'n'drop middle of 3 elements.
+reproduces in chrome 80, in firefox 73 (latest) and chrome 70 (2018-10-16) width is correct */
+.paxis {
+    border: none;
+    padding: 0;
+}
+
+.paxis:empty {
+    padding: 2px;
+}
+
+.pvtRowsTable {
+    border-spacing: 0;
+    /*to stretch last empty paxis*/
+    width:100%;
+    height:100%;
+}
+
+.pvtRowsTable .paxis {
+    /*pvtPlaceHolder should be at the top*/
+    vertical-align: top;
+}
+
+.pvtRowsTable .paxis.stretch {
+    /*to stretch last empty paxis*/
+    height: 100%;
+}
+
+.pvtHorizList {
+    white-space: nowrap; /*to prevent list from going vertical*/ 
+}
+
+.pvtHorizList > li {
+    display: inline-flex;
+}
+
+.pvtUnused.pvtHorizList li {
+    display: inline-flex;
+    margin-right: 0;
+}
+
+.pvtAxisContainer li.pvtPlaceholder { /*should be after .pvtUnused.pvtVertList li*/
+    max-width: 50px;
+}
+
+.pvtVertList {
+    vertical-align: top
+}
+
+.pvtFilteredAttribute {
+    font-style: italic
+}
+
+.pvtFilterBox {
+    cursor: default;
+    width: 300px;
+    border: 1px solid var(--component-border-color);
+    border-radius: var(--panel-border-radius);
+    background-color: var(--background-color);
+    position: absolute !important; /* draggable() sets relative */
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    z-index: 1000;
+}
+
+.pvtFilterBox h4 {
+    margin: 12px auto;
+}
+
+.pvtFilterBox p {
+    margin: 2px auto;
+}
+
+.pvtFilterBox button {
+    margin: 6px;
+}
+
+.pvtFilterBox label {
+    font-weight: 400
+}
+
+.pvtFilterBox input[type=checkbox] {
+    margin-right: 10px;
+    margin-left: 10px
+}
+
+.pvtFilterBox input[type=text] {
+    border: 1px solid var(--component-border-color);
+    width: 230px
+}
+
+.pvtFilterBox .count {
+    color: var(--disabled-text-color);
+    font-weight: 400;
+    margin-left: 3px
+}
+
+.pvtCheckContainer {
+    text-align: left;
+    font-size: 14px;
+    white-space: nowrap;
+    overflow-y: scroll;
+    width: 100%;
+    max-height: 250px;
+    border-top: 1px solid var(--panel-border-color);
+    border-bottom: 1px solid var(--panel-border-color);
+}
+
+.pvtCheckContainer p {
+    margin: 2px;
+}
+
+.pvtRendererArea {
+    cursor: default;
+    display : flex;
+    flex-direction : column;
+    height : 100%;
+    width: 100%;
+    padding: 0;
+}
+
+.pvtRendererHeader {
+    flex : 0 1 auto;
+}
+
+.pvtRendererBody {
+    position : relative;
+    flex : 1;
+}
+.pvtRendererFooter {
+    flex : 0 1 auto;
+}
+
+.pvtRendererScrollDiv {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    overflow: auto;
+}
+
+.pvtRenderer {
+    max-width: 150px;
+}
+
+.pvtAttr {
+    text-overflow: ellipsis;
+}
+
+.pvtRowsTable .pvtAttr,
+.pvtAggregator {
+    max-width: 125px;
+}
+
+.pvtRenderer.form-select,
+.pvtAggregator.form-select,
+.pvtAttr.form-select {
+    margin: var(--border-comp-vert-padding) var(--border-comp-horz-padding);
+}
+
+div.selectArrow {
+    background: transparent;
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    top: 0;
+    cursor: default;
+    margin: var(--border-comp-vert-padding) var(--border-comp-horz-padding);
+}
+
+li.pvtAttr-container {
+    position: relative;
+}

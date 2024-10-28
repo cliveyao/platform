@@ -25,6 +25,7 @@ import lsfusion.server.data.stat.KeyStat;
 import lsfusion.server.data.stat.PropStat;
 import lsfusion.server.data.stat.Stat;
 import lsfusion.server.data.stat.StatType;
+import lsfusion.server.data.table.IndexType;
 import lsfusion.server.data.translate.MapTranslate;
 import lsfusion.server.data.type.reader.ClassReader;
 import lsfusion.server.data.where.Where;
@@ -148,18 +149,12 @@ public abstract class BaseExpr extends Expr {
                     return GreaterWhere.create(this, expr, false).or(EqualsWhere.create(expr, this));
             case NOT_EQUALS: // оба заданы и не равно
                 return getWhere().and(expr.getWhere()).and(EqualsWhere.create(expr, this).not());
-            case START_WITH:
-                return LikeWhere.create(expr, this, 1);
-            case LIKE:
-                return LikeWhere.create(expr, this, null);
+            case CONTAINS:
+                return LikeWhere.create(expr, this);
             case MATCH:
                 return MatchWhere.create(expr, this);
             case INARRAY:
                 return InArrayWhere.create(expr, this);
-            case CONTAINS:
-                return LikeWhere.create(expr, this, 2);
-            case ENDS_WITH:
-                return LikeWhere.create(expr, this, 3);
         }
         throw new RuntimeException("should not be");
     }
@@ -289,12 +284,26 @@ public abstract class BaseExpr extends Expr {
     }
 
     // assert InnerExpr или KeyExpr
-    public boolean isIndexed() {
+    public boolean isIndexed(Compare compare) {
+        IndexType indexType = getIndexType();
+        if(indexType != null) {
+            switch (compare) {
+                case MATCH:
+                    return indexType.isMatch();
+                case CONTAINS:
+                    return indexType.isLike() || indexType.isMatch();
+                default:
+                    return true;
+            }
+        }
         return false;
     }
 
+    protected IndexType getIndexType() {
+        return null;
+    }
+
     public boolean hasALotOfNulls() {
-        assert isIndexed();
         return false;
     }
 

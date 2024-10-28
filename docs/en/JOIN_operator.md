@@ -6,11 +6,13 @@ The `JOIN` operator creates a [property](Properties.md) that implements a [compo
 
 ### Syntax
 
-    [JOIN] propertyId(expr1, ..., exprN)
-     
-    [JOIN] "[" operator "]" (expr1, ..., exprN)
-     
-    [JOIN] "[" expression "]" (expr1, ..., exprN) 
+```
+[JOIN] propertyId(expr1, ..., exprN)
+ 
+[JOIN] "[" operator "]" (expr1, ..., exprN)
+ 
+[JOIN] "[" expression "]" (expr1, ..., exprN) 
+```
 
 Where `"["` and `"]"` are ordinary brackets.
 
@@ -66,5 +68,6 @@ cathetus2 = DATA DOUBLE(Triangle);
 
 hypotenuseSq(triangle) = cathetus1(triangle)*cathetus1(triangle) + cathetus2(triangle)*cathetus2(triangle);
 
-hypotenuseSq2(triangle) = [ x*x + y*y](cathetus1(triangle), cathetus2(triangle)); // a similar property set using composition
+// a similar property set using composition
+hypotenuseSq2(triangle) = [ x*x + y*y](cathetus1(triangle), cathetus2(triangle)); 
 ```

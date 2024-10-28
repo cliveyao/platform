@@ -1,9 +1,12 @@
 package lsfusion.client.form.object.table.grid.view;
 
+import lsfusion.base.Pair;
 import lsfusion.base.col.heavy.OrderedMap;
 import lsfusion.client.form.object.ClientGroupObjectValue;
 import lsfusion.client.form.property.ClientPropertyDraw;
+import lsfusion.client.form.view.Column;
 import lsfusion.interop.form.object.table.grid.user.design.GroupObjectUserPreferences;
+import lsfusion.interop.form.order.user.Order;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -15,6 +18,7 @@ public interface ClientTableView {
     void setRowKeysAndCurrentObject(List<ClientGroupObjectValue> irowKeys, ClientGroupObjectValue newCurrentObject);
     void removeProperty(ClientPropertyDraw property);
     boolean changePropertyOrders(LinkedHashMap<ClientPropertyDraw, Boolean> value, boolean alreadySet); // assert alreadySet is true if there is no ordering in view
+    void changePropertyOrders(LinkedHashMap<ClientPropertyDraw, Order> value);
     void addProperty(ClientPropertyDraw newProperty);
 
     // EXTRA SETTERS
@@ -37,6 +41,7 @@ public interface ClientTableView {
 
     // GETTERS
     int getCurrentRow();
+    ClientGroupObjectValue getCurrentKey();
     ClientGroupObjectValue getCurrentObject();
     ClientPropertyDraw getCurrentProperty(); // calculate sum / filtering default value
     ClientGroupObjectValue getCurrentColumn(); // calculate sum / filtering default value
@@ -50,6 +55,8 @@ public interface ClientTableView {
 
     // toolbar features
     Object getSelectedValue(ClientPropertyDraw property, ClientGroupObjectValue columnKey); // for filter to set default value
+
+    List<Pair<Column, String>> getFilterColumns();
 
     boolean hasUserPreferences();
     boolean containsProperty(ClientPropertyDraw property); // for user preferences

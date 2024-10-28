@@ -50,17 +50,19 @@ public class ScriptingErrorLog {
     }
 
     private String getSemanticRecognitionErrorText(String msg, ScriptParser parser, RecognitionException e) {
-        return getRecognitionErrorText(parser, "error", getErrorMessage(parser.getCurrentParser(), msg, e), e) + "Subsequent errors (if any) could not be found.";
+        return getRecognitionErrorText(parser, "error", msg, e) + "Subsequent errors (if any) could not be found.";
     }
 
     private String getRecognitionErrorText(ScriptParser parser, String errorType, String msg, RecognitionException e) {
-        String path = parser.getCurrentScriptPath(moduleId, e.line - lineNumberShift, "\n\t\t\t");
-        String hdr = path + ":" + (e.charPositionInLine + 1);
-        return "[" + errorType + "]:\t" + hdr + " " + msg;
+        String module = moduleId.isEmpty() ? getModulePath(parser) : moduleId;
+        String hdr = parser.getLsfConsoleLink(module, e.line - lineNumberShift, e.charPositionInLine + 1);
+        return "[" + errorType + "]:\n\t" + hdr + " " + msg;
     }
 
-    public static String getErrorMessage(BaseRecognizer parser, String oldMsg, RecognitionException e) {
-        return /*BaseRecognizer.getRuleInvocationStack(e, parser.findClass().getName()) + " " + */ oldMsg;
+    //If the error occurs in the moduleHeader rule, moduleId is not yet set
+    private String getModulePath(ScriptParser parser) {
+        //remove first '/'
+        return parser.getCurrentParser().self.getPath().substring(1);
     }
 
     public void displayRecognitionError(BaseRecognizer parser, ScriptParser scriptParser, String errorType, String[] tokenNames, RecognitionException e) {
@@ -141,6 +143,14 @@ public class ScriptingErrorLog {
         emitNotFoundError(parser, "filter group", name);
     }
 
+    public void emitInternalClientActionHasParamsOnFileCallingError(ScriptParser parser, String argument) throws SemanticErrorException {
+        emitSimpleError(parser, "Calling .js file: INTERNAL CLIENT '" + argument + "' - Should not have arguments. Use arguments only with js function() calling");
+    }
+
+    public void emitInternalClientActionHasTooMuchToPropertiesError(ScriptParser parser) throws SemanticErrorException {
+        emitSimpleError(parser, "Calling .js file: INTERNAL CLIENT Should have max 1 TO property");
+    }
+
     public void emitIllegalAddNavigatorToSubnavigatorError(ScriptParser parser, String addedElement, String addedToElement) throws SemanticErrorException {
         emitSimpleError(parser, format("can't add navigator element '%s' to it's subelement '%s'", addedElement, addedToElement));
     }
@@ -197,10 +207,6 @@ public class ScriptingErrorLog {
         emitSimpleError(parser, format("can't create keystroke from string '%s'", ksLiteral));
     }
 
-    public void emitWindowPositionNotSpecifiedError(ScriptParser parser, String name) throws SemanticErrorException {
-        emitSimpleError(parser, format("position ( POSITION(x, y, width, height) ) isn't specified for window '%s'", name));
-    }
-
     public void emitWindowPositionConflictError(ScriptParser parser, String name) throws SemanticErrorException {
         emitSimpleError(parser, "both border position (LEFT, RIGHT, TOP or BOTTOM) and dock position (POSITION(x, y, width, height))" +
                 format("are specified for window '%s', only one of those should be used", name));
@@ -211,11 +217,11 @@ public class ScriptingErrorLog {
     }
 
     public void emitFormulaParamIndexError(ScriptParser parser, int paramIndex, int paramCount) throws SemanticErrorException {
-        String errText = "wrong parameter index $" + String.valueOf(paramIndex);
+        String errText = "wrong parameter index $" + paramIndex;
         if (paramIndex < 1) {
             errText += ", first parameter is $1";
         } else {
-            errText += ", last parameter is $" + String.valueOf(paramCount);
+            errText += ", last parameter is $" + paramCount;
         }
         emitSimpleError(parser, errText);
     }
@@ -252,6 +258,14 @@ public class ScriptingErrorLog {
         emitSimpleError(parser, format("custom class parameter expected for property '%s'", propertyName));
     }
 
+    public void emitTimeSeriesExpectedError(ScriptParser parser, String propertyName) throws SemanticErrorException {
+        emitSimpleError(parser, format("time-related class parameter expected for property '%s'", propertyName));
+    }
+
+    public void emitEqualParamClassesExpectedError(ScriptParser parser, String propertyName) throws SemanticErrorException {
+        emitSimpleError(parser, format("class parameters should be equal for property '%s'", propertyName));
+    }
+
     public void emitAbstractClassInstancesDefError(ScriptParser parser) throws SemanticErrorException {
         emitSimpleError(parser, "abstract class cannot be instantiated");
     }
@@ -260,7 +274,7 @@ public class ScriptingErrorLog {
         emitSimpleError(parser, format("static object '%s' not found (class '%s' is abstract)", objectName, className));
     }
 
-    public void emitParamCountError(ScriptParser parser, LAP property, int paramCount) throws SemanticErrorException {
+    public void emitParamCountError(ScriptParser parser, LAP<?, ?> property, int paramCount) throws SemanticErrorException {
         int interfacesCount = property.getActionOrProperty().interfaces.size();
         emitParamCountError(parser, interfacesCount, paramCount);
     }
@@ -294,31 +308,10 @@ public class ScriptingErrorLog {
     public void emitAlreadyDefinedPropertyDrawError(ScriptParser parser, String formName, String propertyDrawName, String oldPosition) throws SemanticErrorException {
         emitSimpleError(parser, format("property '%s' in form '%s' was already defined at %s", propertyDrawName, formName, oldPosition));
     }
-    
-    public void emitCustomPropertyRenderFunctionsError(ScriptParser parser, String propertyDrawName, String customRenderFunctions) throws SemanticErrorException {
-        emitSimpleError(parser,
-                format("Incorrect custom render functions definition for %s:\n\texpected format: '<render_function_name>:<set_value_function_name>:<clear_function_name>',\n\tprovided: '%s'",
-                        propertyDrawName,
-                        customRenderFunctions));                                                        
-    }
-
-    public void emitCustomPropertyEditorFunctionsError(ScriptParser parser, String propertyDrawName, String customEditorFunctions, boolean isTextEditor, boolean isReplaceEdit) throws SemanticErrorException {
-        String expectedFormat = isTextEditor ? "'<render_function_name>:<clear_render_function_name>'" :
-                (isReplaceEdit ? "'<render_function_name>:<start_editing_function_name>:<commit_editing_function_name>:<clear_render_function_name>:<on_browser_event_function_name>'" :
-                        "'<start_editing_function_name>:<commit_editing_function_name>:<on_browser_event_function_name>'");
-        emitSimpleError(parser,
-                format("Incorrect custom editor functions definition for %s:\n\texpected format: " + expectedFormat + ",\n\tprovided: '%s'",
-                        propertyDrawName,
-                        customEditorFunctions));
-    }
-
-    public void emitCustomPropertyWrongEditType(ScriptParser parser, String editType) throws SemanticErrorException {
-        emitSimpleError(parser, format("Incorrect CUSTOM EDIT type definition. \n\texpected type: TEXT or REPLACE or none,\n\tprovided: '%s'", editType));
-    }
 
     public void emitNamedParamsError(ScriptParser parser, List<String> paramNames, int actualParameters) throws SemanticErrorException {
         emitSimpleError(parser, format("number of actual property parameters (%d) differs from number of named parameters (%d: %s)",
-                actualParameters, paramNames.size(), paramNames.toString()));
+                actualParameters, paramNames.size(), paramNames));
     }
 
     public void emitFormulaReturnClassError(ScriptParser parser, String className) throws SemanticErrorException {
@@ -341,20 +334,8 @@ public class ScriptingErrorLog {
         emitSimpleError(parser, format("%s's arguments' types don't match", propType));
     }
 
-    public void emitMetaCodeNotEndedError(ScriptParser parser, String name) throws SemanticErrorException {
-        emitSimpleError(parser, format("meta code '%s' does not end with END keyword", name));
-    }
-
-    public void emitJavaCodeNotEndedError(ScriptParser parser) throws SemanticErrorException {
-        emitSimpleError(parser, "java code does not end with '}>' sequence");
-    }
-
     public void emitDistinctParamNamesError(ScriptParser parser) throws SemanticErrorException {
         emitSimpleError(parser, "names of parameters should be distinct");
-    }
-
-    public void emitRedundantOrderGPropError(ScriptParser parser, ScriptingLogicsModule.GroupingType groupType) throws SemanticErrorException {
-        emitSimpleError(parser, format("ORDER clause is forbidden with '%s' grouping type", groupType));
     }
 
     public void emitMultipleAggrGPropError(ScriptParser parser, ScriptingLogicsModule.GroupingType groupType) throws SemanticErrorException {
@@ -362,7 +343,7 @@ public class ScriptingErrorLog {
     }
 
     public void emitConcatAggrGPropError(ScriptParser parser) throws SemanticErrorException {
-        emitSimpleError(parser, "GROUP CONCAT property should have two aggregate properties exactly (second is a separator)");
+        emitSimpleError(parser, "GROUP CONCAT property should have single aggregate property (JSON type) OR two aggregate properties (second is a separator)");
     }
 
     public void emitNonIntegralSumArgumentError(ScriptParser parser) throws SemanticErrorException {
@@ -427,6 +408,10 @@ public class ScriptingErrorLog {
         } else if (index > size) {
             emitSimpleError(parser, format("wrong index '%d', should be at most %d", index, size));
         }
+    }
+
+    public void emitConcatError(ScriptParser parser) throws SemanticErrorException {
+        emitSimpleError(parser, "CONCAT first param should be string literal OR all params should be JSON");
     }
 
     public void emitDeconcatError(ScriptParser parser) throws SemanticErrorException {
@@ -498,10 +483,6 @@ public class ScriptingErrorLog {
 
     public void emitNeighbourPropertyError(ScriptParser parser, String name1, String name2) throws SemanticErrorException {
         emitSimpleError(parser, format("properties '%s' and '%s' should be in one group", name1, name2));
-    }
-
-    public void emitMetacodeInsideMetacodeError(ScriptParser parser) throws SemanticErrorException {
-        emitSimpleError(parser, "metacode cannot be defined inside another metacode");
     }
 
     public void emitNamespaceNameError(ScriptParser parser, String namespaceName) throws SemanticErrorException {
@@ -599,17 +580,17 @@ public class ScriptingErrorLog {
     public void emitObjectOfGroupObjectError(ScriptParser parser, String objName, String groupObjName) throws SemanticErrorException {
         emitSimpleError(parser, format("group object '%s' does not contain object '%s'", groupObjName, objName));
     }
-    
-    public void emitImportNonIntegralSheetError(ScriptParser parser) throws SemanticErrorException {
-        emitSimpleError(parser, "Sheet index should have INTEGER or LONG value");
-    }
 
     public void emitNavigatorElementFolderNameError(ScriptParser parser) throws SemanticErrorException {
         emitSimpleError(parser, "navigator folder name should be defined");
     }
 
     public void emitImportFromWrongClassError(ScriptParser parser) throws SemanticErrorException {
-        emitSimpleError(parser, "FROM expression should return FILE value");
+        emitSimpleError(parser, "FROM expression should return FILE or JSON value");
+    }
+
+    public void emitExportFromWrongClassError(ScriptParser parser) throws SemanticErrorException {
+        emitSimpleError(parser, "TO expression should return FILE or JSON value");
     }
 
     public void emitPropertyWithParamsExpectedError(ScriptParser parser, String propertyName, String paramClasses) throws SemanticErrorException {
@@ -640,6 +621,30 @@ public class ScriptingErrorLog {
         emitSimpleError(parser, "all params should have explicit classes defined");
     }
 
+    public void emitShowInContainerError(ScriptParser parser) throws SemanticErrorException {
+        emitSimpleError(parser, "SHOW IN is supported only for container, not component");
+    }
+
+    public void emitRoundTypeError(ScriptParser parser) throws SemanticErrorException {
+        emitSimpleError(parser, "ROUND is supported only for NUMERIC, INTEGER, LONG and DOUBLE");
+    }
+
+    public void emitRoundScaleTypeError(ScriptParser parser) throws SemanticErrorException {
+        emitSimpleError(parser, "ROUND scale param should be INTEGER");
+    }
+
+    public void emitMatchTypeError(ScriptParser parser, boolean right) throws SemanticErrorException {
+        emitSimpleError(parser, "MATCH" + " " + (right ? "right" : "left") + " param should be string, tsquery or tsvector");
+    }
+
+    public void emitLikeTypeError(ScriptParser parser, boolean right) throws SemanticErrorException {
+        emitSimpleError(parser, "LIKE " + (right ? "right" : "left") + " param should be string");
+    }
+
+    public void emitMapTileProviderNotSupportedError(ScriptParser parser, String mapTileProvider, List<String> supportedMapTileProviders) throws SemanticErrorException {
+        emitSimpleError(parser, format("'%s' is not supported map option definition, use on of: %s", mapTileProvider, supportedMapTileProviders));
+    }
+
     public void emitSimpleError(ScriptParser parser, String message) throws SemanticErrorException {
         if (parser.getCurrentParser() != null) {
             SemanticErrorException e = new SemanticErrorException(parser.getCurrentParser().input);
@@ -648,5 +653,9 @@ public class ScriptingErrorLog {
         } else {
             throw new ScriptErrorException(message);
         }
+    }
+
+    public void emitNotPrimitiveTypeInListError(ScriptParser parser) throws SemanticErrorException {
+        emitSimpleError(parser, "The action in LIST can only be used for built-in types");
     }
 }

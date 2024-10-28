@@ -4,22 +4,24 @@ import lsfusion.base.BaseUtils;
 import lsfusion.client.controller.remote.proxy.RemoteLogicsLoaderProxy;
 import lsfusion.gwt.client.base.exception.AppServerNotAvailableDispatchException;
 import lsfusion.gwt.server.FileUtils;
+import lsfusion.gwt.server.convert.ClientFormChangesToGwtConverter;
 import lsfusion.http.provider.navigator.NavigatorProviderImpl;
 import lsfusion.interop.base.exception.AppServerNotAvailableException;
-import lsfusion.interop.logics.AbstractLogicsProviderImpl;
-import lsfusion.interop.logics.LogicsConnection;
-import lsfusion.interop.logics.LogicsRunnable;
-import lsfusion.interop.logics.ServerSettings;
+import lsfusion.interop.logics.*;
+import lsfusion.interop.logics.remote.RemoteClientInterface;
 import lsfusion.interop.logics.remote.RemoteLogicsLoaderInterface;
+import lsfusion.interop.session.SessionInfo;
 import org.apache.log4j.Logger;
 import org.springframework.beans.factory.InitializingBean;
-import org.springframework.beans.factory.annotation.Autowired;
 
 import javax.servlet.ServletContext;
 import javax.servlet.http.HttpServletRequest;
+import java.io.File;
+import java.io.Serializable;
 import java.net.MalformedURLException;
 import java.rmi.NotBoundException;
 import java.rmi.RemoteException;
+import java.rmi.server.UnicastRemoteObject;
 
 // singleton, one for whole application
 // needed for custom handler requests + RemoteAuthenticationManager (where gwt is not used)
@@ -35,11 +37,11 @@ public class LogicsProviderImpl extends AbstractLogicsProviderImpl implements In
     private int port; // default port
     private String exportName; // default export name
 
-    public LogicsProviderImpl() {
+    public LogicsProviderImpl(ServletContext servletContext) {
+        this.servletContext = servletContext;
     }
 
-    @Autowired
-    private ServletContext servletContext;
+    private final ServletContext servletContext;
 
     @Override
     public void afterPropertiesSet() throws Exception {
@@ -51,11 +53,10 @@ public class LogicsProviderImpl extends AbstractLogicsProviderImpl implements In
         }
 
         String appPath = servletContext.getRealPath("");
-        FileUtils.APP_IMAGES_FOLDER_URL = appPath + "/static/images/";
-        FileUtils.APP_CSS_FOLDER_URL = appPath + "/static/css/";
-        FileUtils.APP_CLIENT_IMAGES_FOLDER_URL = appPath + "/main/static/images/";
-        FileUtils.APP_TEMP_FOLDER_URL = appPath + "/WEB-INF/temp";
-        FileUtils.APP_PATH = appPath;
+        FileUtils.APP_CONTEXT_FOLDER_PATH = appPath;
+        String tempDir = ((File) servletContext.getAttribute(ServletContext.TEMPDIR)).getPath(); // appPath + "/WEB-INF/temp";
+        FileUtils.APP_DOWNLOAD_FOLDER_PATH = tempDir;
+        FileUtils.APP_UPLOAD_FOLDER_PATH = tempDir;
 
         setHost(host);
         setPort(Integer.parseInt(port));
@@ -106,7 +107,35 @@ public class LogicsProviderImpl extends AbstractLogicsProviderImpl implements In
     }
 
     @Override
+    protected LogicsSessionObject createLogicsSessionObject(LogicsConnection connection) throws AppServerNotAvailableException, RemoteException {
+        LogicsSessionObject result = super.createLogicsSessionObject(connection);
+
+        result.remoteLogics.registerClient(new RemoteClient(result));
+
+        return result;
+    }
+
+    public class RemoteClient extends UnicastRemoteObject implements RemoteClientInterface {
+
+        public final LogicsSessionObject sessionObject;
+
+        public RemoteClient(LogicsSessionObject sessionObject) throws RemoteException {
+            super(0);
+            this.sessionObject = sessionObject;
+        }
+
+        public String[] convertFileValue(SessionInfo sessionInfo, Serializable[] files) throws RemoteException {
+            return ClientFormChangesToGwtConverter.convertFileValue(files, servletContext, sessionObject, sessionInfo);
+        }
+    }
+
+    @Override
     protected RemoteLogicsLoaderInterface lookupLoader(LogicsConnection connection) throws RemoteException, NotBoundException, MalformedURLException {
         return new RemoteLogicsLoaderProxy(super.lookupLoader(connection), connection.host);
+    }
+
+    @Override
+    public void resetServerSettingsCache(HttpServletRequest request) {
+        resetServerSettingsCache(getLogicsConnection(request));
     }
 }

@@ -1,39 +1,28 @@
 package lsfusion.server.physics.admin.interpreter.action;
 
+import com.google.common.base.Throwables;
 import lsfusion.interop.action.ClientAction;
 import lsfusion.interop.action.ClientActionDispatcher;
+import lsfusion.server.physics.dev.integration.external.to.file.FileUtils;
 
-import java.io.BufferedInputStream;
 import java.io.IOException;
 
-
 public class RunCommandClientAction implements ClientAction {
+    private final String command;
+    private final String directory;
+    private final boolean wait;
 
-    String text;
-
-    public RunCommandClientAction(String text) {
-        this.text = text;
+    public RunCommandClientAction(String command, String directory, boolean wait) {
+        this.command = command;
+        this.directory = directory;
+        this.wait = wait;
     }
 
-    public Object dispatch(ClientActionDispatcher dispatcher) {
-        return text != null ? exec(text) : null;
-    }
-
-    private String exec(String command) {
+    public Object dispatch(ClientActionDispatcher dispatcher) throws IOException {
         try {
-            Process p = Runtime.getRuntime().exec(command);
-            BufferedInputStream err = new BufferedInputStream(p.getErrorStream());
-            StringBuilder errS = new StringBuilder();
-            byte[] b = new byte[1024];
-            while (err.read(b) != -1) {
-                errS.append(new String(b, "cp866").trim()).append("\n");
-            }
-            err.close();
-            String result = errS.toString();
-            return result.isEmpty() ? null : result;
+            return FileUtils.runCmd(command, directory, wait);
         } catch (Exception e) {
-            e.printStackTrace();
-            return e.getMessage();
+            throw Throwables.propagate(e);
         }
     }
 }

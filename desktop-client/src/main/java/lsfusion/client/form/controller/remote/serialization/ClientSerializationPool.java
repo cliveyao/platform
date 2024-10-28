@@ -2,12 +2,12 @@ package lsfusion.client.form.controller.remote.serialization;
 
 import lsfusion.base.context.ApplicationContext;
 import lsfusion.client.form.ClientForm;
-import lsfusion.client.form.classes.ClientClassChooser;
 import lsfusion.client.form.design.ClientComponent;
 import lsfusion.client.form.design.ClientContainer;
 import lsfusion.client.form.filter.ClientRegularFilter;
 import lsfusion.client.form.filter.ClientRegularFilterGroup;
 import lsfusion.client.form.filter.user.ClientFilter;
+import lsfusion.client.form.filter.user.ClientFilterControls;
 import lsfusion.client.form.object.ClientGroupObject;
 import lsfusion.client.form.object.ClientObject;
 import lsfusion.client.form.object.table.ClientToolbar;
@@ -15,9 +15,6 @@ import lsfusion.client.form.object.table.grid.ClientGrid;
 import lsfusion.client.form.object.table.grid.user.toolbar.ClientCalculations;
 import lsfusion.client.form.object.table.tree.ClientTreeGroup;
 import lsfusion.client.form.property.ClientPropertyDraw;
-import lsfusion.client.form.property.async.ClientAsyncAddRemove;
-import lsfusion.client.form.property.async.ClientAsyncChange;
-import lsfusion.client.form.property.async.ClientAsyncOpenForm;
 import lsfusion.interop.form.remote.serialization.SerializationPool;
 
 
@@ -44,14 +41,11 @@ public class ClientSerializationPool extends SerializationPool<ClientForm> {
         addMapping(ClientGrid.class);
         addMapping(ClientToolbar.class);
         addMapping(ClientFilter.class);
+        addMapping(ClientFilterControls.class);
         addMapping(ClientCalculations.class);
-        addMapping(ClientClassChooser.class);
         addMapping(ClientObject.class);
         addMapping(ClientPropertyDraw.class);
         addMapping(ClientRegularFilter.class);
         addMapping(ClientRegularFilterGroup.class);
-        addMapping(ClientAsyncAddRemove.class);
-        addMapping(ClientAsyncChange.class);
-        addMapping(ClientAsyncOpenForm.class);
     }
 }

@@ -21,7 +21,7 @@ public enum PropertyDrawExtraType {
         public String getText() {
             return "{logics.property.caption}";    
         }
-    }, 
+    },
     FOOTER {
         @Override
         public ReportFieldExtraType getReportExtraType() {
@@ -70,6 +70,54 @@ public enum PropertyDrawExtraType {
             return "{logics.property.readonly}";
         }
     }, 
+    VALUEELEMENTCLASS {
+        @Override
+        public ReportFieldExtraType getReportExtraType() {
+            return null;
+        }
+
+        @Override
+        public byte getPropertyReadType() {
+            return PropertyReadType.CELL_VALUEELEMENTCLASS;
+        }
+
+        @Override
+        public String getText() {
+            return "VALUEELEMENTCLASS";
+        }
+    }, 
+    CAPTIONELEMENTCLASS {
+        @Override
+        public ReportFieldExtraType getReportExtraType() {
+            return null;
+        }
+
+        @Override
+        public byte getPropertyReadType() {
+            return PropertyReadType.CAPTIONELEMENTCLASS;
+        }
+
+        @Override
+        public String getText() {
+            return "CAPTIONELEMENTCLASS";
+        }
+    },
+    FONT {
+        @Override
+        public ReportFieldExtraType getReportExtraType() {
+            return ReportFieldExtraType.FONT;
+        }
+
+        @Override
+        public byte getPropertyReadType() {
+            return PropertyReadType.CELL_FONT;
+        }
+
+        @Override
+        public String getText() {
+            return "{logics.font}";
+        }
+    },
     BACKGROUND {
         @Override
         public ReportFieldExtraType getReportExtraType() {
@@ -80,12 +128,12 @@ public enum PropertyDrawExtraType {
         public byte getPropertyReadType() {
             return PropertyReadType.CELL_BACKGROUND;
         }
-        
+
         @Override
         public String getText() {
             return "{logics.background}";
         }
-    }, 
+    },
     FOREGROUND {
         @Override
         public ReportFieldExtraType getReportExtraType() {
@@ -117,7 +165,136 @@ public enum PropertyDrawExtraType {
         public String getText() {
             return "{logics.image}";
         }
-    };
+    },
+    COMMENT {
+        @Override
+        public ReportFieldExtraType getReportExtraType() {
+            return null;
+        }
+
+        @Override
+        public byte getPropertyReadType() {
+            return PropertyReadType.COMMENT;
+        }
+
+        @Override
+        public String getText() {
+            return "COMMENT";
+        }
+    },
+    COMMENTELEMENTCLASS {
+        @Override
+        public ReportFieldExtraType getReportExtraType() {
+            return null;
+        }
+
+        @Override
+        public byte getPropertyReadType() {
+            return PropertyReadType.COMMENTELEMENTCLASS;
+        }
+
+        @Override
+        public String getText() {
+            return "COMMENTELEMENTCLASS";
+        }
+    },
+    PLACEHOLDER {
+        @Override
+        public ReportFieldExtraType getReportExtraType() {
+            return null;
+        }
+
+        @Override
+        public byte getPropertyReadType() {
+            return PropertyReadType.PLACEHOLDER;
+        }
+
+        @Override
+        public String getText() {
+            return "PLACEHOLDER";
+        }
+    },
+    PATTERN {
+        @Override
+        public ReportFieldExtraType getReportExtraType() {
+            return null;
+        }
+
+        @Override
+        public byte getPropertyReadType() {
+            return PropertyReadType.PATTERN;
+        }
+
+        @Override
+        public String getText() {
+            return "PATTERN";
+        }
+    },
+    REGEXP {
+        @Override
+        public ReportFieldExtraType getReportExtraType() {
+            return null;
+        }
+
+        @Override
+        public byte getPropertyReadType() {
+            return PropertyReadType.REGEXP;
+        }
+
+        @Override
+        public String getText() {
+            return "REGEXP";
+        }
+    },
+    REGEXPMESSAGE {
+        @Override
+        public ReportFieldExtraType getReportExtraType() {
+            return null;
+        }
+
+        @Override
+        public byte getPropertyReadType() {
+            return PropertyReadType.REGEXPMESSAGE;
+        }
+
+        @Override
+        public String getText() {
+            return "REGEXPMESSAGE";
+        }
+    },
+    TOOLTIP {
+        @Override
+        public ReportFieldExtraType getReportExtraType() {
+            return null;
+        }
+
+        @Override
+        public byte getPropertyReadType() {
+            return PropertyReadType.TOOLTIP;
+        }
+
+        @Override
+        public String getText() {
+            return "TOOLTIP";
+        }
+    },
+    VALUETOOLTIP {
+        @Override
+        public ReportFieldExtraType getReportExtraType() {
+            return null;
+        }
+
+        @Override
+        public byte getPropertyReadType() {
+            return PropertyReadType.VALUETOOLTIP;
+        }
+
+        @Override
+        public String getText() {
+            return "VALUETOOLTIP";
+        }
+    }
+    ;
 
     public static final ImSet<PropertyDrawExtraType> extras = SetFact.toSet(values());
 

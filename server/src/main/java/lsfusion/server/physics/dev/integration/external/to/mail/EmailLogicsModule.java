@@ -8,7 +8,7 @@ import lsfusion.server.logics.BusinessLogics;
 import lsfusion.server.logics.classes.ValueClass;
 import lsfusion.server.logics.classes.user.ConcreteCustomClass;
 import lsfusion.server.logics.form.struct.group.Group;
-import lsfusion.server.logics.property.classes.ClassPropertyInterface;
+import lsfusion.server.logics.property.oraction.PropertyInterface;
 import lsfusion.server.physics.dev.i18n.LocalizedString;
 import org.antlr.runtime.RecognitionException;
 
@@ -21,6 +21,7 @@ public class EmailLogicsModule extends ScriptingLogicsModule{
     public LP nameAccount;
     public LP passwordAccount;
     public LP disableAccount;
+    public LP insecureSSLAccount;
 
     public LP smtpHostAccount;
     public LP smtpPortAccount;
@@ -30,12 +31,11 @@ public class EmailLogicsModule extends ScriptingLogicsModule{
     public LP fromAddressAccount;
     public LP inboxAccount;
 
-    public LP emailSent;
-
     public LP receiveHostAccount;
     public LP receivePortAccount;
 
     public LP nameReceiveAccountTypeAccount;
+    public LP startTLS;
 
     public LP deleteMessagesAccount;
     public LP lastDaysAccount;
@@ -43,7 +43,7 @@ public class EmailLogicsModule extends ScriptingLogicsModule{
     public LP unpackAccount;
 
     public EmailLogicsModule(BusinessLogics BL, BaseLogicsModule baseLM) throws IOException {
-        super(EmailLogicsModule.class.getResourceAsStream("/system/Email.lsf"), "/system/Email.lsf", baseLM, BL);
+        super(baseLM, BL, "/system/Email.lsf");
     }
 
     @Override
@@ -58,6 +58,7 @@ public class EmailLogicsModule extends ScriptingLogicsModule{
         nameAccount = findProperty("name[Account]");
         passwordAccount = findProperty("password[Account]");
         disableAccount = findProperty("disable[Account]");
+        insecureSSLAccount = findProperty("insecureSSL[Account]");
 
         // Sending
         smtpHostAccount = findProperty("smtpHost[Account]");
@@ -68,22 +69,21 @@ public class EmailLogicsModule extends ScriptingLogicsModule{
         fromAddressAccount = findProperty("fromAddress[Account]");
         inboxAccount = findProperty("inboxAccount[STRING[100]]");
 
-        emailSent = findProperty("emailSent[]");
-
         // Receiving
         receiveHostAccount = findProperty("receiveHost[Account]");
         receivePortAccount = findProperty("receivePort[Account]");
 
         nameReceiveAccountTypeAccount = findProperty("nameReceiveAccountType[Account]");
-        
+        startTLS = findProperty("startTLS[Account]");
+
         deleteMessagesAccount = findProperty("deleteMessages[Account]");
         lastDaysAccount = findProperty("lastDays[Account]");
         maxMessagesAccount = findProperty("maxMessages[Account]");
         unpackAccount = findProperty("unpack[Account]");
     }
 
-    public LA<ClassPropertyInterface> addEAProp(Group group, LocalizedString caption, ValueClass[] params, boolean syncType) {
-        return addAction(group, new LA<>(new SendEmailAction(caption, params, syncType)));
+    public LA<PropertyInterface> addEAProp(Group group, LocalizedString caption, int paramsCount, boolean syncType) {
+        return addAction(group, new LA<>(new SendEmailAction(caption, paramsCount, syncType)));
     }
 
 }

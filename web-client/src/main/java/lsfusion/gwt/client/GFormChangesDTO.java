@@ -1,12 +1,10 @@
 package lsfusion.gwt.client;
 
 import lsfusion.gwt.client.form.object.GGroupObjectValue;
-import lsfusion.gwt.client.form.property.GClassViewType;
 import lsfusion.gwt.client.form.property.GPropertyReaderDTO;
 
 import java.io.Serializable;
 import java.util.ArrayList;
-import java.util.HashMap;
 
 public class GFormChangesDTO implements Serializable {
     public int requestIndex;
@@ -22,7 +20,7 @@ public class GFormChangesDTO implements Serializable {
 
     public int[] expandablesGroupIds;
     public GGroupObjectValue[][] expandableKeys;
-    public Boolean[][] expandableValues;
+    public Integer[][] expandableValues;
 
     public GPropertyReaderDTO[] properties;
     public GGroupObjectValue[][] propertiesValueKeys;
@@ -35,4 +33,10 @@ public class GFormChangesDTO implements Serializable {
 
     public int[] activateTabsIds;
     public int[] activatePropsIds;
+    
+    public int[] collapseContainerIds;
+    public int[] expandContainerIds;
+
+    public boolean needConfirm;
+    public int size;
 }

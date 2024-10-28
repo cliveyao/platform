@@ -1,6 +1,5 @@
 ---
 title: 'Операторы-свойства'
-sidebar_label: Обзор
 ---
 
 *Оператор-свойство* - это синтаксическая конструкция, описывающая [оператор](Property_operators_paradigm.md), создающий [свойство](Properties.md). 
@@ -16,20 +15,22 @@ sidebar_label: Обзор
 -   [Оператор `ACTIVE TAB`](ACTIVE_TAB_operator.md)
 -   [Оператор `AGGR`](AGGR_operator.md)
 -   [Оператор `CASE`](CASE_operator.md)
--   [Оператор `CLASS`](CLASS_operator.md)
 -   [Оператор `CONCAT`](CONCAT_operator.md)
 -   [Оператор `EXCLUSIVE`](EXCLUSIVE_operator.md)
+-   [Оператор `GROUP`](GROUP_operator.md) (без блока `BY`)
 -   [Оператор `IF`](IF_operator.md)
 -   [Оператор `IF ... THEN`](IF_..._THEN_operator.md)
+-   [Оператор `ISCLASS`](ISCLASS_operator.md)
 -   [Оператор `JOIN`](JOIN_operator.md)
+-   [Оператор `LIKE`](LIKE_operator.md)
 -   [Оператор `MAX`](MAX_operator.md)
 -   [Оператор `MIN`](MIN_operator.md)
 -   [Оператор `MULTI`](MULTI_operator.md)
 -   [Оператор `OVERRIDE`](OVERRIDE_operator.md)
 -   [Оператор `PARTITION`](PARTITION_operator.md)
--   [Оператор `GROUP`](GROUP_operator.md) (без блока `BY`)
 -   [Оператор `PREV`](PREV_operator.md)
 -   [Оператор `RECURSION`](RECURSION_operator.md)
+-   [Оператор `ROUND`](ROUND_operator.md)
 -   [Оператор `STRUCT`](STRUCT_operator.md)
 -   [Оператор `UNGROUP`](UNGROUP_operator.md)
 -   [Оператор преобразования типа](Type_conversion_operator.md)

@@ -2,26 +2,39 @@ package lsfusion.gwt.client.classes.data;
 
 import lsfusion.gwt.client.ClientMessages;
 import lsfusion.gwt.client.form.property.GPropertyDraw;
+import lsfusion.gwt.client.form.property.PValue;
+import lsfusion.gwt.client.form.property.async.GInputList;
+import lsfusion.gwt.client.form.property.async.GInputListAction;
 import lsfusion.gwt.client.form.property.cell.classes.GZDateTimeDTO;
+import lsfusion.gwt.client.form.property.cell.classes.controller.RequestValueCellEditor;
 import lsfusion.gwt.client.form.property.cell.classes.controller.ZDateTimeCellEditor;
+import lsfusion.gwt.client.form.property.cell.controller.EditContext;
 import lsfusion.gwt.client.form.property.cell.controller.EditManager;
-import lsfusion.gwt.client.form.property.cell.controller.CellEditor;
 
-import java.text.ParseException;
-
-import static lsfusion.gwt.client.base.GwtSharedUtils.*;
+import java.util.Date;
 
 public class GZDateTimeType extends GDateTimeType {
     public static GZDateTimeType instance = new GZDateTimeType();
 
     @Override
-    public CellEditor createGridCellEditor(EditManager editManager, GPropertyDraw editProperty) {
-        return new ZDateTimeCellEditor(editManager, editProperty);
+    public RequestValueCellEditor createCellEditor(EditManager editManager, GPropertyDraw editProperty, GInputList inputList, GInputListAction[] inputListActions, EditContext editContext) {
+        return new ZDateTimeCellEditor(this, editManager, editProperty);
+    }
+
+    // we want to have string width independent of the timezone
+    @Override
+    public String getDefaultWidthString(GPropertyDraw propertyDraw) {
+        return GDateTimeType.instance.getDefaultWidthString(propertyDraw);
     }
 
     @Override
-    public Object parseString(String value, String pattern) throws ParseException {
-        return value.isEmpty() ? null : GZDateTimeDTO.fromDate(GDateType.parseDate(value, getDateTimeFormat(pattern, true), getDefaultDateTimeShortFormat(), getDefaultDateFormat(true)));
+    public PValue fromDate(Date date) {
+        return GZDateTimeDTO.fromDate(date);
+    }
+
+    @Override
+    public Date toDate(PValue value) {
+        return PValue.getZDateTimeValue(value).toDateTime();
     }
 
     @Override

@@ -5,6 +5,7 @@ import lsfusion.client.classes.ClientTypeClass;
 import lsfusion.client.form.property.ClientPropertyDraw;
 import lsfusion.client.form.property.cell.classes.controller.DoublePropertyEditor;
 import lsfusion.client.form.property.cell.classes.controller.PropertyEditor;
+import lsfusion.client.form.property.table.view.AsyncChangeInterface;
 import lsfusion.interop.classes.DataType;
 import lsfusion.interop.form.property.ExtInt;
 
@@ -19,10 +20,6 @@ public class ClientNumericClass extends ClientDoubleClass {
     public final static ClientTypeClass type = new ClientTypeClass() {
         public byte getTypeId() {
             return DataType.NUMERIC;
-        }
-
-        public ClientNumericClass getDefaultType() {
-            return new ClientNumericClass(new ExtInt(10), new ExtInt(2));
         }
 
         @Override
@@ -54,14 +51,6 @@ public class ClientNumericClass extends ClientDoubleClass {
         return type;
     }
 
-    @Override
-    public void serialize(DataOutputStream outStream) throws IOException {
-        super.serialize(outStream);
-
-        precision.serialize(outStream);
-        scale.serialize(outStream);
-    }
-
     public NumberFormat getDefaultFormat() {
         NumberFormat format = super.getDefaultFormat();
         format.setMaximumIntegerDigits(getPrecision() - getScale());
@@ -74,7 +63,8 @@ public class ClientNumericClass extends ClientDoubleClass {
         return ClientResourceBundle.getString("logics.classes.number") + (precision.isUnlimited() ? "" : ("[" + precision.value + "," + scale.value + "]"));
     }
 
-    public PropertyEditor getDataClassEditorComponent(Object value, ClientPropertyDraw property) {
+    @Override
+    public PropertyEditor getDataClassEditorComponent(Object value, ClientPropertyDraw property, AsyncChangeInterface asyncChange) {
         return new DoublePropertyEditor(value, property.maxValue, getEditFormat(property), property, BigDecimal.class, property.hasMask());
     }
 

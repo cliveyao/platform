@@ -12,13 +12,11 @@ import lsfusion.base.lambda.set.SFunctionSet;
 import lsfusion.interop.action.ServerResponse;
 import lsfusion.interop.form.property.ClassViewType;
 import lsfusion.interop.form.property.Compare;
-import lsfusion.server.base.caches.IdentityInstanceLazy;
-import lsfusion.server.base.caches.IdentityLazy;
-import lsfusion.server.base.caches.IdentityStartLazy;
-import lsfusion.server.base.caches.IdentityStrongLazy;
+import lsfusion.server.base.caches.*;
 import lsfusion.server.base.controller.stack.StackMessage;
 import lsfusion.server.base.controller.stack.ThisMessage;
 import lsfusion.server.base.controller.thread.ThreadUtils;
+import lsfusion.server.base.version.Version;
 import lsfusion.server.data.sql.exception.SQLHandledException;
 import lsfusion.server.data.type.Type;
 import lsfusion.server.data.value.DataObject;
@@ -30,16 +28,21 @@ import lsfusion.server.logics.action.controller.context.ExecutionEnvironment;
 import lsfusion.server.logics.action.controller.stack.ExecutionStack;
 import lsfusion.server.logics.action.flow.ChangeFlowType;
 import lsfusion.server.logics.action.flow.FlowResult;
+import lsfusion.server.logics.action.flow.FormChangeFlowType;
 import lsfusion.server.logics.action.flow.ListCaseAction;
 import lsfusion.server.logics.action.implement.ActionMapImplement;
 import lsfusion.server.logics.action.session.changed.ChangedProperty;
 import lsfusion.server.logics.action.session.changed.OldProperty;
 import lsfusion.server.logics.action.session.changed.SessionProperty;
 import lsfusion.server.logics.classes.ValueClass;
-import lsfusion.server.logics.classes.user.CustomClass;
 import lsfusion.server.logics.classes.user.set.AndClassSet;
 import lsfusion.server.logics.classes.user.set.ResolveClassSet;
 import lsfusion.server.logics.event.*;
+import lsfusion.server.logics.form.interactive.action.async.AsyncExec;
+import lsfusion.server.logics.form.interactive.action.async.PushAsyncResult;
+import lsfusion.server.logics.form.interactive.action.async.map.*;
+import lsfusion.server.logics.form.interactive.action.edit.FormSessionScope;
+import lsfusion.server.logics.form.interactive.controller.remote.serialization.ConnectionContext;
 import lsfusion.server.logics.form.interactive.design.property.PropertyDrawView;
 import lsfusion.server.logics.form.interactive.instance.FormEnvironment;
 import lsfusion.server.logics.form.interactive.property.GroupObjectProp;
@@ -50,7 +53,7 @@ import lsfusion.server.logics.form.struct.action.ActionObjectEntity;
 import lsfusion.server.logics.form.struct.object.GroupObjectEntity;
 import lsfusion.server.logics.form.struct.object.ObjectEntity;
 import lsfusion.server.logics.form.struct.property.PropertyDrawEntity;
-import lsfusion.server.logics.form.struct.property.async.AsyncExec;
+import lsfusion.server.logics.form.struct.property.PropertyObjectEntity;
 import lsfusion.server.logics.property.Property;
 import lsfusion.server.logics.property.PropertyFact;
 import lsfusion.server.logics.property.classes.IsClassProperty;
@@ -65,6 +68,7 @@ import lsfusion.server.logics.property.implement.PropertyMapImplement;
 import lsfusion.server.logics.property.oraction.ActionOrProperty;
 import lsfusion.server.logics.property.oraction.PropertyInterface;
 import lsfusion.server.physics.admin.Settings;
+import lsfusion.server.physics.admin.log.ServerLoggers;
 import lsfusion.server.physics.dev.debug.*;
 import lsfusion.server.physics.dev.i18n.LocalizedString;
 
@@ -95,7 +99,7 @@ public abstract class Action<P extends PropertyInterface> extends ActionOrProper
 
         drawOptions.addProcessor(new DefaultProcessor() {
             @Override
-            public void proceedDefaultDraw(PropertyDrawEntity entity, FormEntity form) {
+            public void proceedDefaultDraw(PropertyDrawEntity entity, FormEntity form, Version version) {
                 if(entity.viewType == null)
                     entity.viewType = ClassViewType.PANEL;
             }
@@ -177,11 +181,15 @@ public abstract class Action<P extends PropertyInterface> extends ActionOrProper
         if(compile!=null)
             return compile.action.getUsedExtProps();
 
-        return aspectUsedExtProps();
+        return calculateUsedExtProps();
     }
 
-    @IdentityStartLazy // только компиляция, построение лексикографики и несколько мелких использований
+    @IdentityStartLazy
     protected ImMap<Property, Boolean> aspectUsedExtProps() {
+        return calculateUsedExtProps();
+    }
+
+    protected ImMap<Property, Boolean> calculateUsedExtProps() {
         MMap<Property, Boolean> result = MapFact.mMap(addValue);
         for(Action<?> dependAction : getDependActions())
             result.addAll(dependAction.getUsedExtProps());
@@ -239,7 +247,7 @@ public abstract class Action<P extends PropertyInterface> extends ActionOrProper
 
     // пока просто ищем в конце APPLY и CHANGE'ы после APPLY
     // потом по хорошему надо будет в if then apply else cancel
-    public boolean endsWithApplyAndNoChangesAfterBreaksBefore() {
+    public boolean endsWithApplyAndNoChangesAfterBreaksBefore(FormChangeFlowType type) {
         return false;
     }
 
@@ -279,12 +287,12 @@ public abstract class Action<P extends PropertyInterface> extends ActionOrProper
 
     @IdentityLazy
     public boolean uses(Property property) {
-        return Property.depends(getUsedProps(), property) || hasFlow(ChangeFlowType.INTERACTIVEFORM);
+        return Property.depends(getUsedProps(), property);
     }
 
     @IdentityLazy
     public boolean changes(Property property) {
-        return Property.depends(getChangeProps(), property) || hasFlow(ChangeFlowType.INTERACTIVEFORM);
+        return Property.depends(getChangeProps(), property);
     }
 
     @IdentityLazy
@@ -307,8 +315,13 @@ public abstract class Action<P extends PropertyInterface> extends ActionOrProper
         return getWhereProperty().mapGetInterfaceClasses(type);
     }
 
-    @IdentityInstanceLazy
+    // optimization hack, but all the isClassSimple mechanism (equalsMap in particular) is a hack
+    public static final ThreadLocal<Boolean> onlyCachedWhereProperty = new ThreadLocal<>();
+    @IdentityStrongNotNullLazy
     public PropertyMapImplement<?, P> getWhereProperty() {
+        if(onlyCachedWhereProperty.get() != null)
+            return null;
+
         return getWhereProperty(false);
     }
     
@@ -343,8 +356,10 @@ public abstract class Action<P extends PropertyInterface> extends ActionOrProper
 
     @Override
     protected ImCol<Pair<ActionOrProperty<?>, LinkType>> calculateLinks(boolean events) {
-        if(getEvents().isEmpty()) // вырежем Action'ы без Event'ов, они нигде не используются, а дают много компонент связности
+        if(getEvents().isEmpty()) { // вырежем Action'ы без Event'ов, они нигде не используются, а дают много компонент связности
+            assert false; // should not be, since we're filtering actions in calculatePropertyListWithGrapg
             return SetFact.EMPTY();
+        }
 
         MCol<Pair<ActionOrProperty<?>, LinkType>> mResult = ListFact.mCol();
         ImMap<Property, Boolean> used = getUsedExtProps();
@@ -363,27 +378,27 @@ public abstract class Action<P extends PropertyInterface> extends ActionOrProper
 //        раньше зачем-то было, но зачем непонятно
 //        mResult.add(new Pair<Property<?>, LinkType>(getWhereProperty().property, hasFlow(ChangeFlowType.NEWSESSION) ? LinkType.RECUSED : LinkType.USEDACTION));
 
-        ImSet<Property> depend = getStrongUsed();
+        ImOrderSet<ActionOrProperty> depend = getStrongUsed();
         for(int i=0,size=depend.size();i<size;i++) {
-            Property property = depend.get(i);
+            ActionOrProperty property = depend.get(i);
             mResult.add(new Pair<ActionOrProperty<?>, LinkType>(property, isRecursiveStrongUsed(property) ? LinkType.GOAFTERREC : LinkType.DEPEND));
         }
         return mResult.immutableCol();
     }
 
-    private ImSet<Property> strongUsed = SetFact.EMPTY();
-    public void addStrongUsed(ImSet<Property> properties) { // чисто для лексикографики
-        strongUsed = strongUsed.merge(properties);
+    private ImOrderSet<ActionOrProperty> strongUsed = SetFact.EMPTYORDER();
+    public void addStrongUsed(ImOrderSet<ActionOrProperty> properties) { // чисто для лексикографики
+        strongUsed = strongUsed.mergeOrder(properties);
     }
-    public ImSet<Property> getStrongUsed() {
+    public ImOrderSet<ActionOrProperty> getStrongUsed() {
         return strongUsed;
     }
-    private ImSet<Property> recursiveStrongUsed = SetFact.EMPTY();
+    private ImSet<ActionOrProperty> recursiveStrongUsed = SetFact.EMPTY();
     public void checkRecursiveStrongUsed(Property property) {
         if(strongUsed.contains(property))
             recursiveStrongUsed = recursiveStrongUsed.merge(property);  
     }
-    public boolean isRecursiveStrongUsed(Property property) { // при рекурсии ослабим связь, но не удалим, чтобы была в той же компоненте связности, но при этом не было цикла
+    public boolean isRecursiveStrongUsed(ActionOrProperty property) { // при рекурсии ослабим связь, но не удалим, чтобы была в той же компоненте связности, но при этом не было цикла
         return recursiveStrongUsed.contains(property);
     }
 
@@ -404,9 +419,11 @@ public abstract class Action<P extends PropertyInterface> extends ActionOrProper
     }
 
     public boolean singleApply = false;
-    public boolean resolve = false;
+    public Action<?> resolve = null;
+    public boolean showRec;
+    public Property<?> where = null; // needed for SHOWREC
     public boolean hasResolve() {
-        return getSessionEnv(SystemEvent.APPLY)==SessionEnvEvent.ALWAYS && resolve;
+        return getSessionEnv(SystemEvent.APPLY)==SessionEnvEvent.ALWAYS && resolve != null;
     }
 
     private Object beforeAspects = ListFact.mCol();
@@ -496,48 +513,178 @@ public abstract class Action<P extends PropertyInterface> extends ActionOrProper
     }
 
     public void execute(ImMap<P, ? extends ObjectValue> keys, ExecutionEnvironment env, ExecutionStack stack, FormEnvironment<P> formEnv) throws SQLException, SQLHandledException {
-        env.execute(this, keys, formEnv, null, stack);
+        execute(keys, env, stack, formEnv, null);
+    }
+
+    public void execute(ImMap<P, ? extends ObjectValue> keys, ExecutionEnvironment env, ExecutionStack stack, FormEnvironment<P> formEnv, PushAsyncResult pushedAsyncResult) throws SQLException, SQLHandledException {
+        env.execute(this, keys, formEnv, pushedAsyncResult, stack);
     }
 
     @Override
-    public ActionMapImplement<?, P> getDefaultEventAction(String eventActionSID, ImList<Property> viewProperties) {
-        if(eventActionSID.equals(ServerResponse.CHANGE_WYS) || eventActionSID.equals(ServerResponse.EDIT_OBJECT))
+    @IdentityStrongLazy
+    public ActionMapImplement<?, P> getDefaultEventAction(String eventActionSID, FormSessionScope defaultChangeEventScope, ImList<Property> viewProperties, String customChangeFunction) {
+        if(eventActionSID.equals(ServerResponse.EDIT_OBJECT))
             return null;
-        return getImplement();
+        return PropertyFact.createSessionScopeAction(BaseUtils.nvl(defaultChangeEventScope, PropertyDrawEntity.DEFAULT_ACTION_EVENTSCOPE), interfaces, getImplement(), SetFact.EMPTY());
     }
 
-    /**
-     * возвращает тип для "простого" редактирования, когда этот action используется в качестве действия для редактирования </br>
-     * assert, что тип будет DataClass, т.к. для остальных такое редактирование невозможно...
-     * @param optimistic - если true, то если для некоторых случаев нельзя вывести тип, то эти случае будут игнорироваться
-     */
-    public Type getSimpleRequestInputType(boolean optimistic) {
-        return getSimpleRequestInputType(optimistic, false);
+    private Function<AsyncMapEventExec<P>, AsyncMapEventExec<P>> forceAsyncEventExec;
+
+    public void setForceAsyncEventExec(Function<AsyncMapEventExec<P>, AsyncMapEventExec<P>> forceAsyncEventExec) {
+        this.forceAsyncEventExec = forceAsyncEventExec;
     }
-    // по сути protected (recursive usage)
-    public Type getSimpleRequestInputType(boolean optimistic, boolean inRequest) {
+
+    public AsyncMapEventExec<P> getAsyncEventExec(boolean optimistic) {
+        return getAsyncEventExec(optimistic, false);
+    }
+    @IdentityInstanceLazy
+    public AsyncMapEventExec<P> getAsyncEventExec(boolean optimistic, boolean recursive) {
+        AsyncMapEventExec<P> result = calculateAsyncEventExec(optimistic, recursive);
+
+        if(forceAsyncEventExec != null)
+            result = forceAsyncEventExec.apply(result);
+
+        return result;
+    }
+    protected AsyncMapEventExec<P> calculateAsyncEventExec(boolean optimistic, boolean recursive) {
         return null;
     }
 
-    // по аналогии с верхним, assert что !hasChildren
-    public CustomClass getSimpleAdd() {
-        return null;
+    protected static <X extends PropertyInterface> AsyncMapEventExec<X> getBranchAsyncEventExec(ImList<ActionMapImplement<?, X>> actions, boolean optimistic, boolean recursive, boolean isExclusive, boolean lastElse) {
+//        return getPrevBranchAsyncEventExec(actions, optimistic, recursive, isExclusive, lastElse);
+        return getNewBranchAsyncEventExec(actions, optimistic, recursive, lastElse);
+//        AsyncMapEventExec<X> newAsyncEventExec = getNewBranchAsyncEventExec(actions, optimistic, recursive, lastElse);
+//
+////        differentResults(newAsyncEventExec, getPrevBranchAsyncEventExec(actions, optimistic, recursive, isExclusive, lastElse));
+//
+//        return newAsyncEventExec;
     }
 
-    private boolean isSimpleDelete;
-    
-    public void setSimpleDelete(boolean isSimpleDelete) {
-        assert interfaces.size() == 1;
-        this.isSimpleDelete = isSimpleDelete;
+    private static <X extends PropertyInterface> AsyncMapEventExec<X> getNewBranchAsyncEventExec(ImList<ActionMapImplement<?, X>> actions, boolean optimistic, boolean recursive, boolean optimisticCases) {
+        boolean firstNonRecursive = false;
+        AsyncMapEventExec<X> bestAsyncExec = null;
+        AsyncMapEventExec<X> mergedAsyncExec = null;
+        for (ActionMapImplement<?, X> action : actions) {
+            AsyncMapEventExec<X> asyncActionExec = action.mapAsyncEventExec(optimistic, recursive);
+            // first non-recursive we consider the most optimistic
+            if(asyncActionExec != AsyncMapExec.RECURSIVE()) {
+                if(!firstNonRecursive) {
+                    firstNonRecursive = true;
+                    mergedAsyncExec = asyncActionExec;
+                } else {
+                    if(asyncActionExec == null)
+                        mergedAsyncExec = null;
+                    else if (mergedAsyncExec != null)
+                        mergedAsyncExec = mergedAsyncExec.merge(asyncActionExec);
+                }
+
+                if (asyncActionExec != null && !(!optimistic && asyncActionExec instanceof AsyncMapInput) && (bestAsyncExec == null || asyncActionExec.getOptimisticPriority() > bestAsyncExec.getOptimisticPriority()))
+                    bestAsyncExec = asyncActionExec;
+            }
+        }
+
+        // we don't want to use Input when it's not in all branches, since it will break the flow
+        if(mergedAsyncExec instanceof AsyncMapInput && !optimistic) {
+            if(optimisticCases)
+                return mergedAsyncExec;
+
+            return null;
+        }
+
+        if(mergedAsyncExec != null)
+            return mergedAsyncExec;
+
+        return bestAsyncExec;
+    }
+    protected static <X extends PropertyInterface> AsyncMapEventExec<X> getListAsyncEventExec(ImList<ActionMapImplement<?, X>> actions, boolean optimistic, boolean recursive) {
+//        return getPrevFlowAsyncEventExec(actions, true, optimistic, recursive);
+        return getNewListAsyncEventExec(actions, optimistic, recursive);
+
+//        AsyncMapEventExec<X> newAsyncEventExec = getNewListAsyncEventExec(actions, optimistic, recursive);
+//        differentResults(newAsyncEventExec, getPrevFlowAsyncEventExec(actions, true, optimistic, recursive));
+//        return newAsyncEventExec;
     }
 
-    public P getSimpleDelete() {
-        if(isSimpleDelete)
-            return interfaces.single();
-        return null;
+    private static <X extends PropertyInterface> AsyncMapEventExec<X> getNewListAsyncEventExec(ImList<ActionMapImplement<?, X>> actions, boolean optimistic, boolean recursive) {
+        boolean wasInteractiveWait = false;
+        AsyncMapEventExec<X> bestAsyncExec = null;
+        for (ActionMapImplement<?, X> action : actions) {
+            AsyncMapEventExec<X> asyncActionExec = action.mapAsyncEventExec(optimistic, recursive);
+            if(asyncActionExec != AsyncMapExec.RECURSIVE()) {
+                 if(asyncActionExec != null && !(wasInteractiveWait && asyncActionExec instanceof AsyncMapInput) && (bestAsyncExec == null || asyncActionExec.getOptimisticPriority() > bestAsyncExec.getOptimisticPriority()))
+                     bestAsyncExec = asyncActionExec;
+
+                if(!optimistic && !wasInteractiveWait && action.hasFlow(ChangeFlowType.INTERACTIVEWAIT)) { // we want to "stop async" once we have an interaction
+                    wasInteractiveWait = true;
+
+                    if(bestAsyncExec != null)
+                        return bestAsyncExec;
+                }
+            }
+        }
+
+        return bestAsyncExec;
     }
 
-    public AsyncExec getAsyncExec() {
+//    private static <X extends PropertyInterface> boolean differentResults(AsyncMapEventExec<X> newAsyncEventExec, AsyncMapEventExec<X> prevAsyncEventExec) {
+//        if(newAsyncEventExec != null) {
+//            if(prevAsyncEventExec == null || !(newAsyncEventExec.getClass().equals(prevAsyncEventExec.getClass())))
+//                return true;
+//        } else {
+//            if(prevAsyncEventExec != null)
+//                return true;
+//        }
+//        return false;
+//    }
+//
+//    protected static <X extends PropertyInterface> AsyncMapEventExec<X> getPrevBranchAsyncEventExec(ImList<ActionMapImplement<?, X>> actions, boolean optimistic, boolean recursive, boolean isExclusive, boolean lastElse) {
+//        AsyncMapEventExec<X> asyncExec = getPrevFlowAsyncEventExec(actions, optimistic, optimistic, recursive);
+//
+//        if((asyncExec instanceof AsyncMapAdd || asyncExec instanceof AsyncMapRemove) && actions.size() > 1 && !isExclusive && Settings.get().isDisableSimpleAddRemoveInNonExclCase())
+//            return null;
+//
+//        return asyncExec;
+//    }
+//
+//    private static <X extends PropertyInterface> AsyncMapEventExec<X> getPrevFlowAsyncEventExec(ImList<ActionMapImplement<?, X>> actions, boolean flowOptimistic, boolean optimistic, boolean recursive) {
+//        AsyncMapEventExec<X> asyncExec = null;
+//        int nonAsync = 0;
+//        int nonRecursive = 0;
+//        for (ActionMapImplement<?, X> action : actions) {
+//            AsyncMapEventExec<X> asyncActionExec = action.mapAsyncEventExec(optimistic, recursive);
+//            if (asyncActionExec != null) {
+//                if(asyncActionExec != AsyncMapExec.RECURSIVE())
+//                    nonRecursive++;
+//
+//                if (asyncExec == null || asyncExec == AsyncMapExec.RECURSIVE()) {
+//                    asyncExec = asyncActionExec;
+//                } else {
+//                    if(asyncActionExec != AsyncMapExec.RECURSIVE()) {
+//                        AsyncMapEventExec<X> mergedAsyncActionExec = asyncExec.merge(asyncActionExec);
+//                        if (mergedAsyncActionExec == null) {
+//                            if(!flowOptimistic)
+//                                return null;
+//
+//                            // we want interactive actions (like opening forms) have higher priority
+//                            if(asyncActionExec.getOptimisticPriority() > asyncExec.getOptimisticPriority())
+//                                asyncExec = asyncActionExec;
+//                        } else
+//                            asyncExec = mergedAsyncActionExec;
+//                    }
+//                }
+//            } else
+//                nonAsync++;
+//        }
+//
+//        if(!flowOptimistic && nonAsync >= nonRecursive)
+//            return null;
+//
+//        return asyncExec;
+//    }
+
+    public static <P extends PropertyInterface> AsyncExec getAsyncExec(AsyncMapEventExec<P> asyncExec, ConnectionContext context) {
+        if(asyncExec instanceof AsyncMapExec)
+            return ((AsyncMapExec<P>) asyncExec).map(context);
         return null;
     }
 
@@ -546,8 +693,11 @@ public abstract class Action<P extends PropertyInterface> extends ActionOrProper
     }
 
     @IdentityStrongLazy // STRONG because of using in security policy
-    public <G extends PropertyInterface> ActionObjectEntity<?> getGroupChange(GroupObjectEntity entity, ImRevMap<P, ObjectEntity> mapping) {
+    public <G extends PropertyInterface> ActionObjectEntity<?> getGroupChange(GroupObjectEntity entity, ImRevMap<P, ObjectEntity> mapping, PropertyObjectEntity<G> readOnly) {
         ImSet<ObjectEntity> entityObjects = entity.getObjects();
+        if(readOnly != null)
+            entityObjects = entityObjects.merge(readOnly.getObjects());
+
         ImSet<ObjectEntity> notUsedEntityObjects = entityObjects.remove(mapping.valuesSet());
         if(!notUsedEntityObjects.isEmpty()) { // adding missing parameters to fulfil the assertion
             // it's a sort patchExtendParams (generating virtual parameters using list action for that)
@@ -555,12 +705,15 @@ public abstract class Action<P extends PropertyInterface> extends ActionOrProper
             ImRevMap<PropertyInterface, ObjectEntity> notUsedInterfaces = notUsedEntityObjects.mapRevKeys((Supplier<PropertyInterface>) PropertyInterface::new);
             return PropertyFact.createListAction(context.keys().addExcl(notUsedInterfaces.keys()),
                     ListFact.singleton(new ActionMapImplement<>(this, context.reverse()))).
-                        mapObjects(notUsedInterfaces.addRevExcl(context.join(mapping))).getGroupChange(entity);
+                        mapObjects(notUsedInterfaces.addRevExcl(context.join(mapping))).getGroupChange(entity, readOnly);
         }
 
-        return getGroupChange(entity.getProperty(GroupObjectProp.FILTER).mapPropertyImplement(mapping.reverse())).mapObjects(mapping);
+        ImRevMap<ObjectEntity, P> reversedMapping = mapping.reverse();
+        return getGroupChange(entity.getProperty(GroupObjectProp.FILTER).mapPropertyImplement(reversedMapping),
+                              entity.getProperty(GroupObjectProp.ORDER).mapPropertyImplement(reversedMapping),
+                              readOnly != null ? readOnly.getImplement(reversedMapping) : null).mapObjects(mapping);
     }
-    public <G extends PropertyInterface> ActionMapImplement<?, P> getGroupChange(PropertyMapImplement<G, P> groupFilter) {
+    private <G extends PropertyInterface, R extends PropertyInterface> ActionMapImplement<?, P> getGroupChange(PropertyMapImplement<G, P> groupFilter, PropertyMapImplement<G, P> groupOrder, PropertyMapImplement<R, P> readOnly) {
 
 //        lm.addGroupObjectProp();
         MList<ActionMapImplement<?, P>> mList = ListFact.mList();
@@ -570,15 +723,27 @@ public abstract class Action<P extends PropertyInterface> extends ActionOrProper
 
         // executing action for other objects
         ImRevMap<P, PropertyInterface> context = interfaces.mapRevValues((Supplier<PropertyInterface>) PropertyInterface::new);
-        ImRevMap<P, PropertyInterface> iterate = groupFilter.mapping.valuesSet().mapRevValues((Supplier<PropertyInterface>) PropertyInterface::new);        
+        ImSet<P> iterateGroup = groupFilter.mapping.valuesSet();
+        boolean ordersNotNull = false;
+        ImSet<P> iterateOrder;
+        if(!iterateGroup.containsAll((iterateOrder = groupOrder.mapping.valuesSet()))) {
+            ServerLoggers.assertLog(false, "SHOULD NOT BE");
+            iterateGroup = iterateGroup.merge(iterateOrder);
+            ordersNotNull = true;
+        }
+        ImRevMap<P, PropertyInterface> iterate = iterateGroup.mapRevValues((Supplier<PropertyInterface>) PropertyInterface::new);
         ImOrderSet<P> orderedSet = iterate.keys().toOrderSet();
+        ImRevMap<P, PropertyInterface> mapIterateContext = context.removeRev(iterate.keys()).addRevExcl(iterate);
+
+        ImList<PropertyInterfaceImplement<PropertyInterface>> nots = ListFact.singleton(PropertyFact.createCompareInterface(orderedSet.mapOrder(context), orderedSet.mapOrder(iterate), Compare.EQUALS));
+        if(readOnly != null)
+            nots = nots.addList(readOnly.map(mapIterateContext));
 
         mList.add(PropertyFact.createPushRequestAction(interfaces, // PUSH REQUEST
                         PropertyFact.createForAction(context.valuesSet().addExcl(iterate.valuesSet()), context.valuesSet(), // FOR
-                                PropertyFact.createAndNot(groupFilter.map(iterate), // group() AND NOT current objects
-                                        PropertyFact.createCompareInterface(orderedSet.mapOrder(context), orderedSet.mapOrder(iterate), Compare.EQUALS)),
-                                MapFact.EMPTYORDER(), false, 
-                                getImplement().map(context.removeRev(iterate.keys()).addRevExcl(iterate)), // DO changeAction 
+                                PropertyFact.createAndNot(groupFilter.map(iterate), nots), // group() AND NOT current objects AND NOT readonly
+                                MapFact.singletonOrder(groupOrder.map(iterate), false), ordersNotNull,
+                                getImplement().map(mapIterateContext), // DO changeAction
                       null, false, SetFact.EMPTY(), false).map(context.reverse())));
         
         return PropertyFact.createListAction(interfaces, mList.immutableList());
@@ -652,7 +817,7 @@ public abstract class Action<P extends PropertyInterface> extends ActionOrProper
     }
 
     @Override
-    public boolean isNotNull() {
+    public boolean isDrawNotNull() {
         return false;
     }
 
@@ -664,6 +829,8 @@ public abstract class Action<P extends PropertyInterface> extends ActionOrProper
     public boolean ignoreReadOnlyPolicy() {
         return !hasFlow(ChangeFlowType.READONLYCHANGE);
     }
+
+    public boolean ignoreChangeSecurityPolicy;
 
     @Override
     public ApplyGlobalEvent getApplyEvent() {

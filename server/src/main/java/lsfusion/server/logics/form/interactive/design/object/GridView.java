@@ -1,25 +1,18 @@
 package lsfusion.server.logics.form.interactive.design.object;
 
-import lsfusion.interop.base.view.FlexAlignment;
-import lsfusion.server.base.version.NFFact;
 import lsfusion.server.base.version.NFLazy;
-import lsfusion.server.base.version.Version;
-import lsfusion.server.base.version.interfaces.NFProperty;
 import lsfusion.server.logics.form.interactive.controller.remote.serialization.ServerSerializationPool;
-import lsfusion.server.logics.form.interactive.design.ComponentView;
 import lsfusion.server.logics.form.interactive.design.ContainerView;
 import lsfusion.server.logics.form.interactive.design.FormView;
-import lsfusion.server.logics.form.struct.FormEntity;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 
-public class GridView extends ComponentView {
+public class GridView extends GridPropertyView {
 
     public boolean tabVertical = false;
     private boolean quickSearch = false;
-    public int headerHeight = -1;
 
     public GroupObjectView groupObject;
 
@@ -45,16 +38,6 @@ public class GridView extends ComponentView {
         this.groupObject = groupObject;
     }
 
-    @Override
-    public double getBaseDefaultFlex(FormEntity formEntity) {
-        return 1;
-    }
-
-    @Override
-    public FlexAlignment getBaseDefaultAlignment(FormEntity formEntity) {
-        return FlexAlignment.STRETCH;
-    }
-
     //todo: формально временное решение:
     //todo: метод дизайна, который изменяет энтити => должно быть перенсено на уровень энтити
     public void setQuickSearch(boolean quickSearch) {
@@ -68,7 +51,6 @@ public class GridView extends ComponentView {
 
         outStream.writeBoolean(tabVertical);
         outStream.writeBoolean(quickSearch);
-        outStream.writeInt(headerHeight);
 
         pool.serializeObject(outStream, getRecord());
 
@@ -79,9 +61,15 @@ public class GridView extends ComponentView {
     public void customDeserialize(ServerSerializationPool pool, DataInputStream inStream) throws IOException {
         super.customDeserialize(pool, inStream);
 
+        boxed = inStream.readBoolean() ? inStream.readBoolean() : null;
+
         tabVertical = inStream.readBoolean();
         quickSearch = inStream.readBoolean();
-        headerHeight = inStream.readInt();
+        captionHeight = inStream.readInt();
+        captionCharHeight = inStream.readInt();
+
+        lineWidth = inStream.readInt();
+        lineHeight = inStream.readInt();
 
         record = pool.deserializeObject(inStream);
 
@@ -94,5 +82,9 @@ public class GridView extends ComponentView {
 
         if(record != null)
             record.finalizeAroundInit();
+    }
+
+    protected boolean isCustom() {
+        return groupObject.entity.isCustom();
     }
 }

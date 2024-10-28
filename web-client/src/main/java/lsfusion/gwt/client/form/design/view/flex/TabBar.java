@@ -9,7 +9,5 @@ public interface TabBar {
     void insertTab(Widget tabWidget, int beforeIndex);
 
     int getSelectedTab();
-    boolean selectTab(int index);
-
-    void setTabText(int index, String caption);
+    void selectTab(int index);
 }

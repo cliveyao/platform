@@ -5,6 +5,7 @@ import lsfusion.base.BaseUtils;
 import lsfusion.base.SystemUtils;
 import lsfusion.base.file.FileDialogUtils;
 import lsfusion.base.file.RawFileData;
+import lsfusion.client.ClientResourceBundle;
 import lsfusion.client.base.SwingUtils;
 import lsfusion.client.base.exception.ClientExceptionManager;
 import lsfusion.client.base.log.Log;
@@ -18,18 +19,22 @@ import lsfusion.client.form.ClientForm;
 import lsfusion.client.form.classes.view.ClassDialog;
 import lsfusion.client.form.controller.ClientFormController;
 import lsfusion.client.form.controller.remote.proxy.RemoteFormProxy;
-import lsfusion.client.form.print.ClientReportUtils;
 import lsfusion.client.form.view.ClientFormDockable;
 import lsfusion.client.form.view.ClientModalForm;
+import lsfusion.client.navigator.controller.AsyncFormController;
 import lsfusion.client.view.DockableMainFrame;
 import lsfusion.client.view.MainFrame;
 import lsfusion.interop.action.*;
 import lsfusion.interop.base.remote.PendingRemoteInterface;
 import lsfusion.interop.base.remote.RemoteRequestInterface;
-import lsfusion.interop.form.ModalityType;
+import lsfusion.interop.form.ModalityShowFormType;
+import lsfusion.interop.form.ShowFormType;
 import lsfusion.interop.form.event.EventBus;
 import lsfusion.interop.form.print.FormPrintType;
 import lsfusion.interop.form.print.ReportGenerator;
+import lsfusion.interop.session.ExternalUtils;
+import net.sf.jasperreports.engine.JRException;
+import org.apache.commons.httpclient.util.URIUtil;
 import org.apache.commons.io.FileUtils;
 
 import javax.sound.sampled.AudioInputStream;
@@ -37,19 +42,21 @@ import javax.sound.sampled.AudioSystem;
 import javax.sound.sampled.Clip;
 import javax.swing.*;
 import java.awt.*;
-import java.awt.datatransfer.StringSelection;
-import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
-import java.awt.event.KeyEvent;
+import java.awt.print.PrinterAbortException;
 import java.io.*;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.nio.file.Paths;
 import java.rmi.RemoteException;
 import java.text.DecimalFormat;
+import java.util.Arrays;
 import java.util.EventObject;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import static javax.swing.BorderFactory.createEmptyBorder;
 import static lsfusion.client.ClientResourceBundle.getString;
 
 public abstract class SwingClientActionDispatcher implements ClientActionDispatcher, DispatcherInterface {
@@ -68,6 +75,24 @@ public abstract class SwingClientActionDispatcher implements ClientActionDispatc
         this.dispatcherListener = dispatcherListener;
     }
 
+    protected void onServerResponse(ServerResponse serverResponse) {
+        //FormClientAction closes asyncForm, if there is no GFormAction in response,
+        //we should close this erroneous asyncForm
+        long requestIndex = serverResponse.requestIndex;
+        AsyncFormController asyncFormController = getAsyncFormController(requestIndex);
+        if (asyncFormController.onServerInvocationResponse()) { // if there are no docked form openings (which will eventually remove asyncForm), removing async forms explicitly
+            if (Arrays.stream(serverResponse.actions).noneMatch(a -> (a instanceof FormClientAction && !getShowFormType((FormClientAction) a).isWindow()))) {
+                ClientFormDockable formContainer = asyncFormController.removeAsyncForm();
+                formContainer.onClosing();
+            }
+        }
+    }
+
+    public void dispatchServerResponse(ServerResponse serverResponse) throws IOException {
+        onServerResponse(serverResponse);
+
+        dispatchResponse(serverResponse);
+    }
     public void dispatchResponse(ServerResponse serverResponse) throws IOException {
         assert serverResponse != null;
 
@@ -124,6 +149,7 @@ public abstract class SwingClientActionDispatcher implements ClientActionDispatc
                     } else {
                         serverResponse = continueServerInvocation(serverResponse.requestIndex, continueIndex, actionResults);
                     }
+                    onServerResponse(serverResponse);
                 } else {
                     if (actionThrowable != null) {
                         //всегда оборачиваем, чтобы был корректный stack-trace
@@ -207,40 +233,48 @@ public abstract class SwingClientActionDispatcher implements ClientActionDispatc
 
     protected abstract PendingRemoteInterface getRemote();
 
-    public void execute(FormClientAction action) {
-        RemoteFormProxy remoteForm = new RemoteFormProxy(action.remoteForm, RemoteObjectProxy.getRealHostName(getRemote()));
-        if(action.immutableMethods != null) {
-            for (int i = 0; i < FormClientAction.methodNames.length; i++) {
-                remoteForm.setProperty(FormClientAction.methodNames[i], action.immutableMethods[i]);
-            }
-        }
+    protected boolean canShowDockedModal() {
+        return true;
+    }
 
-        ModalityType modalityType = action.modalityType;
-        if (modalityType == ModalityType.DOCKED_MODAL) {
-            pauseDispatching();
-            beforeModalActionInSameEDT(true);
-            ClientFormDockable blockingForm = MainFrame.instance.runForm(getDispatchingIndex(), action.canonicalName, action.formSID, false, remoteForm, action.firstChanges, openFailed -> {
-                afterModalActionInSameEDT(true);
-                if (!openFailed) {
-                    continueDispatching();
-                }
-            });
-            setBlockingForm(blockingForm);
-        } else if (modalityType.isModal()) {
+    protected ShowFormType getShowFormType(FormClientAction action) { // should correspond ClientAsyncOpenForm.isDesktopEnabled
+        ShowFormType showFormType = action.showFormType;
+        if (showFormType.isDockedModal() && !canShowDockedModal())
+            showFormType = ModalityShowFormType.MODAL;
+        return showFormType;
+    }
+
+    public void execute(FormClientAction action) throws IOException {
+        RemoteFormProxy remoteForm = new RemoteFormProxy(action.remoteForm, RemoteObjectProxy.getRealHostName(getRemote()));
+
+        AsyncFormController asyncFormController = getAsyncFormController(getDispatchingIndex());
+
+        ShowFormType showFormType = getShowFormType(action);
+        if (showFormType.isWindow()) {
             beforeModalActionInSameEDT(false);
             Component owner = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
-            ClientForm clientForm = ClientFormController.deserializeClientForm(remoteForm);
-            ClientModalForm form = new ClientModalForm(owner, clientForm.getCaption(), modalityType, false) {
+            ClientForm clientForm = ClientFormController.deserializeClientForm(remoteForm, action.clientData);
+            ClientModalForm form = new ClientModalForm(owner, clientForm.getCaption(), false) {
                 @Override
                 public void hideDialog() {
                     super.hideDialog();
                     afterModalActionInSameEDT(false);
                 }
             };
-            form.init(action.canonicalName, action.formSID, remoteForm, clientForm, action.firstChanges, modalityType.isDialog(), editEvent);
+            form.init(remoteForm, clientForm, action.clientData, showFormType.isDialog(), editEvent);
             form.showDialog(false);
+        } else if (showFormType.isDockedModal()) {
+            pauseDispatching();
+            beforeModalActionInSameEDT(true);
+            ClientFormDockable blockingForm = MainFrame.instance.runForm(asyncFormController, false, remoteForm, action.clientData, openFailed -> {
+                afterModalActionInSameEDT(true);
+                if (!openFailed) {
+                    continueDispatching();
+                }
+            }, action.formId);
+            setBlockingForm(blockingForm);
         } else {
-            MainFrame.instance.runForm(getDispatchingIndex(), action.canonicalName, action.formSID, action.forbidDuplicate, remoteForm, action.firstChanges, null);
+            MainFrame.instance.runForm(asyncFormController, action.forbidDuplicate, remoteForm, action.clientData, null, action.formId);
         }
     }
 
@@ -257,8 +291,13 @@ public abstract class SwingClientActionDispatcher implements ClientActionDispatc
     public Integer execute(ReportClientAction action) {
         Integer pageCount = null;
         try {
-            if (action.printType == FormPrintType.AUTO) {
-                ClientReportUtils.autoprintReport(action.generationData, action.printerName);
+            if (action.autoPrint) {
+                ServerPrintAction.autoPrintReport(action.generationData, action.printerName, (e) -> {
+                    if (e instanceof JRException && e.getCause() instanceof PrinterAbortException)
+                        Log.message(ClientResourceBundle.getString("form.error.print.job.aborted"), false);
+                    else
+                        ClientExceptionManager.handle(e, false);
+                    });
             } else if (action.printType != FormPrintType.PRINT) {
                 int editChoice = JOptionPane.NO_OPTION;
                 if (action.inDevMode && action.reportPathList.isEmpty()) {
@@ -272,7 +311,7 @@ public abstract class SwingClientActionDispatcher implements ClientActionDispatc
                     }
                 }
                 if (editChoice == JOptionPane.NO_OPTION) {
-                    ReportGenerator.exportAndOpen(action.generationData, action.printType, action.sheetName, action.password, MainController.remoteLogics);
+                    ReportGenerator.exportAndOpen(action.generationData, action.printType, action.sheetName, action.password, action.jasperReportsIgnorePageMargins, MainController.remoteLogics);
                 }
             } else {
                 if (action.inDevMode) {
@@ -341,7 +380,7 @@ public abstract class SwingClientActionDispatcher implements ClientActionDispatc
             fileStream.close();
 
             if (action.erase) {
-                file.delete();
+                BaseUtils.safeDelete(file);
             }
 
             return new ImportFileClientActionResult(true, action.charsetName == null ? new String(fileContent) : new String(fileContent, action.charsetName));
@@ -385,7 +424,7 @@ public abstract class SwingClientActionDispatcher implements ClientActionDispatc
             fileStream.close();
 
             if (action.erase) {
-                file.delete();
+                BaseUtils.safeDelete(file);
             }
 
             String fileText = action.charsetName == null ? new String(fileContent) : new String(fileContent, action.charsetName);
@@ -409,23 +448,60 @@ public abstract class SwingClientActionDispatcher implements ClientActionDispatc
 
     public void execute(UserChangedClientAction action) {
         try {
-            MainFrame.instance.updateUser(MainFrame.instance.remoteNavigator.getClientSettings().currentUserName);
+            MainFrame mainFrame = MainFrame.instance;
+            mainFrame.updateUser(MainFrame.getClientSettings(mainFrame.remoteNavigator).currentUserName);
         } catch (IOException e) {
             throw Throwables.propagate(e);
         }
     }
 
     public void execute(MessageClientAction action) {
-        beforeModalActionInSameEDT(false);
-        try {
-            if (!action.extended) {
-                JTextPane textPane = SwingUtils.getMessageTextPane(action.message);
-                JOptionPane.showMessageDialog(getDialogParentContainer(), textPane, action.caption, JOptionPane.INFORMATION_MESSAGE);
-            } else {
-                new ExtendedMessageDialog(getDialogParentContainer(), action.caption, action.message).setVisible(true);
+        boolean log = action.type == MessageClientType.LOG;
+        boolean info = action.type == MessageClientType.INFO;
+        boolean success = action.type == MessageClientType.SUCCESS;
+        boolean warn = action.type == MessageClientType.WARN;
+        boolean error = action.type == MessageClientType.ERROR;
+
+        int messageType;
+        Color backgroundColor;
+        if(info) {
+            messageType = JOptionPane.INFORMATION_MESSAGE;
+            backgroundColor = Color.decode("#cff4fc");
+        } else if(success) {
+            messageType = JOptionPane.INFORMATION_MESSAGE;
+            backgroundColor = Color.decode("#d1e7dd");
+        } else if(warn) {
+            messageType = JOptionPane.WARNING_MESSAGE;
+            backgroundColor = Color.decode("#fff3cd");
+        } else if(error) {
+            messageType = JOptionPane.WARNING_MESSAGE;
+            backgroundColor = Color.decode("#f8d7da");
+        } else { //default
+            messageType = JOptionPane.PLAIN_MESSAGE;
+            backgroundColor = null;
+        }
+
+        if(!log && !info) {
+            beforeModalActionInSameEDT(false);
+            try {
+                if(action.data.isEmpty()) {
+                    JOptionPane.showMessageDialog(getDialogParentContainer(),
+                            SwingUtils.getMessageTextPane(action.message, backgroundColor), action.caption,
+                            messageType);
+                } else {
+                    Log.messageWarning(action.textMessage, backgroundColor, action.titles, action.data);
+                }
+            } finally {
+                afterModalActionInSameEDT(false);
             }
-        } finally {
-            afterModalActionInSameEDT(false);
+        }
+
+        if(log || info || error) {
+            if (action.data.isEmpty()) {
+                Log.message(action.textMessage);
+            } else {
+                //todo: now only plain text messages in log panel supported
+            }
         }
     }
 
@@ -439,38 +515,31 @@ public abstract class SwingClientActionDispatcher implements ClientActionDispatc
         }
     }
 
-    public class ExtendedMessageDialog extends JDialog {
-        public ExtendedMessageDialog(Container owner, String title, String message) {
-            super(SwingUtils.getWindow(owner), title, ModalityType.DOCUMENT_MODAL);
-            JTextArea textArea = new JTextArea(message);
-            textArea.setFont(textArea.getFont().deriveFont((float) 12));
-            add(new JScrollPane(textArea));
-            setMinimumSize(new Dimension(400, 200));
-            setLocationRelativeTo(owner);
-            ActionListener escListener = new ActionListener() {
-                public void actionPerformed(ActionEvent actionEvent) {
-                    setVisible(false);
-                }
-            };
-            KeyStroke stroke = KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0);
-            getRootPane().registerKeyboardAction(escListener, stroke, JComponent.WHEN_IN_FOCUSED_WINDOW);
-        }
-    }
-
-    public void execute(LogMessageClientAction action) {
-        if (action.failed) {
-            Log.messageWarning(action.message, action.titles, action.data);
-        } else {
-            Log.message(action.message);
-        }
-    }
-
     public void execute(OpenFileClientAction action) {
         try {
             if (action.file != null) {
                 BaseUtils.openFile(action.file, action.name, action.extension);
             }
         } catch (IOException e) {
+            throw Throwables.propagate(e);
+        }
+    }
+
+    @Override
+    public void execute(OpenUriClientAction action) {
+        try {
+            String uriString = BaseUtils.deserializeObject(action.uri).toString();
+            if(!action.noEncode)
+                uriString = URIUtil.encodeQuery(uriString, ExternalUtils.defaultUrlCharset.name());
+
+            URI uri = new URI(uriString);
+            Desktop desktop = Desktop.isDesktopSupported() ? Desktop.getDesktop() : null;
+            if (desktop != null && desktop.isSupported(Desktop.Action.BROWSE)) {
+                if (uri.getScheme() != null && uri.getScheme().equals("file"))
+                    uri = Paths.get(uri).normalize().toUri();
+                desktop.browse(uri);
+            }
+        } catch (IOException | URISyntaxException e) {
             throw Throwables.propagate(e);
         }
     }
@@ -493,6 +562,9 @@ public abstract class SwingClientActionDispatcher implements ClientActionDispatc
     }
 
     public void execute(ProcessFormChangesClientAction action) {
+    }
+
+    public void execute(ProcessNavigatorChangesClientAction action) {
     }
 
     public Object execute(RequestUserInputClientAction action) {
@@ -549,10 +621,9 @@ public abstract class SwingClientActionDispatcher implements ClientActionDispatc
     }
 
     @Override
-    public boolean execute(CopyToClipboardClientAction action) {
+    public void execute(CopyToClipboardClientAction action) {
         if(action.value != null)
-            Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(action.value), null);
-        return true;
+            SwingUtils.copyToClipboard(action.value);
     }
 
     @Override
@@ -585,8 +656,7 @@ public abstract class SwingClientActionDispatcher implements ClientActionDispatc
         } catch (IOException e) {
             return null;
         } finally {
-            if(file != null && !file.delete())
-                file.deleteOnExit();
+            BaseUtils.safeDelete(file);
         }
     }
 
@@ -627,8 +697,7 @@ public abstract class SwingClientActionDispatcher implements ClientActionDispatc
         } catch (Exception e) {
             throw Throwables.propagate(e);
         } finally {
-            if (file != null && !file.delete())
-                file.deleteOnExit();
+            BaseUtils.safeDelete(file);
         }
     }
 
@@ -643,12 +712,39 @@ public abstract class SwingClientActionDispatcher implements ClientActionDispatc
     }
 
     @Override
+    public void execute(CloseFormClientAction action) {
+        ((DockableMainFrame) MainFrame.instance).closeForm(action.formId);
+    }
+
+    @Override
     public void execute(ChangeColorThemeClientAction action) {
+        MainController.changeColorTheme(action.colorTheme);
     }
 
     @Override
     public void execute(ResetWindowsLayoutClientAction action) {
         ((DockableMainFrame) MainFrame.instance).resetWindowsLayout();
+    }
+
+    @Override
+    public void execute(ClientWebAction action) {
+        if (action.isFont()) {
+            SystemUtils.registerFont(action);
+        } else if(action.isLibrary()) {
+            SystemUtils.registerLibrary(action);
+        }
+    }
+
+    @Override
+    public void execute(OrderClientAction action) {
+    }
+
+    @Override
+    public void execute(FilterClientAction action) {
+    }
+
+    @Override
+    public void execute(FilterGroupClientAction action) {
     }
 
     @Override
@@ -663,5 +759,9 @@ public abstract class SwingClientActionDispatcher implements ClientActionDispatc
 
     private String getExtension(byte[] file) {
         return file[0] == 73 && file[1] == 68 && file[2] == 51 ? ".mp3" : ".wav";
+    }
+
+    public AsyncFormController getAsyncFormController(long requestIndex) {
+        return getRmiQueue().getAsyncFormController(requestIndex);
     }
 }

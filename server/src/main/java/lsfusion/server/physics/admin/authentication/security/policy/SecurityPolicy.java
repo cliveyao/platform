@@ -1,5 +1,6 @@
 package lsfusion.server.physics.admin.authentication.security.policy;
 
+import lsfusion.base.BaseUtils;
 import lsfusion.server.logics.action.Action;
 import lsfusion.server.logics.navigator.NavigatorElement;
 import lsfusion.server.logics.property.oraction.ActionOrProperty;
@@ -20,6 +21,10 @@ public class SecurityPolicy {
         this.policies = policies;
     }
 
+    public SecurityPolicy add(RoleSecurityPolicy policy) {
+        return new SecurityPolicy(BaseUtils.add(policies, policy));
+    }
+
     public boolean checkNavigatorPermission(NavigatorElement navigatorElement) {
         return checkPermission(policy -> policy.checkNavigatorPermission(navigatorElement));
     }
@@ -34,6 +39,10 @@ public class SecurityPolicy {
 
     public boolean checkPropertyEditObjectsPermission(ActionOrProperty property) {
         return checkPermission(policy -> policy.checkPropertyEditObjectsPermission(property));
+    }
+
+    public boolean checkPropertyGroupChangePermission(ActionOrProperty property) {
+        return checkPermission(policy -> policy.checkPropertyGroupChangePermission(property));
     }
 
     public Boolean checkPermission(Function<RoleSecurityPolicy, Boolean> checkPermission) {

@@ -1,156 +1,163 @@
 package lsfusion.gwt.client.form.view;
 
-import com.google.gwt.core.client.Scheduler;
 import com.google.gwt.dom.client.Element;
 import com.google.gwt.user.client.Event;
-import com.google.gwt.user.client.Window;
 import com.google.gwt.user.client.ui.*;
 import lsfusion.gwt.client.ClientMessages;
 import lsfusion.gwt.client.GForm;
-import lsfusion.gwt.client.base.Dimension;
+import lsfusion.gwt.client.base.FocusUtils;
 import lsfusion.gwt.client.base.GwtClientUtils;
-import lsfusion.gwt.client.base.exception.ErrorHandlingCallback;
-import lsfusion.gwt.client.base.result.NumberResult;
-import lsfusion.gwt.client.base.view.WindowHiddenHandler;
+import lsfusion.gwt.client.base.StaticImage;
+import lsfusion.gwt.client.base.view.StaticImageWidget;
 import lsfusion.gwt.client.form.controller.FormsController;
 import lsfusion.gwt.client.form.controller.GFormController;
-import lsfusion.gwt.client.form.event.GKeyStroke;
+import lsfusion.gwt.client.form.property.cell.controller.CancelReason;
+import lsfusion.gwt.client.form.property.cell.controller.EndReason;
+import lsfusion.gwt.client.navigator.controller.GAsyncFormController;
+import lsfusion.gwt.client.navigator.window.GWindowFormType;
 import lsfusion.gwt.client.view.MainFrame;
 
-import static java.lang.Math.min;
+import java.util.function.BiConsumer;
 
 // multiple inheritance
-public abstract class FormContainer<W extends Widget> {
+public abstract class FormContainer {
     private static final ClientMessages messages = ClientMessages.Instance.get();
 
     protected final FormsController formsController;
-    protected final W contentWidget;
 
-    protected Event initFilterEvent;
+    protected final GFormController contextForm;
+
+    protected Event editEvent;
 
     protected GFormController form;
 
-    public Long requestIndex;
     public boolean async;
 
-    public FormContainer(FormsController formsController, Long requestIndex, boolean async) {
-        this.formsController = formsController;
-        this.requestIndex = requestIndex;
-        this.async = async;
-
-        this.contentWidget = initContentWidget();
+    private boolean asyncHidden;
+    private EndReason asyncHiddenReason;
+    public boolean isAsyncHidden() {
+        return asyncHidden;
     }
 
-    protected abstract W initContentWidget();
+    public String formId;
+
+    public FormContainer(FormsController formsController, GFormController contextForm, boolean async, Event editEvent) {
+        this.formsController = formsController;
+        this.contextForm = contextForm;
+        this.async = async;
+        this.editEvent = editEvent;
+    }
 
     protected abstract void setContent(Widget widget);
 
-    public void setFormVisible() {
-        form.setFormVisible();
+    public abstract GWindowFormType getWindowType();
+
+    protected FormContainer getContainerForm() { // hack
+        return this;
     }
 
-    public abstract void show();
+    public GFormController getContextForm() {
+        return contextForm;
+    }
 
-    public abstract void hide();
+    public void onAsyncInitialized() {
+        assert !async;
+        // if it's an active form setting focus
+        if(MainFrame.getAssertCurrentForm() == getContainerForm())
+            onSyncFocus(true);
+    }
+
+    public void closePressed() {
+        closePressed(CancelReason.HIDE);
+    }
+
+    public void closePressed(EndReason reason) {
+        if(async) {
+            // we shouldn't remove async form here, because it will be removed either in FormAction, or on response noneMatch FormAction check
+//            asyncFormController.removeAsyncForm();
+            hide(reason);
+            asyncHidden = true;
+            asyncHiddenReason = reason;
+        } else {
+            form.closePressed(reason);
+        }
+    }
+
+    public abstract void show(GAsyncFormController asyncFormController);
+
+    // server response reaction - hideFormAction dispatch, and incorrect modalitytype when getting form, or no form at all
+    public void queryHide(EndReason editFormCloseReason) {
+        if(!isAsyncHidden())
+            hide(editFormCloseReason);
+    }
+    public abstract void hide(EndReason editFormCloseReason);
 
     private Element focusedElement;
     public void onFocus(boolean add) {
-        if(!async) {
-            form.gainedFocus();
-        }
-
         MainFrame.setCurrentForm(this);
-        assert !MainFrame.isModalPopup();
+        // this assertion can be broken in tooltips (since their showing is async) - for example it's showing is scheduled, change initiated, after that tooltip is showm and then response is received and message is shown
+//        assert !MainFrame.isModalPopup();
 
-        if(!async) {
-            if(add || focusedElement == null)
-                form.focusFirstWidget();
-            else
-                focusedElement.focus();
-            form.restorePopup();
-        }
+        if(!async)
+            onSyncFocus(add);
     }
 
     public void onBlur(boolean remove) {
-        if(!async) {
-            form.lostFocus();
-            focusedElement = remove ? null : GwtClientUtils.getFocusedChild(contentWidget.getElement());
-        }
+        if(!async)
+            onSyncBlur(remove);
 
-        //todo
-        //assert MainFrame.getAssertCurrentForm() == this;
+        assert MainFrame.getAssertCurrentForm() == this;
         MainFrame.setCurrentForm(null);
-
-        if(!async) {
-            form.hidePopup();
-        }
     }
 
-    public void initForm(FormsController formsController, GForm gForm, WindowHiddenHandler hiddenHandler, boolean isDialog, Event initFilterEvent) {
-        this.initFilterEvent = initFilterEvent;
+    protected void onSyncFocus(boolean add) {
+        assert !async;
+        if(add || focusedElement == null) {
+            if (!form.focusDefaultWidget())
+                focus();
+        } else
+            FocusUtils.focus(focusedElement, FocusUtils.Reason.RESTOREFOCUS);
+        form.gainedFocus();
+    }
 
-        form = new GFormController(formsController, this, gForm, isDialog) {
+    protected void focus() {
+        FocusUtils.focusInOut(getContentElement(), FocusUtils.Reason.SHOW);
+    }
+
+    private void onSyncBlur(boolean remove) {
+        form.lostFocus();
+        focusedElement = remove ? null : FocusUtils.getFocusedChild(getContentElement());
+    }
+
+    public abstract Element getContentElement();
+
+    public void initForm(FormsController formsController, GForm gForm, BiConsumer<GAsyncFormController, EndReason> hiddenHandler, boolean isDialog, int dispatchPriority, String formId) {
+        form = new GFormController(formsController, this, gForm, isDialog, dispatchPriority, editEvent) {
             @Override
-            public void onFormHidden(int closeDelay) {
-                super.onFormHidden(closeDelay);
+            public void onFormHidden(GAsyncFormController asyncFormController, int closeDelay, EndReason editFormCloseReason) {
+                super.onFormHidden(asyncFormController, closeDelay, editFormCloseReason);
 
-                hiddenHandler.onHidden();
-            }
-
-            @Override
-            public void setFormCaption(String caption, String tooltip) {
-                setCaption(caption, tooltip);
+                hiddenHandler.accept(asyncFormController, editFormCloseReason);
             }
         };
 
-        setContent(form);
+        if(isAsyncHidden())
+            form.closePressed(asyncHiddenReason);
+        else
+            setContent(form.getWidget());
 
-        Scheduler.get().scheduleDeferred(this::initQuickFilter);
         async = false;
+
+        this.formId = formId;
     }
 
-    protected abstract void setCaption(String caption, String tooltip);
+    public abstract Widget getCaptionWidget();
 
     public GFormController getForm() {
         return form;
     }
 
-    protected void initMaxPreferredSize() {
-        if(!async) {
-            Dimension size = form.getMaxPreferredSize();
-            if (size.width > 0) {
-                int wndWidth = Window.getClientWidth();
-                size.width = min(size.width + 20, wndWidth - 20);
-                form.setWidth(size.width + "px");
-            }
-            if (size.height > 0) {
-                int wndHeight = Window.getClientHeight();
-                size.height = min(size.height, wndHeight - 100);
-                form.setHeight(size.height + "px");
-            }
-        }
-    }
-
-    protected void initQuickFilter() {
-        if (initFilterEvent != null) {
-            Event event = initFilterEvent;
-            if (GKeyStroke.isPossibleStartFilteringEvent(event) && !GKeyStroke.isSpaceKeyEvent(event)) {
-                form.getInitialFilterProperty(new ErrorHandlingCallback<NumberResult>() {
-                    @Override
-                    public void success(NumberResult result) {
-                        Integer initialFilterPropertyID = (Integer) result.value;
-
-                        if (initialFilterPropertyID != null) {
-                            form.quickFilter(initFilterEvent, initialFilterPropertyID);
-                        }
-                    }
-                });
-            }
-        }
-    }
-
-    protected String loadingAsyncImage = "loading_async.gif";
-    protected Widget createLoadingWidget(String imageUrl) {
+    public void setContentLoading(long requestIndex) {
         VerticalPanel loadingWidget = new VerticalPanel();
         loadingWidget.setHorizontalAlignment(HasHorizontalAlignment.ALIGN_CENTER);
         loadingWidget.setVerticalAlignment(HasVerticalAlignment.ALIGN_MIDDLE);
@@ -160,13 +167,22 @@ public abstract class FormContainer<W extends Widget> {
         topPanel.setHorizontalAlignment(HasHorizontalAlignment.ALIGN_CENTER);
         topPanel.setVerticalAlignment(HasVerticalAlignment.ALIGN_MIDDLE);
         topPanel.setSpacing(5);
-        Image image = new Image(imageUrl);
-        image.setSize("32px", "32px");
+
+        StaticImageWidget image = new StaticImageWidget(StaticImage.LOADING_ASYNC);
+        GwtClientUtils.addClassName(image, "loading-async-icon");
+        image.addClickHandler(clickEvent -> {
+            if(contextForm != null) {
+                contextForm.executeVoidAction();
+            } else {
+                formsController.executeVoidAction(requestIndex);
+            }
+        });
+
         topPanel.add(image);
         topPanel.add(new HTML(messages.loading()));
 
         loadingWidget.add(topPanel);
 
-        return loadingWidget;
+        setContent(loadingWidget);
     }
 }

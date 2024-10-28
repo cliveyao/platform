@@ -1,15 +1,20 @@
 package lsfusion.gwt.client.form.property.cell;
 
+import com.google.gwt.dom.client.Element;
 import com.google.gwt.dom.client.NativeEvent;
 import com.google.gwt.user.client.Event;
+import lsfusion.gwt.client.base.Result;
+import lsfusion.gwt.client.form.controller.FormsController;
 import lsfusion.gwt.client.form.event.GKeyStroke;
 import lsfusion.gwt.client.form.event.GMouseStroke;
+import lsfusion.gwt.client.form.property.cell.controller.ExecuteEditContext;
 
 import java.io.Serializable;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.function.Supplier;
 
 import static com.google.gwt.dom.client.BrowserEvents.KEYDOWN;
 import static lsfusion.gwt.client.form.event.GKeyStroke.*;
@@ -18,11 +23,10 @@ public class GEditBindingMap implements Serializable {
     public static final String CHANGE = "change";
     public static final String GROUP_CHANGE = "groupChange";
     public static final String EDIT_OBJECT = "editObject";
-    public static final String CHANGE_WYS = "change_wys";
 
-    private static final List<String> changeEvents = Arrays.asList(CHANGE, CHANGE_WYS, GROUP_CHANGE);
+    private static final List<String> changeEvents = Arrays.asList(CHANGE, GROUP_CHANGE);
 
-    public static boolean isEditableAwareEditEvent(String actionSID) {
+    public static boolean isChangeEvent(String actionSID) {
         return changeEvents.contains(actionSID);
     }
 
@@ -55,20 +59,18 @@ public class GEditBindingMap implements Serializable {
         }
         return null;
     }
-    public static String getDefaultEventSID(Event event, EditEventFilter editEventFilter, boolean hasEditObjectAction) {
-        if (hasEditObjectAction && isEditObjectEvent(event)) // has to be before isChangeEvent, since also handles MOUSE CHANGE event
-            return EDIT_OBJECT;
-        if (GMouseStroke.isChangeEvent(event))
-            return CHANGE;
-        if (isGroupChangeKeyEvent(event))
-            return GROUP_CHANGE;
-        if (isCharModifyKeyEvent(event, editEventFilter) || isDropEvent(event))
-            return CHANGE;
-        return null;
+
+    public static final String TOOLBAR_ACTION = "toolbarAction";
+
+    public static Object getToolbarAction(Event event) {
+        return event.getEventTarget().<Element>cast().getPropertyObject(TOOLBAR_ACTION);
     }
-    public static boolean isDefaultFilterChange(Event event, EditEventFilter editEventFilter) {
-        if (GMouseStroke.isChangeEvent(event))
+
+    public static boolean isDefaultFilterChange(Event event, Result<Boolean> contextAction, EditEventFilter editEventFilter) {
+        if (GMouseStroke.isChangeEvent(event)) {
+            contextAction.set((Boolean) getToolbarAction(event));
             return true;
+        }
         if (isCharModifyKeyEvent(event, editEventFilter))
             return true;
         return false;
@@ -91,6 +93,16 @@ public class GEditBindingMap implements Serializable {
 
     public LinkedHashMap<String, String> getContextMenuItems() {
         return contextMenuBindingMap;
+    }
+
+    public static String changeOrGroupChange() {
+        return changeOrGroupChange(false);
+    }
+    public static String changeOrGroupChange(boolean noGroupChange) {
+        if(FormsController.isGroupChangeMode() && !noGroupChange)
+            return GEditBindingMap.GROUP_CHANGE;
+        else
+            return GEditBindingMap.CHANGE;
     }
 
 }

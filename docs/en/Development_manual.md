@@ -1,5 +1,5 @@
 ---
-title: 'Development (manual)'
+title: 'For development'
 ---
 
 
@@ -16,29 +16,37 @@ For the application server to work, it must have access to the PostgreSQL databa
 
 
 :::info
-To install the plug-in, Intellij IDEA version 2020.1 or higher must be installed on the computer.
+To install the plug-in, Intellij IDEA version 2022.2 or higher must be installed on the computer.
 :::
 
--   In the IDEA settings (`File > Settings`), select `Plugins > Browse repositories`, find the [lsFusion plugin](https://plugins.jetbrains.com/plugin/7601-lsfusion), click `Install`, and restart IDEA.
+<iframe width="245px" height="48px" src="https://plugins.jetbrains.com/embeddable/install/7601"></iframe>
 
 ### Installing an application server via IDE
 
--   When [creating a new lsFusion project](IDE.md#newproject) click the `Download` button opposed to the `lsFusion library`: IDEA automatically downloads the JAR file of the latest (non-beta) version of the lsFusion server from the [central server](https://download.lsfusion.org/java) and installs this file as a dependency of this project (or rather, as its only module: `File > Project Structure > Modules > project name > Dependencies tab`). Also, if necessary, you can download another version of the server (different from the latest) or select a previously downloaded server JAR file on the local disk.  
+-   When [creating a new lsFusion project](IDE.md#newproject) click the `Download` button opposed to the `lsFusion library`: IDEA automatically downloads the JAR file of the latest (non-beta) version of the lsFusion server from the [central server](https://download.lsfusion.org/java/) and installs this file as a dependency of this project (or rather, as its only module: `File > Project Structure > Modules > project name > Dependencies tab`). Also, if necessary, you can download another version of the server (different from the latest) or select a previously downloaded server JAR file on the local disk.  
 
 
 :::info
 Note that IDEA remembers the downloaded/specified application server file in its settings and automatically sets it when creating other lsFusion projects. 
 :::
 
-### Installing a desktop client
+### Install desktop client
 
--   After the server starts, in the start log one of the last lines will be a line with a link to the JNLP file (for example, <https://download.lsfusion.org/java/lsfusion-client-4.1.jnlp>), which when run will automatically install the client using Java Web Start technology.
+-   After the server starts, in the start log one of the last lines will be a line with a link to the JNLP file (for example, https://download.lsfusion.org/java/lsfusion-client-6.0-beta0.jnlp), which when run will automatically install the client using Java Web Start technology.
+
+### Install Web Client
+
+- Install [Apache Tomcat](https://tomcat.apache.org/download-90.cgi) version 9.
+- Add `--add-opens=java.base/java.util=ALL-UNNAMED` to the Apache Tomcat startup parameters if Java version higher than 17 is used.
+- Download [web-client](https://download.lsfusion.org/java/lsfusion-client-6.0-beta0.war) of lsFusion platform.
+- Place the war file in Apache Tomcat webapps folder, for example, with the name lsfusion.war.
+- The web client will be available at http://localhost:8080/lsfusion.
 
 ## Installation in existing Java projects
 
 ### Installing an application server via IDE {#existingide}
 
--   Download the `lsfusion-server-<version>.jar` file of the required version (for example, `lsfusion-server-4.1.jar`) from the [central server](https://download.lsfusion.org/java) to the folder of the required project module (we will call this folder `$FUSION_DIR$`).
+-   Download the `lsfusion-server-<version>.jar` file of the required version (for example, `lsfusion-server-6.0-beta0.jar`) from the [central server](https://download.lsfusion.org/java/) to the folder of the required project module (we will call this folder `$FUSION_DIR$`).
 -   If the database server is located on another computer, and if authorization is enabled on the database server (for example, for Postgres, using the md5 method and if the postgres password is not empty), set the [database server connection parameters](Launch_parameters.md#connectdb) (e.g., by creating a startup [settings file](Launch_parameters.md#filesettings) in the project folder)
 -   Add the downloaded file as a dependency of the required project module (`File > Project Structure > Modules > module name > Dependencies tab > +`) 
 -   Create a [startup configuration](IDE.md#configuration) (when creating a new lsFusion project, this and the upper two sections are done automatically). If the platform is loaded as a library, instead of creating a configuration you can use a Spring bean with the `logicsInstance` ID from the `lsfusion.xml` configuration file, and its `start()` and `stop()` methods, responsible for starting and stopping the application server, respectively.
@@ -56,19 +64,19 @@ For an existing maven project, server installation and loading can (and should) 
         <repository>
             <id>lsfusion</id>
             <name>lsFusion Public Repository</name>
-            <url>http://repo.lsfusion.org</url>
+            <url>https://repo.lsfusion.org</url>
         </repository>
     </repositories>
 
     <parent>
         <groupId>lsfusion.platform.build</groupId>
         <artifactId>logics</artifactId>
-        <version>2.0</version>
+        <version>6.0-beta0</version>
     </parent>
     ```
     The first option (with parent) is good in that:
 
-    -   Maven will automatically configure an uber-jar assembly (i.e., a single file containing all the project files). You can start this assembly using maven profile `assemble` - when this profile is activated, a JAR file with an `assembly` postfix is additionally generated in the package phase, containing not only the project files, but also the files of all the project dependencies, including files of the application server itself. However, in cases where the application server is installed separately from the application itself (for example, using [automatic installation](Execution_auto.md)), including the application server in the resulting uber-jar is undesirable. Therefore, in addition to `assemble`, the platform also supports the `noserver` maven profile, which when activated (along with `assemble`), at creation of a JAR file with the `assembly` postfix the application server files will not be included (example command: `mvn package assemble noserver`).
+    -   Maven will automatically configure an uber-jar assembly (i.e., a single file containing all the project files). You can start this assembly using maven profile `assemble` - when this profile is activated, a JAR file with an `assembly` postfix is additionally generated in the package phase, containing not only the project files, but also the files of all the project dependencies, including files of the application server itself. However, in cases where the application server is installed separately from the application itself (for example, using [automatic installation](Execution_auto.md)), including the application server in the resulting uber-jar is undesirable. Therefore, in addition to `assemble`, the platform also supports the `noserver` maven profile, which when activated (along with `assemble`), at creation of a JAR file with the `assembly` postfix the application server files will not be included (example command: `mvn package -P assemble,noserver`).
 
     -   Maven and IDE will automatically determine the source and resources directories (for example, `src/main/lsfusion` is the default)
 

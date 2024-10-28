@@ -6,8 +6,10 @@ The `REQUEST` operator creates an [action](Actions.md) that [requests a value](V
 
 ### Syntax
 
-    REQUEST requestAction 
-    DO doAction [ELSE elseAction]
+```
+REQUEST requestAction 
+DO doAction [ELSE elseAction]
+```
 
 ### Description
 
@@ -43,6 +45,6 @@ requestCustomer (Order o)  {
 
 FORM request
     OBJECTS o = Order
-    PROPERTIES(o) customer ON CHANGE requestCustomer(o) // for example, group adjustment will be performed
+    PROPERTIES(o) customer ON CHANGE requestCustomer(o) // for example, group change will be performed
 ;
 ```

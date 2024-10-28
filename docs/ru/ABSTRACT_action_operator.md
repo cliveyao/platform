@@ -6,14 +6,16 @@ title: 'Оператор ABSTRACT'
 
 ### Синтаксис
 
-    ABSTRACT [type [exclusionType]] [FIRST | LAST] [CHECKED] (argClassName1, ..., argClassNameN) 
+```
+ABSTRACT [type [exclusionType]] [FIRST | LAST] [CHECKED] (argClassName1, ..., argClassNameN) 
+```
 
 ### Описание
 
 Оператор `ABSTRACT` создает абстрактное действие, реализацию которого можно определять позже (например, в других [модулях](Modules.md), зависящих от модуля, содержащего это `ABSTRACT` действие). Реализации добавляются к действию с помощью [инструкции `ACTION+`](ACTION+_statement.md). При выполнении абстрактного действия типа `MULTI` и `CASE` выбирается и выполняется его подходящая реализация. Выбор подходящей реализации зависит от выполнения условий выбора, которые задаются при добавлении реализаций, и от типа оператора `ABSTRACT`.
 
 - `CASE` - общий случай, условие выбора будет явно задаваться в реализации с помощью [блока `WHEN`](ACTION+_statement.md).
-- `MULTI` - [полиморфная форма](Branching_CASE_IF_MULTI.md#poly),  условием выбора будет являться принадлежность параметров [сигнатуре](CLASS_operator.md) реализации. Этот тип является типом по умолчанию и может явно не задаваться.
+- `MULTI` - [полиморфная форма](Branching_CASE_IF_MULTI.md#poly), условием выбора будет являться [принадлежность параметров сигнатуре](ISCLASS_operator.md) реализации. Этот тип является типом по умолчанию и может явно не задаваться.
 
 [Тип взаимоисключения](Branching_CASE_IF_MULTI.md#exclusive) оператора определяет могут ли несколько условий реализаций абстрактного действия одновременно выполняться при некотором наборе параметров. Тип `EXCLUSIVE` указывает на то, что условия реализаций не могут одновременно выполняться. Тип `OVERRIDE` допускает несколько одновременно выполняющихся условий, при этом то, какая из реализаций будет в итоге выбрана, определяется ключевыми словами `FIRST` и `LAST`.
 
@@ -54,13 +56,14 @@ title: 'Оператор ABSTRACT'
 ### Примеры
 
 ```lsf
-exportXls 'Выгрузить в Excel'  ABSTRACT CASE ( Order);         // В данном случае создается ABSTRACT CASE OVERRIDE LAST
+// В данном случае создается ABSTRACT CASE OVERRIDE LAST
+exportXls 'Выгрузить в Excel' ABSTRACT CASE (Order);         
 exportXls (Order o) + WHEN name(currency(o)) == 'USD' THEN {
     MESSAGE 'Export USD not implemented';
 }
 
 CLASS Task;
-run 'Выполнить'  ABSTRACT ( Task);                           // ABSTRACT MULTI EXCLUSIVE
+run 'Выполнить' ABSTRACT (Task); // ABSTRACT MULTI EXCLUSIVE
 
 CLASS Task1 : Task;
 name = DATA STRING[100] (Task);
@@ -74,7 +77,7 @@ price = DATA NUMERIC[14,2] (OrderDetail);
 
 CLASS InvoiceDetail;
 price = DATA NUMERIC[14,2] (InvoiceDetail);
-fill  ABSTRACT LIST ( OrderDetail, InvoiceDetail);   // ABSTRACT LIST LAST
+fill  ABSTRACT LIST (OrderDetail, InvoiceDetail); // ABSTRACT LIST LAST
 
 fill (OrderDetail od, InvoiceDetail id) + {
     price(id) <- price(od);

@@ -1,5 +1,6 @@
 package lsfusion.client.form.property.cell.classes.view;
 
+import lsfusion.base.EscapeUtils;
 import lsfusion.client.base.SwingUtils;
 import lsfusion.client.base.view.SwingDefaults;
 import lsfusion.client.controller.MainController;
@@ -31,6 +32,17 @@ public class TextPropertyRenderer extends PropertyRenderer {
     public JEditorPane getComponent() {
         if (pane == null) {
             pane = new JEditorPane() {
+                /**
+                 * Overridden for performance reasons. Copied from DefaultTableCellRenderer
+                 */
+                public void invalidate() {}
+                public void validate() {}
+                public void revalidate() {}
+
+                public void repaint(long tm, int x, int y, int width, int height) {}
+                public void repaint(Rectangle r) { }
+                public void repaint() { }
+
                 @Override
                 protected void paintComponent(Graphics g) {
                     super.paintComponent(g);
@@ -71,7 +83,7 @@ public class TextPropertyRenderer extends PropertyRenderer {
             String text = value.toString().isEmpty() && !MainController.showNotDefinedStrings ? EMPTY_STRING : value.toString();
             if (rich) {
                 getComponent().setContentType("text/html");
-                RichEditorPane.setText(getComponent(), text);
+                RichEditorPane.setText(getComponent(), EscapeUtils.escapeLineBreakHTML(text));
             } else {
                 getComponent().setContentType("text");
                 getComponent().setText(text);

@@ -5,12 +5,12 @@ import bibliothek.gui.dock.common.CControl;
 import bibliothek.gui.dock.common.DefaultMultipleCDockable;
 import bibliothek.gui.dock.common.action.predefined.CCloseAction;
 import bibliothek.gui.dock.common.event.CDockableAdapter;
-import bibliothek.gui.dock.common.event.CFocusListener;
 import bibliothek.gui.dock.common.intern.CDockable;
 import bibliothek.gui.dock.control.focus.DefaultFocusRequest;
 import com.jhlabs.image.PointFilter;
 import lsfusion.client.form.controller.FormsController;
 import lsfusion.client.form.view.ClientFormDockable;
+import lsfusion.client.navigator.controller.AsyncFormController;
 import org.jdesktop.jxlayer.JXLayer;
 import org.jdesktop.jxlayer.plaf.effect.BufferedImageOpEffect;
 import org.jdesktop.jxlayer.plaf.ext.LockableUI;
@@ -33,8 +33,10 @@ public abstract class ClientDockable extends DefaultMultipleCDockable {
 
     private final CustomCloseAction closeAction;
 
-    protected Long requestIndex;
+    protected AsyncFormController asyncFormController;
     public boolean async;
+
+    public String formId;
 
     protected ClientDockable(String canonicalName, FormsController formsController) {
         super(formsController.getDockableFactory());
@@ -60,23 +62,14 @@ public abstract class ClientDockable extends DefaultMultipleCDockable {
                 }
             }
         });
-
-        addFocusListener(new CFocusListener() {
-            @Override
-            public void focusGained(CDockable dockable) {
-                initDefaultComponent();
-                SwingUtilities.invokeLater(() -> {
-                    if (!activateFirstComponents()) {
-                        focusDefaultComponent();
-                    }
-                });
-                if (defaultComponent != null) {
-                    removeFocusListener(this);
-                }
+    }
+    
+    public void onContendAdded() {
+        initDefaultComponent();
+        SwingUtilities.invokeLater(() -> {
+            if (!activateFirstComponents()) {
+                focusDefaultComponent();
             }
-
-            @Override
-            public void focusLost(CDockable dockable) {}
         });
     }
     
@@ -85,7 +78,7 @@ public abstract class ClientDockable extends DefaultMultipleCDockable {
     }
 
     private void initDefaultComponent() {
-        if (!async && defaultComponent == null) {
+        if (defaultComponent == null) {
             FocusTraversalPolicy traversalPolicy = contentContainer.getFocusTraversalPolicy();
             if (traversalPolicy != null) {
                 defaultComponent = traversalPolicy.getDefaultComponent(contentContainer);

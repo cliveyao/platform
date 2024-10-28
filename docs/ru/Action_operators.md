@@ -1,6 +1,5 @@
 ---
 title: 'Операторы-действия'
-sidebar_label: Обзор
 ---
 
 *Оператор-действие* - это синтаксическая конструкция, описывающая [оператор](Action_operators_paradigm.md), создающий [действие](Actions.md).
@@ -16,17 +15,19 @@ sidebar_label: Обзор
 -   [Оператор `ACTIVE FORM`](ACTIVE_FORM_operator.md)
 -   [Оператор `APPLY`](APPLY_operator.md)
 -   [Оператор `ASK`](ASK_operator.md)
--   [Оператор `ASYNCUPDATE`](https://ru-documentation.lsfusion.org/pages/viewpage.action?pageId=12320796)
 -   [Оператор `BREAK`](BREAK_operator.md)
 -   [Оператор `CANCEL`](CANCEL_operator.md)
 -   [Оператор `CASE`](CASE_action_operator.md)
 -   [Оператор `CHANGE`](CHANGE_operator.md)
 -   [Оператор `CHANGECLASS`](CHANGECLASS_operator.md)
+-   [Оператор `COLLAPSE`](COLLAPSE_operator.md)
+-   [Оператор `CONTINUE`](CONTINUE_operator.md)
 -   [Оператор `DELETE`](DELETE_operator.md)
 -   [Оператор `DIALOG`](DIALOG_operator.md)
 -   [Оператор `EMAIL`](EMAIL_operator.md)
 -   [Оператор `EVAL`](EVAL_operator.md)
 -   [Оператор `EXEC`](EXEC_operator.md)
+-   [Оператор `EXPAND`](EXPAND_operator.md)
 -   [Оператор `EXPORT`](EXPORT_operator.md)
 -   [Оператор `FOR`](FOR_operator.md)
 -   [Оператор `IF ... THEN`](IF_..._THEN_action_operator.md)

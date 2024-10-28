@@ -1,10 +1,32 @@
 package lsfusion.gwt.client.form.filter.user;
 
-
 import lsfusion.gwt.client.ClientMessages;
 
+import java.util.HashMap;
+import java.util.Map;
+
 public enum GCompare {
-    EQUALS, GREATER, LESS, GREATER_EQUALS, LESS_EQUALS, NOT_EQUALS, START_WITH, CONTAINS, ENDS_WITH, LIKE, MATCH, INARRAY;
+    EQUALS("="), GREATER(">"), LESS("<"), GREATER_EQUALS(">="),
+    LESS_EQUALS("<="), NOT_EQUALS("!="), CONTAINS("_"), MATCH("@"),
+    INARRAY("IN ARRAY");
+
+    private final String str;
+
+    private static final Map<String, GCompare> lookup = new HashMap<>();
+
+    static {
+        for (GCompare c : GCompare.values()) {
+            lookup.put(c.str, c);
+        }
+    }
+
+    GCompare(String str) {
+        this.str = str;
+    }
+
+    public static GCompare get(String str) {
+        return lookup.get(str);
+    }
 
     public static GCompare get(boolean min) {
         return min? GCompare.LESS: GCompare.GREATER;
@@ -25,16 +47,10 @@ public enum GCompare {
             case 5:
                 return NOT_EQUALS;
             case 6:
-                return START_WITH;
-            case 7:
                 return CONTAINS;
-            case 8:
-                return ENDS_WITH;
-            case 9:
-                return LIKE;
-            case 10:
+            case 7:
                 return MATCH;
-            case 11:
+            case 8:
                 return INARRAY;
             default:
                 return EQUALS;
@@ -55,51 +71,66 @@ public enum GCompare {
                 return 4;
             case NOT_EQUALS:
                 return 5;
-            case START_WITH:
-                return 6;
             case CONTAINS:
-                return 7;
-            case ENDS_WITH:
-                return 8;
-            case LIKE:
-                return 9;
+                return 6;
             case MATCH:
-                return 10;
+                return 7;
             case INARRAY:
-                return 11;
+                return 8;
         }
         throw new RuntimeException("Serialize Compare");
     }
 
     @Override
     public String toString() {
-        ClientMessages messages = ClientMessages.Instance.get();
+        return str;
+    }
+
+    public String getFullString() {
         switch (this) {
             case EQUALS :
-                return "=";
             case GREATER :
-                return ">";
             case LESS :
-                return "<";
             case GREATER_EQUALS :
-                return ">=";
             case LESS_EQUALS :
-                return "<=";
+                return str;
             case NOT_EQUALS :
-                return "!=";
-            case START_WITH :
-                return messages.filterCompareStartsWith();
+                return str + " (" + ClientMessages.Instance.get().formFilterCompareNotEquals() + ")";
             case CONTAINS:
-                return messages.filterCompareContains();
-            case ENDS_WITH:
-                return messages.filterCompareEndsWith();
-            case LIKE :
-                return "LIKE";
+                return str + " (" + ClientMessages.Instance.get().formFilterCompareContains() + ")";
             case MATCH:
-                return "MATCH";
+                return str + " (" + ClientMessages.Instance.get().formFilterCompareSearch() + ")";
             case INARRAY :
-                return "IN ARRAY";
+                return ClientMessages.Instance.get().formFilterCompareInArray();
         }
-        throw new RuntimeException("Serialize Compare");
+        return "";
+    }
+    
+    public String getTooltipText() {
+        switch (this) {
+            case EQUALS :
+                return ClientMessages.Instance.get().formFilterCompareEquals();
+            case GREATER :
+                return ClientMessages.Instance.get().formFilterCompareGreater();
+            case LESS :
+                return ClientMessages.Instance.get().formFilterCompareLess();
+            case GREATER_EQUALS :
+                return ClientMessages.Instance.get().formFilterCompareGreaterEquals();
+            case LESS_EQUALS :
+                return ClientMessages.Instance.get().formFilterCompareLessEquals();
+            case NOT_EQUALS :
+                return ClientMessages.Instance.get().formFilterCompareNotEquals();
+            case CONTAINS:
+                return ClientMessages.Instance.get().formFilterCompareContains();
+            case MATCH:
+                return ClientMessages.Instance.get().formFilterCompareSearch();
+            case INARRAY :
+                return ClientMessages.Instance.get().formFilterCompareInArray();
+        }
+        return "";
+    }
+
+    public boolean escapeSeparator() {
+        return this == EQUALS || this == CONTAINS || this == MATCH;
     }
 }

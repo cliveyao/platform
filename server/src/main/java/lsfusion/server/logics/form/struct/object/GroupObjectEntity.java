@@ -1,16 +1,11 @@
 package lsfusion.server.logics.form.struct.object;
 
 import lsfusion.base.Pair;
+import lsfusion.base.col.ListFact;
 import lsfusion.base.col.MapFact;
 import lsfusion.base.col.SetFact;
-import lsfusion.base.col.interfaces.immutable.ImMap;
-import lsfusion.base.col.interfaces.immutable.ImOrderSet;
-import lsfusion.base.col.interfaces.immutable.ImRevMap;
-import lsfusion.base.col.interfaces.immutable.ImSet;
-import lsfusion.base.col.interfaces.mutable.LongMutable;
-import lsfusion.base.col.interfaces.mutable.MExclMap;
-import lsfusion.base.col.interfaces.mutable.MExclSet;
-import lsfusion.base.col.interfaces.mutable.MOrderExclSet;
+import lsfusion.base.col.interfaces.immutable.*;
+import lsfusion.base.col.interfaces.mutable.*;
 import lsfusion.base.identity.IdentityObject;
 import lsfusion.interop.form.object.table.grid.ListViewType;
 import lsfusion.interop.form.property.ClassViewType;
@@ -19,7 +14,6 @@ import lsfusion.server.base.caches.ManualLazy;
 import lsfusion.server.base.version.NFLazy;
 import lsfusion.server.data.expr.Expr;
 import lsfusion.server.data.expr.key.KeyExpr;
-import lsfusion.server.data.expr.value.StaticParamNullableExpr;
 import lsfusion.server.data.sql.exception.SQLHandledException;
 import lsfusion.server.data.stat.Stat;
 import lsfusion.server.data.stat.StatType;
@@ -29,12 +23,16 @@ import lsfusion.server.logics.action.session.change.modifier.Modifier;
 import lsfusion.server.logics.classes.ValueClass;
 import lsfusion.server.logics.classes.user.ConcreteCustomClass;
 import lsfusion.server.logics.form.interactive.UpdateType;
+import lsfusion.server.logics.form.interactive.action.input.InputFilterEntity;
+import lsfusion.server.logics.form.interactive.changed.ReallyChanged;
 import lsfusion.server.logics.form.interactive.controller.init.InstanceFactory;
 import lsfusion.server.logics.form.interactive.controller.init.Instantiable;
 import lsfusion.server.logics.form.interactive.instance.filter.FilterInstance;
 import lsfusion.server.logics.form.interactive.instance.object.GroupObjectInstance;
 import lsfusion.server.logics.form.interactive.instance.object.ObjectInstance;
 import lsfusion.server.logics.form.interactive.property.GroupObjectProp;
+import lsfusion.server.logics.form.struct.filter.ContextFilterEntity;
+import lsfusion.server.logics.form.struct.filter.FilterEntity;
 import lsfusion.server.logics.form.struct.filter.FilterEntityInstance;
 import lsfusion.server.logics.form.struct.group.Group;
 import lsfusion.server.logics.form.struct.property.PropertyObjectEntity;
@@ -42,8 +40,11 @@ import lsfusion.server.logics.property.Property;
 import lsfusion.server.logics.property.PropertyFact;
 import lsfusion.server.logics.property.classes.ClassPropertyInterface;
 import lsfusion.server.logics.property.classes.IsClassProperty;
+import lsfusion.server.logics.property.implement.PropertyMapImplement;
 import lsfusion.server.logics.property.implement.PropertyRevImplement;
+import lsfusion.server.logics.property.oraction.PropertyInterface;
 import lsfusion.server.physics.admin.Settings;
+import lsfusion.server.physics.dev.debug.DebugInfo;
 import lsfusion.server.physics.dev.i18n.LocalizedString;
 
 import java.sql.SQLException;
@@ -62,6 +63,8 @@ public class GroupObjectEntity extends IdentityObject implements Instantiable<Gr
 
     public boolean isSubReport;
     public PropertyObjectEntity<?> reportPathProp;
+
+    private DebugInfo.DebugPoint debugPoint;
     
     public UpdateType updateType;
     
@@ -80,40 +83,41 @@ public class GroupObjectEntity extends IdentityObject implements Instantiable<Gr
         this.integrationKey = integrationKey;
     }
 
-    private static class UpStaticParamsProcessor implements GroupObjectInstance.FilterProcessor {
-        private final GroupObjectInstance groupObject;
+    public void setDebugPoint(DebugInfo.DebugPoint debugPoint) {
+        this.debugPoint = debugPoint;
+        this.scriptIndex = Pair.create(debugPoint.getScriptLine(), debugPoint.offset);
+    }
 
+    public DebugInfo.DebugPoint getDebugPoint() {
+        return debugPoint;
+    }
+
+    private static class UpStaticParamsProcessor extends GroupObjectInstance.FilterProcessor {
         public UpStaticParamsProcessor(GroupObjectInstance groupObject) {
-            this.groupObject = groupObject;
+            super(groupObject);
         }
 
         public ImSet<FilterInstance> getFilters() {
-            return groupObject.fixedFilters;
+            return groupObject.getFixedFilters(true, true); // we can't combine filters (see check below)
         }
 
-        public ImMap<ObjectInstance, ? extends Expr> process(FilterInstance filt, ImMap<ObjectInstance, ? extends Expr> mapKeys) {
-            return MapFact.addExcl(mapKeys, filt.getObjects().remove(mapKeys.keys()).mapValues(new Function<ObjectInstance, Expr>() {
-                public Expr apply(ObjectInstance value) {
-                    return new StaticParamNullableExpr(value.getBaseClass().getUpSet(), value.toString());
-                }
-            }));
+        public Where process(FilterInstance filt, ImMap<ObjectInstance, ? extends Expr> mapKeys, Modifier modifier, ReallyChanged reallyChanged) throws SQLException, SQLHandledException {
+            return super.process(filt, MapFact.addExcl(mapKeys, filt.getObjects().remove(mapKeys.keys()).mapValues((ObjectInstance value) -> value.entity.getParamExpr())), modifier, reallyChanged);
         }
     }
-    private static class NoUpProcessor implements GroupObjectInstance.FilterProcessor {
-        private final GroupObjectInstance groupObject;
-
+    private static class NoUpProcessor extends GroupObjectInstance.FilterProcessor {
         public NoUpProcessor(GroupObjectInstance groupObject) {
-            this.groupObject = groupObject;
+            super(groupObject);
         }
 
         public ImSet<FilterInstance> getFilters() {
-            return groupObject.fixedFilters;
+            return groupObject.getFixedFilters(true, true); // we can't combine filters (see check below)
         }
 
-        public ImMap<ObjectInstance, ? extends Expr> process(FilterInstance filt, ImMap<ObjectInstance, ? extends Expr> mapKeys) {
+        public Where process(FilterInstance filt, ImMap<ObjectInstance, ? extends Expr> mapKeys, Modifier modifier, ReallyChanged reallyChanged) throws SQLException, SQLHandledException {
             if(!groupObject.getOrderObjects().getSet().containsAll(filt.getObjects())) // если есть "внешние" объекты исключаем
                 return null;
-            return mapKeys;
+            return super.process(filt, mapKeys, modifier, reallyChanged);
         }
     }
 
@@ -160,10 +164,10 @@ public class GroupObjectEntity extends IdentityObject implements Instantiable<Gr
         this.treeGroup = treeGroup; // нужно чтобы IsInTree правильно определялось в addScriptingTreeGroupObject, когда идет addGroupObjectView
     }
 
-    private PropertyRevImplement<ClassPropertyInterface, ObjectEntity> listViewTypeProp;
-    public PropertyRevImplement<ClassPropertyInterface, ObjectEntity> getListViewType(ConcreteCustomClass listViewType) {
+    private Property<?> listViewTypeProp;
+    public Property<?> getListViewType(ConcreteCustomClass listViewType) {
         if (listViewTypeProp == null) {
-            listViewTypeProp = PropertyFact.createDataPropRev(LocalizedString.create(this.toString()), MapFact.EMPTY(), listViewType, LocalNestedType.ALL);
+            listViewTypeProp = PropertyFact.createDataPropRev("LIST VIEW TYPE", this, listViewType);
         }
         return listViewTypeProp;
     }
@@ -176,6 +180,7 @@ public class GroupObjectEntity extends IdentityObject implements Instantiable<Gr
     public ListViewType listViewType = ListViewType.DEFAULT;
     public PivotOptions pivotOptions;
     public String customRenderFunction;
+    public PropertyObjectEntity<?> propertyCustomOptions;
     public String mapTileProvider;
 
     // for now will use async init since pivot is analytics and don't need for example focuses and can afford extra round trip
@@ -187,6 +192,7 @@ public class GroupObjectEntity extends IdentityObject implements Instantiable<Gr
     public PropertyObjectEntity<?> propertyForeground;
 
     public boolean isFilterExplicitlyUsed; // optimization hack - there are a lot of FILTER usages by group change, but group change needs FILTER only when group (grid) is visible and refreshed, so we do filter update only if the latter condition is matched
+    public boolean isOrderExplicitlyUsed; // optimization hack - there are a lot of ORDER usages by group change, but group change needs ORDER only when group (grid) is visible and refreshed, so we do filter update only if the latter condition is matched
 
     private boolean finalizedProps = false;
     private Object props = MapFact.mExclMap();
@@ -199,7 +205,7 @@ public class GroupObjectEntity extends IdentityObject implements Instantiable<Gr
         MExclMap<GroupObjectProp, PropertyRevImplement<ClassPropertyInterface, ObjectEntity>> mProps = (MExclMap<GroupObjectProp, PropertyRevImplement<ClassPropertyInterface, ObjectEntity>>) props;
         PropertyRevImplement<ClassPropertyInterface, ObjectEntity> prop = mProps.get(type);
         if(prop==null) { // type.getSID() + "_" + getSID() нельзя потому как надо еще SID формы подмешивать
-            prop = PropertyFact.createDataPropRev(LocalizedString.create(type.toString() + " (" + objects.toString() + ")", false), getObjects().mapValues(new Function<ObjectEntity, ValueClass>() {
+            prop = PropertyFact.createDataPropRev(type.toString(), objects, getObjects().mapValues(new Function<ObjectEntity, ValueClass>() {
                 public ValueClass apply(ObjectEntity value) {
                     return value.baseClass;
                 }}), type.getValueClass(), null);
@@ -247,6 +253,10 @@ public class GroupObjectEntity extends IdentityObject implements Instantiable<Gr
         this.customRenderFunction = customRenderFunction;
     }
 
+    public void setCustomOptions(PropertyObjectEntity<?> propertyCustomOptions) {
+        this.propertyCustomOptions = propertyCustomOptions;
+    }
+
     public void setMapTileProvider(String mapTileProvider) {
         this.mapTileProvider = mapTileProvider;
     }
@@ -263,12 +273,16 @@ public class GroupObjectEntity extends IdentityObject implements Instantiable<Gr
         return viewType.isPanel();
     }
 
-    public Pair<Integer, Integer> getScriptIndex() {
-        return scriptIndex;
+    public boolean isCustom() {
+        return !isPanel() && listViewType == ListViewType.CUSTOM;
     }
 
-    public void setScriptIndex(Pair<Integer, Integer> scriptIndex) {
-        this.scriptIndex = scriptIndex;
+    public boolean isSimpleState() {
+        return !isPanel() && (listViewType == ListViewType.CUSTOM || listViewType == ListViewType.MAP || listViewType == ListViewType.CALENDAR);
+    }
+
+    public Pair<Integer, Integer> getScriptIndex() {
+        return scriptIndex;
     }
 
     public void setPropertyBackground(PropertyObjectEntity<?> propertyBackground) {
@@ -349,6 +363,24 @@ public class GroupObjectEntity extends IdentityObject implements Instantiable<Gr
             where = where.and(filt.getWhere(mapKeys, modifier));
         return where;
     }
+    private <P extends PropertyInterface> InputFilterEntity<?, P> getFilterInputFilterEntity(ImSet<ContextFilterEntity<?, P, ObjectEntity>> filters, ImRevMap<ObjectEntity, P> mapObjects) {
+        // assert single and filters objects contain this object
+        InputFilterEntity<?, P> result = null;
+        for(ContextFilterEntity<?, P, ObjectEntity> filt : filters)
+            result = InputFilterEntity.and(result, filt.getInputFilterEntity(getObjects().single(), mapObjects));
+        return result;
+    }
+    private <T extends PropertyInterface, P extends PropertyInterface> PropertyMapImplement<?, T> getFilterWhereProperty(ImSet<FilterEntity> filters, ImSet<ContextFilterEntity<?, P, ObjectEntity>> contextFilters, ImRevMap<P, T> mapValues, ImRevMap<ObjectEntity, T> mapObjects) {
+        MList<PropertyMapImplement<?, T>> mList = ListFact.mList();
+        for(FilterEntity filter : filters)
+            mList.add(filter.getImplement(mapObjects));
+        for(ContextFilterEntity<?, P, ObjectEntity> contextFilter : contextFilters)
+            mList.add(contextFilter.getWhereProperty(mapValues, mapObjects));
+        ImList<PropertyMapImplement<?, T>> list = mList.immutableList();
+        if(list.isEmpty())
+            return null;
+        return PropertyFact.createAnd(list.getCol());
+    }
 
     private static ImMap<ObjectEntity, ValueClass> getGridClasses(ImSet<ObjectEntity> objects) {
         return objects.filterFn(element -> !element.noClasses()).mapValues((ObjectEntity value) -> value.baseClass);
@@ -356,13 +388,33 @@ public class GroupObjectEntity extends IdentityObject implements Instantiable<Gr
     public Where getClassWhere(ImMap<ObjectEntity, ? extends Expr> mapKeys, Modifier modifier) throws SQLException, SQLHandledException {
         return IsClassProperty.getWhere(getGridClasses(getObjects()), mapKeys, modifier, null);
     }
+    public <P extends PropertyInterface> InputFilterEntity<?, P> getClassInputFilterEntity() {
+        return new InputFilterEntity<>(IsClassProperty.getProperty(getGridClasses(getObjects())).property, MapFact.EMPTYREV());
+    }
+    public <P extends PropertyInterface> PropertyMapImplement<?, P> getClassWhereProperty(ImRevMap<ObjectEntity, P> mapObjects) {
+        return IsClassProperty.getProperty(getGridClasses(getObjects())).mapPropertyImplement(mapObjects);
+    }
 
     public Where getWhere(ImMap<ObjectEntity, ? extends Expr> mapKeys, Modifier modifier, ImSet<? extends FilterEntityInstance> filters) throws SQLException, SQLHandledException {
         return getFilterWhere(mapKeys, modifier, filters).and(getClassWhere(mapKeys, modifier));
+    }
+    public <P extends PropertyInterface> InputFilterEntity<?, P> getInputFilterEntity(ImSet<ContextFilterEntity<?, P, ObjectEntity>> filters, ImRevMap<ObjectEntity, P> mapObjects) {
+        return InputFilterEntity.and(getFilterInputFilterEntity(filters, mapObjects), getClassInputFilterEntity());
+    }
+    public <T extends PropertyInterface, P extends PropertyInterface> PropertyMapImplement<?, T> getWhereProperty(ImSet<FilterEntity> filters, ImSet<ContextFilterEntity<?, P, ObjectEntity>> contextFilters, ImRevMap<P, T> mapValues, ImRevMap<ObjectEntity, T> mapObjects) {
+        PropertyMapImplement<?, T> classWhereProperty = getClassWhereProperty(mapObjects);
+        PropertyMapImplement<?, T> filterWhereProperty = getFilterWhereProperty(filters, contextFilters, mapValues, mapObjects);
+        if(filterWhereProperty == null)
+            return classWhereProperty;
+        return PropertyFact.createAnd(filterWhereProperty, classWhereProperty);
     }
 
     // hack where ImMap used (it does not support null keys)
     private GroupObjectEntity() {
     }
     public static final GroupObjectEntity NULL = new GroupObjectEntity();
+
+    public boolean isSimpleList() {
+        return getObjects().size() == 1 && viewType.isList() && !isInTree();
+    }
 }

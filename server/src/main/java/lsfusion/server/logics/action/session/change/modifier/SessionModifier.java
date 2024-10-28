@@ -24,6 +24,7 @@ import lsfusion.server.logics.action.session.change.*;
 import lsfusion.server.logics.action.session.changed.UpdateResult;
 import lsfusion.server.logics.action.session.table.PropertyChangeTableUsage;
 import lsfusion.server.logics.classes.user.BaseClass;
+import lsfusion.server.logics.navigator.controller.env.ChangesController;
 import lsfusion.server.logics.property.Property;
 import lsfusion.server.logics.property.oraction.PropertyInterface;
 import lsfusion.server.physics.admin.Settings;
@@ -220,7 +221,8 @@ public abstract class SessionModifier implements Modifier {
     public abstract SQLSession getSQL();
     public abstract BaseClass getBaseClass();
     public abstract QueryEnvironment getQueryEnv();
-    
+    public abstract ChangesController getChanges();
+
     public abstract OperationOwner getOpOwner();
 
     public boolean allowHintIncrement(Property property) {
@@ -248,17 +250,11 @@ public abstract class SessionModifier implements Modifier {
         return false;
     }
 
-    protected <P extends PropertyInterface> boolean allowPropertyPrereadValues(Property<P> property) {
-        if(!property.isPreread())
-            return false;
-
+    public <P extends PropertyInterface> boolean allowPropertyPrereadValues(Property<P> property) {
         if(Settings.get().isDisablePrereadValues())
             return false;
 
-        if (prereadProps.contains(property))
-            return false;
-
-        return true;
+        return !prereadProps.contains(property);
     }
 
     public <P extends PropertyInterface> ValuesContext cacheAllowPrereadValues(Property<P> property) {
@@ -272,26 +268,24 @@ public abstract class SessionModifier implements Modifier {
         return prereadRows;
     }
 
+    public <P extends PropertyInterface> boolean forcePrereadValues(Property<P> property) {
+        return property.isPreread();
+    }
+
     // assert что в values только
     // предполагается что должно быть consistent с MapCacheAspect.prereadHintEnabled
-    public <P extends PropertyInterface> boolean allowPrereadValues(Property<P> property, ImMap<P, Expr> values) {
-        // assert что values только complex values
-
-        if(!allowPropertyPrereadValues(property))
+    public <P extends PropertyInterface> boolean allowPrereadValues(Property<P> property, ImMap<P, Expr> values, boolean hasChanges) {
+        if(!allowPropertyPrereadValues(property)) // we're not already reading this property
             return false;
 
-        PrereadRows prereadRows = preread.get(property);
+        PrereadRows<P> prereadRows = preread.get(property);
 
-        if(values.size()==property.interfaces.size()) { // если все есть
-            if(prereadRows!=null && prereadRows.readValues.containsKey(values))
-                return false;
-        } else {
-            ImMap<P, Expr> complexValues = Property.onlyComplex(values);
-            if(complexValues.isEmpty() || (prereadRows!=null && prereadRows.readParams.keys().containsAll(complexValues.values().toSet())))
-                return false;
-        }
+        if(values.size()==property.interfaces.size()) // if there are all values, we're checking if we haven't already read this values
+            return !(prereadRows != null && prereadRows.readValues.containsKey(new Pair<>(values, hasChanges)));
 
-        return true;
+        // there are complex values and we have not already read them all
+        ImMap<P, Expr> complexValues = Property.onlyComplex(values);
+        return !complexValues.isEmpty() && !(prereadRows != null && prereadRows.readParams.keys().containsAll(complexValues.values().toSet()));
     }
 
     public boolean forceDisableNoUpdate(Property property) {
@@ -337,8 +331,8 @@ public abstract class SessionModifier implements Modifier {
         eventChange(property, false, true); // используется только в случаях когда гарантировано меняется "источник"
     }
 
-    public <P extends PropertyInterface> void addPrereadValues(Property<P> property, ImMap<P, Expr> values) throws SQLException, SQLHandledException {
-        assert property.isPreread() && allowPrereadValues(property, values);
+    public <P extends PropertyInterface> void addPrereadValues(Property<P> property, ImMap<P, Expr> values, boolean hasChanges) throws SQLException, SQLHandledException {
+        assert allowPrereadValues(property, values, hasChanges);
 
         try {
             prereadProps.add(property);
@@ -359,9 +353,9 @@ public abstract class SessionModifier implements Modifier {
             else
                 readedParamValues = MapFact.EMPTY();
 
-            ImMap<ImMap<P, Expr>, Pair<ObjectValue, Boolean>> readValues;
+            ImMap<Pair<ImMap<P, Expr>, Boolean>, Pair<ObjectValue, Boolean>> readValues;
             if(values.size() == property.interfaces.size())
-                readValues = MapFact.singleton(values, property.readClassesChanged(getSQL(), values.join(prereadedParamValues.addExcl(readedParamValues)), getBaseClass(), this, getQueryEnv()));
+                readValues = MapFact.singleton(new Pair<>(values, hasChanges), property.readClassesChanged(getSQL(), values.join(prereadedParamValues.addExcl(readedParamValues)), getBaseClass(), this, hasChanges, getQueryEnv(), getChanges()));
             else
                 readValues = MapFact.EMPTY();
 
@@ -402,7 +396,6 @@ public abstract class SessionModifier implements Modifier {
                 change = property.getNoChange();
             else
                 change = increment.getPropertyChange(property);
-
             if(change!=null)
                 return new ModifyChange<>(change, preread, true);
         }

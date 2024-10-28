@@ -16,11 +16,14 @@
 package lsfusion.gwt.client.base.view.grid;
 
 import com.google.gwt.dom.client.*;
+import lsfusion.gwt.client.base.GwtClientUtils;
 import lsfusion.gwt.client.base.view.grid.cell.Cell;
 
 import java.util.List;
+import java.util.function.BiPredicate;
 
 import static lsfusion.gwt.client.base.GwtClientUtils.removeAllChildren;
+import static lsfusion.gwt.client.view.MainFrame.v5;
 
 /**
  * Builder used to construct a CellTable.
@@ -39,11 +42,6 @@ public abstract class AbstractDataGridBuilder<T> {
      * The attribute used to specify the logical row index.
      */
     private static final String ROW_ATTRIBUTE = "__gwt_row";
-
-    /**
-     * We change element at first click and should process dblclick
-     */
-    public static final String IGNORE_DBLCLICK_CHECK = "__ignore_dblclick_check";
 
     protected final DataGrid<T> cellTable;
 
@@ -64,9 +62,7 @@ public abstract class AbstractDataGridBuilder<T> {
         assert columnsToRedraw == null || newRowCount == rowCount;
 
         if (rowCount > newRowCount) {
-            for (int i = rowCount - 1; i >= newRowCount; --i) {
-                tbodyElement.deleteRow(i);
-            }
+            deleteRows(tbodyElement, newRowCount, rowCount);
             rowCount = newRowCount;
         }
 
@@ -83,8 +79,7 @@ public abstract class AbstractDataGridBuilder<T> {
         } else {
             if (rowCount > 0) {
                 //update changed rows
-                NodeList<TableRowElement> rows = tbodyElement.getRows();
-                TableRowElement tr = rows.getItem(0);
+                TableRowElement tr = tbodyElement.getFirstChild().cast();
                 updateRow(0, values.get(0), columnsToRedraw, tr);
                 for (int i = 1; i < rowCount; ++i) {
                     tr = tr.getNextSibling().cast();
@@ -99,25 +94,75 @@ public abstract class AbstractDataGridBuilder<T> {
         }
     }
 
+    public void deleteRows(TableSectionElement tbodyElement, int from, int to) {
+        for (int i = to - 1; i >= from; --i)
+            deleteRow(tbodyElement, i);
+    }
+
     private void rebuildRow(int rowIndex, T rowValue, TableRowElement tr) {
         removeAllChildren(tr);
-        setRowValueIndex(tr, rowIndex);
+
+        checkRowValueIndex(tr, rowIndex);
+
         buildRowImpl(rowIndex, rowValue, tr);
+    }
+
+    public void rebuildColumnRow(TableRowElement tr) {
+        removeAllChildren(tr);
+
+        buildColumnRow(tr);
     }
 
     private void buildRow(TableSectionElement tbodyElement, int rowIndex, T rowValue) {
         TableRowElement tr = tbodyElement.insertRow(-1);
-        setRowValueIndex(tr, rowIndex);
 
         buildRowImpl(rowIndex, rowValue, tr);
     }
 
-    private void setRowValueIndex(TableRowElement tr, int rowIndex) {
-        tr.setPropertyInt(ROW_ATTRIBUTE, rowIndex + 1);
+    public void deleteRow(TableSectionElement tbodyElement, int i) {
+        tbodyElement.deleteRow(i);
     }
 
-    public final int getRowValueIndex(Element row) {
-        return row.getPropertyInt(ROW_ATTRIBUTE) - 1;
+    public void incBuildRow(TableSectionElement tbodyElement, int rowIndex, T rowValue) {
+        TableRowElement tr = tbodyElement.insertRow(rowIndex);
+
+        buildRowImpl(rowIndex, rowValue, tr);
+
+        if(cellTable.renderedSelectedRow >= rowIndex) {
+            cellTable.renderedSelectedRow += 1;
+        }
+
+        // indexes will be shifted in the model
+    }
+    public void incUpdateRow(TableSectionElement tbodyElement, int rowIndex, int[] columnsToRedraw, T rowValue) {
+        updateRow(rowIndex, rowValue, columnsToRedraw, tbodyElement.getRows().getItem(rowIndex));
+    }
+    public void incDeleteRows(TableSectionElement tbodyElement, int fromIndex, int toIndex) {
+        deleteRows(tbodyElement, fromIndex, toIndex);
+
+        if(cellTable.renderedSelectedRow > toIndex) {
+            cellTable.renderedSelectedRow -= toIndex - fromIndex;
+        }
+
+        // indexes will be shifted in the model
+    }
+
+    protected void checkRowValueIndex(TableRowElement tr, int rowIndex) {
+        assert getRowValueIndex(tr) == rowIndex;
+    }
+    protected void setRowValueIndex(TableRowElement tr, int rowIndex, RowIndexHolder rowIndexHolder) {
+        tr.setPropertyObject(ROW_ATTRIBUTE, rowIndexHolder);
+        checkRowValueIndex(tr, rowIndex);
+    }
+
+    protected RowIndexHolder getRowIndexHolder(Element row) {
+        return (RowIndexHolder) row.getPropertyObject(ROW_ATTRIBUTE);
+    }
+    protected int getRowValueIndex(Element row) {
+        RowIndexHolder rowIndexHolder = (RowIndexHolder) row.getPropertyObject(ROW_ATTRIBUTE);
+        if(rowIndexHolder != null)
+            return rowIndexHolder.getRowIndex();
+        return -1;
     }
 
     /**
@@ -129,24 +174,57 @@ public abstract class AbstractDataGridBuilder<T> {
      */
     protected abstract void buildRowImpl(int rowIndex, T rowValue, TableRowElement rowElement);
 
+    public abstract void buildColumnRow(TableRowElement rowElement);
+
     /**
      * Build zero or more table rows for the specified row value.
-     *
      * @param rowIndex the absolute row index
      * @param rowValue    the value for the row to render
      * @param columnsToRedraw
      * @param tr
      */
-    private void updateRow(int rowIndex, T rowValue, int[] columnsToRedraw, TableRowElement tr) {
-        setRowValueIndex(tr, rowIndex);
-        updateRowImpl(rowIndex, rowValue, columnsToRedraw, tr);
+    public void updateRow(int rowIndex, T rowValue, int[] columnsToRedraw, TableRowElement tr) {
+        checkRowValueIndex(tr, rowIndex);
+
+        updateRowImpl(rowIndex, rowValue, columnsToRedraw, tr, null);
     }
 
-    protected abstract void updateRowImpl(int rowIndex, T rowValue, int[] columnsToRedraw, TableRowElement rowElement);
+    public abstract void updateRowImpl(int rowIndex, T rowValue, int[] columnsToRedraw, TableRowElement rowElement, BiPredicate<Column<T, ?>, Cell> filter);
+
+    public void updateRowStickyLeft(TableSectionElement tbodyElement, List<Integer> stickyColumns, List<DataGrid.StickyParams> stickyLefts) {
+        int rowCount = tbodyElement.getChildCount();
+        if (rowCount > 0) {
+            NodeList<TableRowElement> rows = tbodyElement.getRows();
+            for (int i = 0; i < rowCount; ++i) {
+                updateRowStickyLeftImpl(rows.getItem(i), stickyColumns, stickyLefts);
+            }
+        }
+    }
+
+    protected abstract void updateRowStickyLeftImpl(TableRowElement rowElement, List<Integer> stickyColumns, List<DataGrid.StickyParams> stickyLefts);
+
+    public void updateStickedState(TableSectionElement tbodyElement, List<Integer> stickyColumns, int lastSticked) {
+        int rowCount = tbodyElement.getChildCount();
+        if (rowCount > 0) {
+            NodeList<TableRowElement> rows = tbodyElement.getRows();
+            for (int i = 0; i < rowCount; ++i) {
+                updateStickedStateImpl(rows.getItem(i), stickyColumns, lastSticked);
+            }
+        }
+    }
+    
+    protected abstract void updateStickedStateImpl(TableRowElement rowElement, List<Integer> stickyColumns, int lastSticked);
 
     protected final <C> void renderCell(TableCellElement td, Cell cell, Column<T, C> column) {
         td.setPropertyObject(COLUMN_ATTRIBUTE, column);
-        column.renderAndUpdateDom(cell, td);
+        column.renderDom(cell, td);
+
+        if(column.isSticky()) {
+            //class dataGridStickyCell is also used in DataGrid isStickyCell()
+            GwtClientUtils.addClassName(td, "data-grid-sticky-cell", "dataGridStickyCell", v5);
+            GwtClientUtils.addClassName(td, "background-inherit");
+//            td.getStyle().setProperty("position", "sticky"); // we need to add it explicitly since it is used in setupFillParent
+        }
     }
 
     public final Column<T, ?> getColumn(Element elem) {

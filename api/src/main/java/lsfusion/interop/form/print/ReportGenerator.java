@@ -3,14 +3,13 @@ package lsfusion.interop.form.print;
 import com.google.common.base.Throwables;
 import lsfusion.base.*;
 import lsfusion.base.classloader.RemoteClassLoader;
+import lsfusion.base.classloader.WriteUsedClassLoader;
 import lsfusion.base.file.IOUtils;
 import lsfusion.base.file.RawFileData;
 import lsfusion.interop.logics.remote.RemoteLogicsInterface;
 import net.sf.jasperreports.engine.*;
 import net.sf.jasperreports.engine.design.*;
-import net.sf.jasperreports.engine.export.JRPdfExporter;
-import net.sf.jasperreports.engine.export.JRRtfExporter;
-import net.sf.jasperreports.engine.export.JRXlsExporter;
+import net.sf.jasperreports.engine.export.*;
 import net.sf.jasperreports.engine.export.ooxml.JRDocxExporter;
 import net.sf.jasperreports.engine.export.ooxml.JRXlsxExporter;
 import net.sf.jasperreports.engine.fill.JRSwapFileVirtualizer;
@@ -97,19 +96,31 @@ public class ReportGenerator {
         transformDesigns(printType.ignorePagination());
 
         Map<String, Object> params = new HashMap<>();
+//        // external classloader required for correct Jasper report generation on clients
+        ClassLoader originalClassloader = null;
+        if (remoteLogics != null) {
+            originalClassloader = Thread.currentThread().getContextClassLoader();
+            Thread.currentThread().setContextClassLoader(new WriteUsedClassLoader(retrieveClasses(generationData),
+                    originalClassloader instanceof RemoteClassLoader ? originalClassloader.getParent() : originalClassloader, //not possible to do via parent because it is used in a load class and not in a find
+                    remoteLogics));
+        }
 
-        // external classloader required for correct Jasper report generation on clients
-        ClassLoader originalClassloader = Thread.currentThread().getContextClassLoader();
         JasperPrint print;
         try {
-            if (remoteLogics != null)
-                Thread.currentThread().setContextClassLoader(new RemoteClassLoader.ExternalClassLoader(remoteLogics));
-
             iterateChildReport(rootID, params, virtualizer);
 
             JasperReport report = (JasperReport) params.get(rootID + ReportConstants.reportSuffix);
             ReportDataSource source = (ReportDataSource) params.get(rootID + ReportConstants.sourceSuffix);
             Map<String, Object> childParams = (Map<String, Object>) params.get(rootID + ReportConstants.paramsSuffix);
+
+            if(generationData.jasperReportsGovernorMaxPages > 0) {
+                report.setProperty("net.sf.jasperreports.governor.max.pages", String.valueOf(generationData.jasperReportsGovernorMaxPages));
+                report.setProperty("net.sf.jasperreports.governor.max.pages.enabled", "true");
+            }
+            if(generationData.jasperReportsGovernorTimeout > 0) {
+                report.setProperty("net.sf.jasperreports.governor.timeout", String.valueOf(generationData.jasperReportsGovernorTimeout));
+                report.setProperty("net.sf.jasperreports.governor.timeout.enabled", "true");
+            }
 
             print = JasperFillManager.fillReport(report, childParams, source);
         } finally {
@@ -174,6 +185,10 @@ public class ReportGenerator {
         return new Pair<>(rootID, hierarchy);
     }
 
+    private static Map<String, byte[]> retrieveClasses(ReportGenerationData generationData) throws IOException, ClassNotFoundException {
+        return (Map<String, byte[]>) new ObjectInputStream(new ByteArrayInputStream(generationData.classes)).readObject();
+    }
+
     private static Map<String, JasperDesign> retrieveReportDesigns(ReportGenerationData generationData) throws IOException, ClassNotFoundException {
         ObjectInputStream objStream = new ObjectInputStream(new ByteArrayInputStream(generationData.reportDesignData));
         return (Map<String, JasperDesign>) objStream.readObject();
@@ -231,6 +246,17 @@ public class ReportGenerator {
         return fieldName;
     }
 
+    // "fieldName.header[1]" -> "fieldName[1]"
+    public static String getBaseFieldNameWithIndex(String fullFieldName) {
+        String fieldName = removeIndexMarkerIfExists(fullFieldName);
+        String index = "";
+        if (!fieldName.equals(fullFieldName)) {
+            index = fullFieldName.substring(fieldName.length());
+        }
+        fieldName = getBaseFieldName(fullFieldName);
+        return fieldName + index;
+    }
+    
     private String findColumnFieldName(JRExpression expr, String subreportID) {
         String exprText = expr.getText();
         Matcher match = fieldPattern.matcher(exprText);
@@ -420,11 +446,40 @@ public class ReportGenerator {
         if (generationData.useShowIf) {
             Collection<JRTextField> fieldsToHide = findTextFieldsToHide(design, subreportID);
             if (!fieldsToHide.isEmpty()) {
+                int rightmostX = rightmostXCoord(design);
                 cutSegments(design, findCutSegments(fieldsToHide));
+                if (!ignorePagination) {
+                    expandDesignElements(design, rightmostX);
+                }
             }
         }
     }
 
+    private int rightmostXCoord(JasperDesign design) {
+        int result = 0;
+        for (JRElement element : getDesignElements(design)) {
+            result = Math.max(result, element.getX() + element.getWidth());
+        }
+        return result;
+    }
+    
+    private void expandDesignElements(JasperDesign design, int width) {
+        Collection<JRElement> elements = getDesignElements(design);
+        int maxX = 0;
+        for (JRElement element : elements) {
+            maxX = Math.max(maxX, element.getX() + element.getWidth());
+        }
+        
+        double ratio = width / (double) maxX;
+        
+        for (JRElement element : elements) {
+            int leftX = (int) Math.round(ratio * element.getX());
+            int rightX = (int) Math.round(ratio * (element.getX() + element.getWidth()));
+            element.setX(leftX);
+            element.setWidth(rightX - leftX);
+        }
+    }
+    
     private List<Segment> findCutSegments(Collection<JRTextField> fieldsToHide) {
         List<FieldXBorder> fieldsBorders = createSortedFieldsBordersList(fieldsToHide);
         return findCutSegments(fieldsBorders);
@@ -473,8 +528,7 @@ public class ReportGenerator {
                     String exprText = textElement.getExpression().getText();
                     if (exprText.startsWith("$F{")) {
                         String fieldName = getFieldName(exprText);
-                        // We need to check already divided fields as well
-                        if (hidingFieldsNames.contains(removeIndexMarkerIfExists(fieldName))) { 
+                        if (hidingFieldsNames.contains(fieldName)) { 
                             textFieldsToHide.add(textElement);
                         }
                     }
@@ -488,7 +542,7 @@ public class ReportGenerator {
         Set<String> hidingFieldsNames = new HashSet<>();
         for (JRField field : design.getFieldsList()) {
             if (isActiveShowIfField(field.getName(), subreportID)) {
-                String baseFieldName = getBaseFieldName(field.getName());
+                String baseFieldName = getBaseFieldNameWithIndex(field.getName());
                 hidingFieldsNames.add(baseFieldName);
             }
         }
@@ -538,7 +592,7 @@ public class ReportGenerator {
 
     @Deprecated
     public static File exportToXlsx(ReportGenerationData generationData) throws IOException, ClassNotFoundException, JRException {
-        return exportToFile(generationData, FormPrintType.XLSX, null, null, null);
+        return exportToFile(generationData, FormPrintType.XLSX, null, null, false, null);
     }
 
     private void removeZeroWidthElements(JasperDesign design) {
@@ -732,13 +786,13 @@ public class ReportGenerator {
         return res;
     }
 
-    public static void exportAndOpen(ReportGenerationData generationData, FormPrintType type, boolean fixBoolean, RemoteLogicsInterface remoteLogics) {
-        exportAndOpen(generationData, type, null, null, remoteLogics);
+    public static void exportAndOpen(ReportGenerationData generationData, FormPrintType type, boolean jasperReportsIgnorePageMargins, RemoteLogicsInterface remoteLogics) {
+        exportAndOpen(generationData, type, null, null, jasperReportsIgnorePageMargins, remoteLogics);
     }
 
-    public static void exportAndOpen(ReportGenerationData generationData, FormPrintType type, String sheetName, String password, RemoteLogicsInterface remoteLogics) {
+    public static void exportAndOpen(ReportGenerationData generationData, FormPrintType type, String sheetName, String password, boolean jasperReportsIgnorePageMargins, RemoteLogicsInterface remoteLogics) {
         try {
-            File tempFile = exportToFile(generationData, type, sheetName, password, remoteLogics);
+            File tempFile = exportToFile(generationData, type, sheetName, password, jasperReportsIgnorePageMargins, remoteLogics);
 
             try {
                 if (Desktop.isDesktopSupported()) {
@@ -771,7 +825,7 @@ public class ReportGenerator {
         }
     }
 
-    public static File exportToFile(ReportGenerationData generationData, FormPrintType type, String sheetName, String password, RemoteLogicsInterface remoteLogics) throws ClassNotFoundException, IOException, JRException {
+    public static File exportToFile(ReportGenerationData generationData, FormPrintType type, String sheetName, String password, boolean jasperReportsIgnorePageMargins, RemoteLogicsInterface remoteLogics) throws ClassNotFoundException, IOException, JRException {
         String extension = type.getExtension();
         File tempFile = File.createTempFile("lsf", "." + extension);
 
@@ -784,6 +838,10 @@ public class ReportGenerator {
         }
 
         JRAbstractExporter exporter = getExporter(type);
+        if (jasperReportsIgnorePageMargins) {
+            exporter.setParameter(JRExporterParameter.IGNORE_PAGE_MARGINS, Boolean.TRUE);
+            exporter.setParameter(JRXlsExporterParameter.IS_ONE_PAGE_PER_SHEET, Boolean.TRUE);
+        }
         exporter.setParameter(JRExporterParameter.JASPER_PRINT, print);
         exporter.setParameter(JRExporterParameter.OUTPUT_FILE_NAME, tempFile.getAbsolutePath());
         exporter.exportReport();
@@ -836,14 +894,14 @@ public class ReportGenerator {
         return tempFile;
     }
 
-    public static RawFileData exportToFileByteArray(ReportGenerationData generationData, FormPrintType type, RemoteLogicsInterface remoteLogics) {
-        return exportToFileByteArray(generationData, type, null, null, remoteLogics);
+    public static RawFileData exportToFileByteArray(ReportGenerationData generationData, FormPrintType type, boolean jasperReportsIgnorePageMargins, RemoteLogicsInterface remoteLogics) {
+        return exportToFileByteArray(generationData, type, null, null, jasperReportsIgnorePageMargins, remoteLogics);
     }
     
-    public static RawFileData exportToFileByteArray(ReportGenerationData generationData, FormPrintType type, String sheetName, String password, RemoteLogicsInterface remoteLogics) {
+    public static RawFileData exportToFileByteArray(ReportGenerationData generationData, FormPrintType type, String sheetName, String password, boolean jasperReportsIgnorePageMargins, RemoteLogicsInterface remoteLogics) {
         try {
             try {
-                return new RawFileData(exportToFile(generationData, type, sheetName, password, remoteLogics));
+                return new RawFileData(exportToFile(generationData, type, sheetName, password, jasperReportsIgnorePageMargins, remoteLogics));
             } finally {
                 JRVirtualizationHelper.clearThreadVirtualizer();
             }

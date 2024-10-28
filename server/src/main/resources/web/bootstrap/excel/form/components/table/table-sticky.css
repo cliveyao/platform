@@ -1,0 +1,8 @@
+
+/* see table-container-boxed comment */
+.table-container-boxed .data-grid-header-row, .table-container-boxed .data-grid-header-row .background-inherit, .table-container-boxed .data-grid-header-row.background-inherit  {
+    background: var(--background-color);
+}
+.table-container-boxed .data-grid-footer-row, .table-container-boxed .data-grid-footer-row .background-inherit, .table-container-boxed .data-grid-footer-row.background-inherit  {
+    background: var(--background-color);
+}

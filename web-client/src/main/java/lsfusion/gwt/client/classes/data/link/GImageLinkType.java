@@ -5,10 +5,10 @@ import lsfusion.gwt.client.form.property.GPropertyDraw;
 import lsfusion.gwt.client.form.property.cell.classes.view.link.ImageLinkCellRenderer;
 import lsfusion.gwt.client.form.property.cell.view.CellRenderer;
 
-public class GImageLinkType extends GLinkType {
+public class GImageLinkType extends GRenderedLinkType {
     @Override
-    public CellRenderer createGridCellRenderer(GPropertyDraw property) {
-        return new ImageLinkCellRenderer(property);
+    public String getExtension() {
+        return "jpg";
     }
 
     @Override

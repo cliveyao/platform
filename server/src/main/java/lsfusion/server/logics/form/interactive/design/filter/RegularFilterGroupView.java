@@ -4,6 +4,7 @@ import lsfusion.server.base.version.NFFact;
 import lsfusion.server.base.version.Version;
 import lsfusion.server.base.version.interfaces.NFOrderSet;
 import lsfusion.server.logics.form.interactive.controller.remote.serialization.ServerSerializationPool;
+import lsfusion.server.logics.form.interactive.design.BaseComponentView;
 import lsfusion.server.logics.form.interactive.design.ComponentView;
 import lsfusion.server.logics.form.struct.filter.RegularFilterEntity;
 import lsfusion.server.logics.form.struct.filter.RegularFilterGroupEntity;
@@ -12,7 +13,7 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 
-public class RegularFilterGroupView extends ComponentView {
+public class RegularFilterGroupView extends BaseComponentView {
     
     public RegularFilterGroupEntity entity;
 
@@ -44,7 +45,7 @@ public class RegularFilterGroupView extends ComponentView {
         pool.serializeCollection(outStream, filters.getList());
         outStream.writeInt(entity.getDefault());
 
-        pool.serializeObject(outStream, pool.context.view.getGroupObject(entity.getToDraw(pool.context.view.entity)));
+        pool.serializeObject(outStream, pool.context.view.getGroupObject(entity.getToDraw(pool.context.entity)));
     }
 
     @Override
@@ -52,7 +53,7 @@ public class RegularFilterGroupView extends ComponentView {
         super.customDeserialize(pool, inStream);
 
         entity = pool.context.entity.getRegularFilterGroup(ID);
-        filters = NFFact.finalOrderSet(pool.deserializeList(inStream));
+//        filters = NFFact.finalOrderSet(pool.deserializeList(inStream));
     }
 
     @Override

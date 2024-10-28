@@ -4,7 +4,9 @@ import com.hexiong.jdbf.JDBFException;
 import lsfusion.base.TimeConverter;
 import lsfusion.interop.base.view.FlexAlignment;
 import lsfusion.interop.classes.DataType;
+import lsfusion.interop.connection.LocalePreferences;
 import lsfusion.interop.form.property.ExtInt;
+import lsfusion.server.base.controller.thread.ThreadLocalContext;
 import lsfusion.server.data.sql.syntax.SQLSyntax;
 import lsfusion.server.data.stat.Stat;
 import lsfusion.server.data.type.exec.TypeEnvironment;
@@ -22,25 +24,24 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Time;
 import java.time.LocalTime;
-import java.time.chrono.Chronology;
 import java.time.format.DateTimeFormatter;
-import java.time.format.DateTimeFormatterBuilder;
-import java.time.format.FormatStyle;
-import java.util.Locale;
+import java.util.ArrayList;
+import java.util.Collection;
 
 import static lsfusion.base.TimeConverter.localTimeToSqlTime;
 import static lsfusion.base.TimeConverter.sqlTimeToLocalTime;
 
-public class TimeClass extends DataClass<LocalTime> {
-    public final static TimeClass instance = new TimeClass();
+public class TimeClass extends HasTimeClass<LocalTime> {
 
-    private final static String timePattern = DateTimeFormatterBuilder.getLocalizedDateTimePattern(null, FormatStyle.MEDIUM, Chronology.ofLocale(Locale.getDefault()), Locale.getDefault());
-
-    static {
-        DataClass.storeClass(instance);
+    private TimeClass(LocalizedString caption, ExtInt millisLength) {
+        super(caption, millisLength);
     }
 
-    private TimeClass() { super(LocalizedString.create("{classes.time}")); }
+    private final static Collection<TimeClass> timeClasses = new ArrayList<>();
+    public final static TimeClass instance = get(ExtInt.UNLIMITED);
+    public static TimeClass get(ExtInt millisLength) {
+        return getCached(timeClasses, millisLength, () -> new TimeClass(LocalizedString.create("{classes.time}"), millisLength));
+    }
 
     public DataClass getCompatible(DataClass compClass, boolean or) {
         return compClass instanceof TimeClass ? this : null;
@@ -51,24 +52,20 @@ public class TimeClass extends DataClass<LocalTime> {
     }
 
     protected Class getReportJavaClass() {
-        return java.util.Date.class;
+        return java.time.LocalTime.class;
     }
 
     @Override
-    public void fillReportDrawField(ReportDrawField reportField) {
-        super.fillReportDrawField(reportField);
-
-        reportField.pattern = timePattern;
+    public String getDefaultPattern() {
+        LocalePreferences localePreferences = ThreadLocalContext.get().getLocalePreferences();
+        return localePreferences != null ? localePreferences.timeFormat : ThreadLocalContext.getTFormats().timePattern;
     }
 
     public LocalTime parseString(String s) throws ParseException {
         try {
-            //try to parse with default locale formats
-            for(FormatStyle formatStyle : new FormatStyle[]{FormatStyle.MEDIUM, FormatStyle.SHORT}) {
-                try {
-                    return LocalTime.parse(s, DateTimeFormatter.ofLocalizedTime(formatStyle));
-                } catch (Exception ignored) {
-                }
+            try {
+                return LocalTime.parse(s, ThreadLocalContext.getTFormats().timeParser);
+            } catch (Exception ignored) {
             }
             return TimeConverter.smartParse(s);
         } catch (Exception e) {
@@ -77,12 +74,14 @@ public class TimeClass extends DataClass<LocalTime> {
     }
 
     @Override
-    public String formatString(LocalTime value) {
-        return value == null ? null : value.format(DateTimeFormatter.ofLocalizedTime(FormatStyle.MEDIUM));
+    public String formatString(LocalTime value, boolean ui) {
+        LocalePreferences localePreferences = ThreadLocalContext.get().getLocalePreferences();
+        return value != null ? (value.format(ui && localePreferences != null ? DateTimeFormatter.ofPattern(localePreferences.timeFormat)
+                : ThreadLocalContext.getTFormats().timeFormatter)) : null;
     }
 
-    public String getDB(SQLSyntax syntax, TypeEnvironment typeEnv) {
-        return syntax.getTimeType();
+    public String getDBString(SQLSyntax syntax, TypeEnvironment typeEnv) {
+        return syntax.getTimeType(millisLength);
     }
 
     public String getDotNetType(SQLSyntax syntax, TypeEnvironment typeEnv) {
@@ -127,11 +126,6 @@ public class TimeClass extends DataClass<LocalTime> {
     }
 
     @Override
-    public FlexAlignment getValueAlignment() {
-        return FlexAlignment.END;
-    }
-
-    @Override
     public boolean isSafeType() {
         return false;
     }
@@ -171,7 +165,7 @@ public class TimeClass extends DataClass<LocalTime> {
 
     @Override
     public OverJDBField formatDBF(String fieldName) throws JDBFException {
-        return new OverJDBField(fieldName, 'C', 8, 0);
+        return OverJDBField.createField(fieldName, 'C', 8, 0);
     }
 
     @Override
@@ -185,5 +179,20 @@ public class TimeClass extends DataClass<LocalTime> {
     @Override
     public LocalTime read(ResultSet set, SQLSyntax syntax, String name) throws SQLException {
         return super.read(set, syntax, name); //return set.getTime(name); в частности jtds глючит String вместо Time возвращает
+    }
+
+    @Override
+    public String getIntervalProperty() {
+        return "interval[TIME,TIME]";
+    }
+
+    @Override
+    public String getFromIntervalProperty() {
+        return "from[INTERVAL[TIME]]";
+    }
+
+    @Override
+    public String getToIntervalProperty() {
+        return "to[INTERVAL[TIME]]";
     }
 }

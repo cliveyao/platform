@@ -1,13 +1,15 @@
 package lsfusion.gwt.client.form.property.async;
 
-import com.google.gwt.user.client.Event;
+import lsfusion.gwt.client.base.view.EventHandler;
 import lsfusion.gwt.client.form.controller.GFormController;
-import lsfusion.gwt.client.form.property.GPropertyDraw;
-import lsfusion.gwt.client.form.property.cell.controller.ExecuteEditContext;
+import lsfusion.gwt.client.form.property.GEventSource;
+import lsfusion.gwt.client.form.property.cell.controller.EditContext;
+import lsfusion.gwt.client.form.property.cell.controller.ExecContext;
 
 import java.io.Serializable;
+import java.util.function.Consumer;
 
 public abstract class GAsyncEventExec implements Serializable {
 
-    public abstract void exec(GFormController formController, GPropertyDraw property, Event event, ExecuteEditContext editContext, String actionSID);
+    public abstract void exec(GFormController formController, EventHandler handler, EditContext editContext, ExecContext execContext, String actionSID, GPushAsyncInput pushAsyncResult, GEventSource eventSource, Consumer<Long> onExec);
 }

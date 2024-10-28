@@ -1,6 +1,5 @@
 package lsfusion.server.base.controller.remote.ui;
 
-import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
 import lsfusion.base.ExceptionUtils;
 import lsfusion.interop.action.*;
@@ -9,23 +8,14 @@ import lsfusion.server.base.controller.stack.ThrowableWithStack;
 import lsfusion.server.physics.admin.log.ServerLoggers;
 
 import java.rmi.RemoteException;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
+import java.util.*;
 import java.util.concurrent.ExecutorService;
+import java.util.function.Function;
 
 public abstract class RemotePausableInvocation extends PausableInvocation<ServerResponse, RemoteException> {
     private final ContextAwarePendingRemoteObject remoteObject;
 
     private final long requestIndex;
-
-    /**
-     * @param invocationsExecutor
-     */
-    public RemotePausableInvocation(ExecutorService invocationsExecutor, ContextAwarePendingRemoteObject remoteObject) {
-        this(-1, null, invocationsExecutor, remoteObject);
-    }
 
     public RemotePausableInvocation(long requestIndex, String sid, ExecutorService invocationsExecutor, ContextAwarePendingRemoteObject remoteObject) {
         super(sid, invocationsExecutor);
@@ -37,7 +27,7 @@ public abstract class RemotePausableInvocation extends PausableInvocation<Server
 
     protected List<ClientAction> delayedActions = new ArrayList<>();
 
-    protected MessageClientAction delayedMessageAction = null; 
+    protected MessageClientAction delayedMessageAction = null;
 
     private Object[] actionResults;
     private Throwable clientThrowable;
@@ -51,15 +41,23 @@ public abstract class RemotePausableInvocation extends PausableInvocation<Server
         }
 
         if (action instanceof MessageClientAction) {
-            if (delayedMessageAction == null)
-                delayedMessageAction = (MessageClientAction) action;
+            MessageClientAction messageAction = (MessageClientAction) action;
+            if (delayedMessageAction == null || !isMergeable(delayedMessageAction, messageAction))
+                delayedMessageAction = messageAction;
             else {
-                delayedMessageAction.message += "\n" + ((MessageClientAction) action).message;
+                delayedMessageAction.message += "\n" + messageAction.message;
+                delayedMessageAction.textMessage += "\n" + messageAction.textMessage;
                 return; // we've already added message to existing action
             }
         }
 
         delayedActions.add(action);
+    }
+
+    private boolean isMergeable(MessageClientAction action1, MessageClientAction action2) {
+        return action1.type.equals(action2.type)
+                && action1.data.isEmpty() && action2.data.isEmpty()
+                && action1.titles.isEmpty() && action2.titles.isEmpty() && action1.message instanceof String && action2.message instanceof String;
     }
 
     /**
@@ -73,14 +71,7 @@ public abstract class RemotePausableInvocation extends PausableInvocation<Server
         int neededActionResultsCnt = actions.length;
         Collections.addAll(delayedActions, actions);
 
-        try {
-            pause();
-        } catch (InterruptedException e) {
-            if (ServerLoggers.isPausableLogEnabled()) {
-                ServerLoggers.pausableLog("Interaction " + sid + " was interrupted");
-            }
-            throw Throwables.propagate(e);
-        }
+        pause();
 
         if (clientThrowable != null) {
             Throwable t = clientThrowable;
@@ -95,23 +86,19 @@ public abstract class RemotePausableInvocation extends PausableInvocation<Server
      * основной поток
      */
     public final ServerResponse resumeAfterUserInteraction(Object[] actionResults) throws RemoteException {
-        Preconditions.checkState(isPaused(), "can't resume after user interaction - wasn't paused for user interaction");
-
-        if (ServerLoggers.isPausableLogEnabled()) {
+        if (ServerLoggers.isPausableLogEnabled())
             ServerLoggers.pausableLog("Interaction " + sid + " resumed after userInteraction: " + Arrays.toString(actionResults));
-        }
 
         this.actionResults = actionResults;
-        return resume();
+        return resumeAfterPause();
     }
 
     public final ServerResponse resumeWithThrowable(Throwable clientThrowable) throws RemoteException {
-        Preconditions.checkState(isPaused(), "can't resume after user interaction - wasn't paused for user interaction");
-
-        ServerLoggers.pausableLog("Interaction " + sid + " thrown client exception: ", clientThrowable);
+        if (ServerLoggers.isPausableLogEnabled())
+            ServerLoggers.pausableLog("Interaction " + sid + " thrown client exception: ", clientThrowable);
 
         this.clientThrowable = clientThrowable;
-        return resume();
+        return resumeAfterPause();
     }
 
     /**
@@ -119,19 +106,27 @@ public abstract class RemotePausableInvocation extends PausableInvocation<Server
      * по умолчанию вызывает {@link RemotePausableInvocation#callInvocation()}, и возвращает его результат из {@link RemotePausableInvocation#handleFinished()}
      * @throws Throwable
      */
+
+    private static final ThreadLocal<RemotePausableInvocation> runningInvocation = new ThreadLocal<>();
     protected void runInvocation() throws Throwable {
         //final long id = Thread.currentThread().getId();
         //RemoteLoggerAspect.putDateTimeCall(id, new Timestamp(System.currentTimeMillis()));
         //try {
             remoteObject.addContextThread(Thread.currentThread());
+            runningInvocation.set(this);
             try {
                 invocationResult = callInvocation();
             } finally {
+                runningInvocation.set(null);
                 remoteObject.removeContextThread(Thread.currentThread());
             }
         //} finally {
         //    RemoteLoggerAspect.removeDateTimeCall(id);
         //}
+    }
+
+    public static <T> T runUserInteraction(Function<RemotePausableInvocation, T> userInteraction) {
+        return userInteraction.apply(runningInvocation.get());
     }
 
     /**
@@ -167,8 +162,9 @@ public abstract class RemotePausableInvocation extends PausableInvocation<Server
     @Override
     protected final ServerResponse handlePaused() throws RemoteException {
         try {
-            ServerResponse result = new ServerResponse(requestIndex, delayedActions.toArray(new ClientAction[delayedActions.size()]));
+            ServerResponse result = new ServerResponse(requestIndex, delayedActions.toArray(new ClientAction[delayedActions.size()]), true);
             delayedActions.clear();
+            delayedMessageAction = null;
 
             return result;
         } catch (Exception e) {
@@ -181,7 +177,7 @@ public abstract class RemotePausableInvocation extends PausableInvocation<Server
     }
 
     @Override
-    protected boolean isDeactivating() {
-        return remoteObject.isDeactivating();
+    protected ContextAwarePendingRemoteObject getRemoteObject() {
+        return remoteObject;
     }
 }

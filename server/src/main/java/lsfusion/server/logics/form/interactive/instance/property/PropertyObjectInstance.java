@@ -1,18 +1,27 @@
 package lsfusion.server.logics.form.interactive.instance.property;
 
+import lsfusion.base.BaseUtils;
+import lsfusion.base.Result;
 import lsfusion.base.col.interfaces.immutable.ImMap;
 import lsfusion.base.col.interfaces.immutable.ImRevMap;
 import lsfusion.base.col.interfaces.immutable.ImSet;
 import lsfusion.base.col.interfaces.mutable.MSet;
 import lsfusion.base.col.interfaces.mutable.mapvalue.ThrowingFunction;
+import lsfusion.base.lambda.set.NotFunctionSet;
+import lsfusion.base.lambda.set.SFunctionSet;
+import lsfusion.interop.form.property.Compare;
 import lsfusion.server.data.expr.Expr;
 import lsfusion.server.data.expr.key.KeyExpr;
+import lsfusion.server.data.expr.value.StaticParamNullableExpr;
 import lsfusion.server.data.sql.exception.SQLHandledException;
 import lsfusion.server.data.type.Type;
-import lsfusion.server.data.value.DataObject;
+import lsfusion.server.data.value.ObjectValue;
 import lsfusion.server.data.where.WhereBuilder;
 import lsfusion.server.logics.action.session.change.modifier.Modifier;
 import lsfusion.server.logics.classes.ValueClass;
+import lsfusion.server.logics.form.interactive.action.input.InputContextPropertyListEntity;
+import lsfusion.server.logics.form.interactive.action.input.InputPropertyListEntity;
+import lsfusion.server.logics.form.interactive.action.input.InputPropertyValueList;
 import lsfusion.server.logics.form.interactive.changed.ChangedData;
 import lsfusion.server.logics.form.interactive.changed.ReallyChanged;
 import lsfusion.server.logics.form.interactive.instance.FormInstance;
@@ -26,6 +35,7 @@ import lsfusion.server.physics.admin.Settings;
 import lsfusion.server.physics.exec.hint.AutoHintsAspect;
 
 import java.sql.SQLException;
+import java.util.function.Function;
 
 public class PropertyObjectInstance<P extends PropertyInterface> extends ActionOrPropertyObjectInstance<P, Property<P>> implements OrderInstance {
 
@@ -33,16 +43,17 @@ public class PropertyObjectInstance<P extends PropertyInterface> extends ActionO
         super(property, mapping);
     }
 
-    public PropertyObjectInstance<P> getRemappedPropertyObject(ImMap<? extends PropertyObjectInterfaceInstance, DataObject> mapKeyValues) {
-        return new PropertyObjectInstance<>(property, remapSkippingEqualsObjectInstances(mapKeyValues));
+    public PropertyObjectInstance<P> getRemappedPropertyObject(ImMap<? extends PropertyObjectInterfaceInstance, ? extends ObjectValue> mapKeyValues, boolean fullKey) {
+        return new PropertyObjectInstance<>(property, remapSkippingEqualsObjectInstances(mapKeyValues, fullKey));
     }
 
     public Object read(FormInstance formInstance) throws SQLException, SQLHandledException {
         return property.read(formInstance, getInterfaceObjectValues());
     }
 
-    public ValueClass getValueClass() {
-        return property.getValueClass(ClassType.formPolicy);
+    public ValueClass getFilterValueClass(Compare compare) {
+        ValueClass valueClass = property.getValueClass(ClassType.formPolicy);
+        return compare != null && compare.escapeSeparator() ? valueClass.getFilterMatchValueClass() : valueClass;
     }
 
     private Expr getExpr(final ImMap<ObjectInstance, ? extends Expr> classSource, final Modifier modifier, WhereBuilder whereBuilder) throws SQLException, SQLHandledException {
@@ -82,7 +93,7 @@ public class PropertyObjectInstance<P extends PropertyInterface> extends ActionO
         WhereBuilder changedWhere = new WhereBuilder();
         if(disableHint) { // hack - needed because finding out if property really changed with hints can be a huge overhead (for example if it is hidden), so we'll disable hints
             modifier.getPropertyChanges(); // hack - however reading propertyChanges can lead to notifySourceChange where hints can be used, so will read it before disabling
-            AutoHintsAspect.pushDisabledRepeat();
+            AutoHintsAspect.pushDisabledComplex();
         }
         try {
             Expr result = getExpr(keys, modifier, changedWhere);
@@ -90,7 +101,7 @@ public class PropertyObjectInstance<P extends PropertyInterface> extends ActionO
                 return true;
         } finally {
             if(disableHint)
-                AutoHintsAspect.popDisabledRepeat();
+                AutoHintsAspect.popDisabledComplex();
         }
         return !changedWhere.toWhere().isFalse();
     } 
@@ -130,5 +141,26 @@ public class PropertyObjectInstance<P extends PropertyInterface> extends ActionO
 
     public Type getType() {
         return property.getType();
+    }
+
+    // using getParamExpr for objects and getInterfaceParamExprs for all the rest
+    public static <P extends PropertyInterface> ImMap<P, StaticParamNullableExpr> getParamExprs(Property<P> property, ImMap<P, PropertyObjectInterfaceInstance> outerMapping) {
+        Result<ImMap<P, PropertyObjectInterfaceInstance>> rNotObjectsOuterMapping = new Result<>();
+        ImMap<P, ObjectInstance> objectsOuterMapping = BaseUtils.immutableCast(outerMapping.splitKeys((p, po) -> po instanceof ObjectInstance, rNotObjectsOuterMapping));
+        return objectsOuterMapping.mapValues(o -> o.entity.getParamExpr()).addExcl(property.getInterfaceParamExprs(rNotObjectsOuterMapping.result.keys()));
+    }
+
+    public <X extends PropertyInterface> InputPropertyValueList<?> getInputValueList(GroupObjectInstance toDraw, Result<ImRevMap<P, ObjectInstance>> innerMapping, Function<PropertyObjectInterfaceInstance, ObjectValue> valuesGetter, boolean useFilters) {
+        // splitting to grid and not grid objects
+        SFunctionSet<PropertyObjectInterfaceInstance> gridObjects = value -> (value instanceof ObjectInstance && toDraw.objects.contains((ObjectInstance) value));
+        ImMap<P, PropertyObjectInterfaceInstance> outerMapping = mapping.filterFnValues(new NotFunctionSet<>(gridObjects));
+
+        InputPropertyListEntity<X, P> inputList = (InputPropertyListEntity<X, P>) property.getInputList(getParamExprs(property, outerMapping), innerMapping != null || useFilters);
+        if(inputList == null)
+            return null;
+
+        if(innerMapping != null)
+            innerMapping.set(BaseUtils.immutableCast(mapping.filterFnValues(gridObjects).toRevExclMap()));
+        return new InputContextPropertyListEntity<>(inputList).map(outerMapping, valuesGetter);
     }
 }

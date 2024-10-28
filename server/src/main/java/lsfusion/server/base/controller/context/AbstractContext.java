@@ -5,24 +5,30 @@ import lsfusion.base.col.interfaces.immutable.ImList;
 import lsfusion.base.col.interfaces.immutable.ImMap;
 import lsfusion.base.col.interfaces.immutable.ImSet;
 import lsfusion.interop.action.ClientAction;
-import lsfusion.interop.action.LogMessageClientAction;
 import lsfusion.interop.action.MessageClientAction;
-import lsfusion.interop.form.ModalityType;
+import lsfusion.interop.action.MessageClientType;
+import lsfusion.interop.action.ResetServerSettingsCacheClientAction;
+import lsfusion.interop.form.ShowFormType;
+import lsfusion.interop.form.WindowFormType;
 import lsfusion.server.data.sql.exception.SQLHandledException;
 import lsfusion.server.data.value.ObjectValue;
 import lsfusion.server.logics.LogicsInstance;
 import lsfusion.server.logics.action.controller.stack.ExecutionStack;
 import lsfusion.server.logics.action.session.DataSession;
 import lsfusion.server.logics.classes.data.DataClass;
-import lsfusion.server.logics.classes.user.CustomClass;
 import lsfusion.server.logics.form.interactive.ManageSessionType;
+import lsfusion.server.logics.form.interactive.action.async.InputList;
+import lsfusion.server.logics.form.interactive.action.async.InputListAction;
+import lsfusion.server.logics.form.interactive.action.input.InputContext;
+import lsfusion.server.logics.form.interactive.action.input.InputResult;
 import lsfusion.server.logics.form.interactive.controller.remote.RemoteForm;
-import lsfusion.server.logics.form.interactive.dialogedit.DialogRequest;
+import lsfusion.server.logics.form.interactive.controller.remote.serialization.ConnectionContext;
 import lsfusion.server.logics.form.interactive.instance.FormInstance;
 import lsfusion.server.logics.form.interactive.listener.CustomClassListener;
 import lsfusion.server.logics.form.struct.FormEntity;
 import lsfusion.server.logics.form.struct.filter.ContextFilterInstance;
 import lsfusion.server.logics.form.struct.object.ObjectEntity;
+import lsfusion.server.logics.property.oraction.ActionOrProperty;
 import lsfusion.server.physics.dev.i18n.LocalizedString;
 
 import java.sql.SQLException;
@@ -33,13 +39,14 @@ import java.util.Stack;
 
 import static lsfusion.base.BaseUtils.padLeft;
 import static lsfusion.base.BaseUtils.replicate;
+import static lsfusion.server.physics.admin.log.ServerLoggers.systemLogger;
 
 public abstract class AbstractContext implements Context {
 
     public abstract LogicsInstance getLogicsInstance();
 
     @Override
-    public FormInstance getFormInstance() {
+    public FormEntity getCurrentForm() {
         return null;
     }
 
@@ -113,12 +120,10 @@ public abstract class AbstractContext implements Context {
     }
 
     public static String getMessage(ClientAction action) {
-        if (action instanceof LogMessageClientAction) {
-            LogMessageClientAction logAction = (LogMessageClientAction) action;
-            return logAction.message + "\n" + errorDataToTextTable(logAction.titles, logAction.data);
-        } else if (action instanceof MessageClientAction) {
+        if (action instanceof MessageClientAction) {
             MessageClientAction msgAction = (MessageClientAction) action;
-            return String.valueOf(msgAction.message); //message can be null
+            String exInfo = errorDataToTextTable(msgAction.titles, msgAction.data);
+            return msgAction.textMessage + (exInfo.isEmpty() ? "" : "\n" + exInfo); //message can be null
         }
 //        else if (action instanceof ConfirmClientAction) {
 //            ConfirmClientAction confirmAction = (ConfirmClientAction) action;
@@ -178,7 +183,7 @@ public abstract class AbstractContext implements Context {
         if(message != null) {
             MessageLogger messageLogger = logMessage.get();
             if(messageLogger != null)
-                messageLogger.add(message, action instanceof LogMessageClientAction ? ((LogMessageClientAction) action).failed : false);
+                messageLogger.add(message, action instanceof MessageClientAction && ((MessageClientAction) action).type == MessageClientType.ERROR);
             return message;
         }
         return null;
@@ -203,16 +208,36 @@ public abstract class AbstractContext implements Context {
 
     @Override
     public Object[] requestUserInteraction(ClientAction... actions) {
+        // the problem is that we shouldn't pauseDispatching when it's delay call (not request), and vice a versa
+        // usually in server we manage it manually (for now), but for backward compatibility, adding this check
+        String[] messages = new String[actions.length];
+        for (int i = 0; i < actions.length; i++) {
+            ClientAction action = actions[i];
+            if(action instanceof MessageClientAction)
+                ((MessageClientAction) action).syncType = true;
+        }
         return aspectRequestUserInteraction(actions, processClientActions(actions));
     }
 
-    public abstract void aspectDelayUserInteraction(ClientAction action, String message);
+    public void aspectDelayUserInteraction(ClientAction action, String message) {
+        if(message != null)
+            systemLogger.info("Server message: " + message);
+        else if (!(action instanceof ResetServerSettingsCacheClientAction)) //todo. temporary fix. problem on empty DB is that ResetServerSettingsCacheClientAction is called when there is no client context yet.
+            throw new UnsupportedOperationException("delayUserInteraction is not supported in server context, action : " + action.getClass());
+    }
 
-    public abstract Object[] aspectRequestUserInteraction(ClientAction[] actions, String[] messages);
+    public Object[] aspectRequestUserInteraction(ClientAction[] actions, String[] messages) {
+        for (int i = 0; i < messages.length; i++) {
+            String message = messages[i];
+            if (message == null)
+                throw new UnsupportedOperationException("requestUserInteraction is not supported in server context, action : " + actions[i].getClass());
+        }
+        return new Object[actions.length];
+    }
 
     @Override
-    public boolean canBeProcessed() {
-        return false;
+    public boolean userInteractionCanBeProcessedInTransaction() {
+        return true;
     }
 
     public abstract CustomClassListener getClassListener();
@@ -235,23 +260,30 @@ public abstract class AbstractContext implements Context {
     }
 
     // UI interfaces, careful with that because RemoteNavigatorContext has multiple inheritance, so every that interfaces should be "proxied" there
-    public void requestFormUserInteraction(FormInstance formInstance, ModalityType modalityType, boolean forbidDuplicate, ExecutionStack stack) throws SQLException, SQLHandledException {
+    public void requestFormUserInteraction(FormInstance formInstance, ShowFormType showFormType, boolean forbidDuplicate, String formId, ExecutionStack stack) throws SQLException, SQLHandledException {
         throw new UnsupportedOperationException("requestFormUserInteraction is not supported");
     }
 
-    public ObjectValue requestUserObject(DialogRequest dialog, ExecutionStack stack) throws SQLException, SQLHandledException { // null если canceled
-        throw new UnsupportedOperationException("requestUserObject is not supported");
+    public InputContext lockInputContext() {
+        throw new UnsupportedOperationException("inputContext is not supported");
     }
-
-    public ObjectValue requestUserData(DataClass dataClass, Object oldValue, boolean hasOldValue) {
+    public void unlockInputContext() {
+        throw new UnsupportedOperationException("inputContext is not supported");
+    }
+    public InputResult inputUserData(ActionOrProperty securityProperty, DataClass dataClass, Object oldValue, boolean hasOldValue, InputContext inputContext, String customChangeFunction, InputList inputList, InputListAction[] actions) {
         throw new UnsupportedOperationException("requestUserData is not supported");
     }
 
-    public ObjectValue requestUserClass(CustomClass baseClass, CustomClass defaultValue, boolean concrete) {
-        throw new UnsupportedOperationException("requestUserClass is not supported");
+    private long userLastActivity;
+    public void updateUserLastActivity() {
+        userLastActivity = System.currentTimeMillis();
     }
 
-    public FormInstance createFormInstance(FormEntity formEntity, ImSet<ObjectEntity> inputObjects, ImMap<ObjectEntity, ? extends ObjectValue> mapObjects, DataSession session, boolean isModal, Boolean noCancel, ManageSessionType manageSession, ExecutionStack stack, boolean checkOnOk, boolean showDrop, boolean interactive, boolean isFloat, ImSet<ContextFilterInstance> contextFilters, boolean readonly) throws SQLException, SQLHandledException {
+    public long getUserLastActivity() {
+        return userLastActivity;
+    }
+
+    public FormInstance createFormInstance(FormEntity formEntity, ImSet<ObjectEntity> inputObjects, ImMap<ObjectEntity, ? extends ObjectValue> mapObjects, DataSession session, boolean isModal, Boolean noCancel, ManageSessionType manageSession, ExecutionStack stack, boolean checkOnOk, boolean showDrop, boolean interactive, WindowFormType type, ImSet<ContextFilterInstance> contextFilters, boolean readonly) throws SQLException, SQLHandledException {
         throw new UnsupportedOperationException("createFormInstance is not supported");
     }
 

@@ -5,6 +5,10 @@ import net.sf.jasperreports.engine.design.*;
 import net.sf.jasperreports.engine.type.StretchTypeEnum;
 
 import java.math.BigDecimal;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
 
 class ReportUtils {
     public static JRDesignParameter createParameter(String name, Class cls) {
@@ -78,6 +82,25 @@ class ReportUtils {
             return String.format("$F{%s} == Math.floor($F{%s}) ? \"%s\" : \"%s\"", fieldName, fieldName, intPattern, pattern);
         }
         return null;
+    }
+
+    //jasper reports doesn't know how to format java.time classes, so we convert it to java.sql classes
+    public static JRDesignExpression createConvertExcelDateTimeExpression(String fieldName, Class cls, String pattern) {
+        String text = null;
+        if (cls == LocalDate.class) {
+            text = pattern != null ? getPatternExpression(fieldName, pattern) : String.format("java.sql.Date.valueOf($F{%s})", fieldName);
+        } else if (cls == LocalTime.class) {
+            text = pattern != null ? getPatternExpression(fieldName, pattern)  : String.format("java.sql.Time.valueOf($F{%s})", fieldName);
+        } else if (cls == LocalDateTime.class) {
+            text = pattern != null ? getPatternExpression(fieldName, pattern)  : String.format("java.sql.Timestamp.valueOf($F{%s})", fieldName);
+        } else if (cls == Instant.class) {
+            text = pattern != null ? getPatternExpression(fieldName, pattern)  : String.format("java.sql.Timestamp.from($F{%s})", fieldName);
+        }
+        return text != null ? new JRDesignExpression(text) : null;
+    }
+
+    private static String getPatternExpression(String fieldName, String pattern) {
+        return String.format("$F{%s}.format(java.time.format.DateTimeFormatter.ofPattern(\"%s\"))", fieldName, pattern);
     }
     
     public static final String EXCEL_SEPARATOR_PROBLEM_REGEX = ".*\\.#+";

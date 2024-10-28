@@ -6,7 +6,9 @@ title: 'Оператор DELETE'
 
 ### Синтаксис
 
-    DELETE expr [WHERE whereExpr]
+```
+DELETE expr [WHERE whereExpr]
+```
 
 ### Описание
 
@@ -26,12 +28,13 @@ title: 'Оператор DELETE'
 
 ```lsf
 // удаление объекта
-deleteObject(obj)  { DELETE obj; }
+deleteObject(obj) { DELETE obj; }
 
 // удаление всех неактивных товаров
 CLASS Article;
 active = DATA BOOLEAN (Article);
-deleteInactiveArticles()  {
-    DELETE Article a WHERE a IS Article AND NOT active(a); // добавляется локальный параметр a, соответствующий перебираемым объектам
+deleteInactiveArticles() {
+    // добавляется локальный параметр a, соответствующий перебираемым объектам
+    DELETE Article a WHERE a IS Article AND NOT active(a); 
 }
 ```

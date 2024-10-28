@@ -15,6 +15,7 @@ import lsfusion.server.logics.action.controller.stack.ExecutionStack;
 import lsfusion.server.logics.action.session.DataSession;
 import lsfusion.server.logics.classes.user.AbstractCustomClass;
 import lsfusion.server.logics.classes.user.ConcreteCustomClass;
+import lsfusion.server.logics.navigator.NavigatorElement;
 import lsfusion.server.logics.property.oraction.PropertyInterface;
 import lsfusion.server.physics.admin.authentication.AuthenticationLogicsModule;
 import lsfusion.server.physics.admin.authentication.property.CurrentConnectionProperty;
@@ -27,13 +28,15 @@ import java.text.SimpleDateFormat;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Calendar;
-
-import static lsfusion.server.logics.classes.data.time.DateTimeConverter.getWriteDateTime;
+import java.util.Collections;
 
 public class SystemEventsLogicsModule extends ScriptingLogicsModule {
 
     private final AuthenticationLogicsModule authenticationLM;
 
+    public ConcreteCustomClass theme;
+    public ConcreteCustomClass size;
+    public ConcreteCustomClass navbar;
     public AbstractCustomClass exception;
     public ConcreteCustomClass clientException;
     public ConcreteCustomClass webClientException;
@@ -48,10 +51,30 @@ public class SystemEventsLogicsModule extends ScriptingLogicsModule {
     public ConcreteCustomClass connectionStatus;
     public ConcreteCustomClass session;
 
+    public LA<?> onInit;
     public LA<?> onStarted;
+    public LA<?> onFinallyStarted;
+
+    public LA<?> shareAction;
+
+    public LA<?> initCurrentSize;
+
+    public LP useBootstrap;
+    public LP contentWordWrap;
+    public LP serverTheme;
+    public LP serverSize;
+    public LP serverNavbar;
+    public LP serverNavigatorPinMode;
 
     public LP computerConnection;
     public LP remoteAddressConnection;
+    public LP webHostConnection;
+    public LP webPortConnection;
+    public LP contextPathConnection;
+    public LP servletPathConnection;
+    public LP pathInfoConnection;
+    public LP queryConnection;
+    public LP schemeConnection;
     public LP userConnection;
     public LP userLoginConnection;
     public LP osVersionConnection;
@@ -65,6 +88,7 @@ public class SystemEventsLogicsModule extends ScriptingLogicsModule {
     public LP javaVersionConnection;
     public LP is64JavaConnection;
     public LP screenSizeConnection;
+    public LP scaleConnection;
     public LP clientTypeConnection;
     public LP<PropertyInterface> connectionStatusConnection;
     public LP connectTimeConnection;
@@ -74,6 +98,9 @@ public class SystemEventsLogicsModule extends ScriptingLogicsModule {
     public LP currentConnection;
 
     public LP currentLaunch;
+
+    public LP paddingCss;
+    public LP fontCss;
 
     public LP messageException;
     public LP dateException;
@@ -104,8 +131,13 @@ public class SystemEventsLogicsModule extends ScriptingLogicsModule {
     public LP minUsedMemoryComputerDateTimeFromDateTimeTo;
     public LP maxUsedMemoryComputerDateTimeFromDateTimeTo;
 
+    public LP subscription;
+    public LP clientId;
+
+    public NavigatorElement logo;
+
     public SystemEventsLogicsModule(BusinessLogics BL, BaseLogicsModule baseLM) throws IOException {
-        super(SystemEventsLogicsModule.class.getResourceAsStream("/system/SystemEvents.lsf"), "/system/SystemEvents.lsf", baseLM, BL);
+        super(baseLM, BL, "/system/SystemEvents.lsf");
         this.authenticationLM = BL.authenticationLM;
     }
 
@@ -113,6 +145,9 @@ public class SystemEventsLogicsModule extends ScriptingLogicsModule {
     public void initMetaAndClasses() throws RecognitionException {
         super.initMetaAndClasses();
 
+        theme = (ConcreteCustomClass) findClass("Theme");
+        size = (ConcreteCustomClass) findClass("Size");
+        navbar = (ConcreteCustomClass) findClass("Navbar");
         clientException = (ConcreteCustomClass) findClass("ClientException");
         webClientException = (ConcreteCustomClass) findClass("WebClientException");
         remoteServerException = (ConcreteCustomClass) findClass("RemoteServerException");
@@ -134,11 +169,31 @@ public class SystemEventsLogicsModule extends ScriptingLogicsModule {
 
         super.initMainLogic();
 
-        onStarted = findAction("onStarted[]");
+        onInit = findAction("onInitApply[]");
+        onStarted = findAction("onStartedApply[]");
+        onFinallyStarted = findAction("onFinallyStartedApply[]");
+
+        shareAction = findAction("shareAction[STRING]");
+
+        initCurrentSize = findAction("initCurrentSize[]");
+
+        useBootstrap = findProperty("useBootstrap[DesignEnv]");
+        contentWordWrap = findProperty("contentWordWrap[DesignEnv]");
+        serverTheme = findProperty("serverTheme[]");
+        serverSize = findProperty("serverSize[]");
+        serverNavbar = findProperty("serverNavbar[]");
+        serverNavigatorPinMode = findProperty("serverNavigatorPinMode[]");
 
         // Подключения к серверу
         computerConnection = findProperty("computer[Connection]");
         remoteAddressConnection = findProperty("remoteAddress[Connection]");
+        webHostConnection = findProperty("webHost[Connection]");
+        webPortConnection = findProperty("webPort[Connection]");
+        contextPathConnection = findProperty("contextPath[Connection]");
+        servletPathConnection = findProperty("servletPath[Connection]");
+        pathInfoConnection = findProperty("pathInfo[Connection]");
+        queryConnection = findProperty("query[Connection]");
+        schemeConnection = findProperty("scheme[Connection]");
         userConnection = findProperty("user[Connection]");
         userLoginConnection = findProperty("userLogin[Connection]");
         osVersionConnection = findProperty("osVersion[Connection]");
@@ -152,6 +207,7 @@ public class SystemEventsLogicsModule extends ScriptingLogicsModule {
         javaVersionConnection = findProperty("javaVersion[Connection]");
         is64JavaConnection = findProperty("is64Java[Connection]");
         screenSizeConnection = findProperty("screenSize[Connection]");
+        scaleConnection = findProperty("scale[Connection]");
         clientTypeConnection = findProperty("clientType[Connection]");
         connectionStatusConnection = (LP<PropertyInterface>) findProperty("connectionStatus[Connection]");
         lastActivity = findProperty("lastActivity[Connection]");
@@ -160,6 +216,11 @@ public class SystemEventsLogicsModule extends ScriptingLogicsModule {
         launchConnection = findProperty("launch[Connection]");
 
         currentLaunch = findProperty("currentLaunch[]");
+
+        baseLM.getIsHTMLSupported().addOperand(false, Collections.emptyList(), getVersion(), findProperty("isWeb[]"));
+
+        paddingCss = findProperty("paddingCss[Size]");
+        fontCss = findProperty("fontCss[Size]");
 
         // Ошибки выполнения
         messageException = findProperty("message[Exception]");
@@ -192,6 +253,12 @@ public class SystemEventsLogicsModule extends ScriptingLogicsModule {
         maxTotalMemoryComputerDateTimeFromDateTimeTo = findProperty("maxTotalMemoryFromTo[Computer,DATETIME,DATETIME]");
         minUsedMemoryComputerDateTimeFromDateTimeTo = findProperty("minUsedMemoryFromTo[Computer,DATETIME,DATETIME]");
         maxUsedMemoryComputerDateTimeFromDateTimeTo = findProperty("maxUsedMemoryFromTo[Computer,DATETIME,DATETIME]");
+
+        subscription = findProperty("subscription[Connection]");
+        clientId = findProperty("clientId[Connection]");
+
+        logo = findNavigatorElement("logoAction");
+//        logo.elementClass = "navbar-icon-xlarge navbar-excel-mobile-hidden"; // set in lsf
     }
 
     public void logException(BusinessLogics bl, ExecutionStack stack, Throwable t, DataObject user, String clientName, boolean client, boolean web) throws SQLException, SQLHandledException {
@@ -245,7 +312,7 @@ public class SystemEventsLogicsModule extends ScriptingLogicsModule {
             typeException.change(errorType, session, exceptionObject);
             erTraceException.change(javaStack, session, exceptionObject);
             lsfTraceException.change(lsfStack, session, exceptionObject);
-            dateException.change(getWriteDateTime(LocalDateTime.now()), session, exceptionObject);
+            dateException.change(LocalDateTime.now(), session, exceptionObject);
 
             session.applyException(bl, stack);
         }

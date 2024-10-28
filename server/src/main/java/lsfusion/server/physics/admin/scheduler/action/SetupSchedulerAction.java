@@ -6,12 +6,13 @@ import lsfusion.server.data.sql.exception.SQLHandledException;
 import lsfusion.server.language.ScriptingErrorLog;
 import lsfusion.server.logics.action.controller.context.ExecutionContext;
 import lsfusion.server.logics.property.classes.ClassPropertyInterface;
-import lsfusion.server.physics.admin.log.ServerLoggers;
 import lsfusion.server.physics.admin.scheduler.SchedulerLogicsModule;
 import lsfusion.server.physics.admin.scheduler.controller.manager.Scheduler;
 import lsfusion.server.physics.dev.integration.internal.to.InternalAction;
 
 import java.sql.SQLException;
+
+import static lsfusion.server.physics.admin.log.ServerLoggers.startLog;
 
 public class SetupSchedulerAction extends InternalAction {
 
@@ -23,16 +24,14 @@ public class SetupSchedulerAction extends InternalAction {
     @Override
     public void executeInternal(ExecutionContext<ClassPropertyInterface> context) throws SQLException, SQLHandledException {
         try {
-            boolean isServer = context.getDbManager().isServer();
-            if (isServer) {
-                ServerLoggers.startLogger.info("Starting Scheduler");
-                Scheduler scheduler = context.getLogicsInstance().getCustomObject(Scheduler.class);
-                Integer threadCount = (Integer) findProperty("threadCountScheduler[]").read(context);
-                scheduler.setupScheduledTasks(context.getSession(), threadCount);
-            } else {
-                context.delayUserInteraction(new MessageClientAction("Scheduler disabled, change serverComputer() to enable", "Scheduler disabled"));
-            }
-            findProperty("isStartedScheduler[]").change(isServer ? true : null, context);
+            startLog("Starting Scheduler");
+            Scheduler scheduler = context.getLogicsInstance().getCustomObject(Scheduler.class);
+            Integer threadCount = (Integer) findProperty("threadCountScheduler[]").read(context);
+            boolean onlySystemTasks = scheduler.setupScheduledTasks(context.getSession(), threadCount);
+            if(onlySystemTasks)
+                context.messageWarning("Scheduler will execute only system tasks, change serverComputer() to enable user tasks", "Scheduler disabled");
+            findProperty("isStartedScheduler[]").change(true, context);
+            findProperty("onlySystemTasks[]").change(onlySystemTasks, context);
         } catch (ScriptingErrorLog.SemanticErrorException e) {
             throw Throwables.propagate(e);
         }

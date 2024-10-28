@@ -14,14 +14,13 @@ import lsfusion.server.data.expr.key.KeyType;
 import lsfusion.server.data.expr.value.StaticValueExpr;
 import lsfusion.server.data.expr.value.ValueExpr;
 import lsfusion.server.data.sql.SQLSession;
-import lsfusion.server.data.sql.syntax.SQLSyntax;
 import lsfusion.server.data.stat.Stat;
 import lsfusion.server.data.type.AbstractType;
 import lsfusion.server.data.type.Type;
 import lsfusion.server.data.value.DataObject;
 import lsfusion.server.data.where.Where;
 import lsfusion.server.language.action.LA;
-import lsfusion.server.logics.BusinessLogics;
+import lsfusion.server.logics.BaseLogicsModule;
 import lsfusion.server.logics.classes.ConcreteClass;
 import lsfusion.server.logics.classes.StaticClass;
 import lsfusion.server.logics.classes.ValueClass;
@@ -45,6 +44,7 @@ import net.sf.jasperreports.engine.type.HorizontalTextAlignEnum;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.Random;
+import java.util.function.Function;
 
 public abstract class DataClass<T> extends AbstractType<T> implements StaticClass, FormulaClass, ValueClassSet, OrClassSet, ResolveClassSet {
 //    private static MAddExclMap<String, DataClass> sidToClass = MapFact.mBigStrongMap();
@@ -64,13 +64,12 @@ public abstract class DataClass<T> extends AbstractType<T> implements StaticClas
         return caption;
     }
 
-    public abstract DataClass getCompatible(DataClass compClass, boolean or);
-
-    // очень аккуратно / нельзя использовать, так как если рассинхронизируется с equals, то будут неправильные кэши, скажем как раньше в EqualsWhere было, будет возвращать true, а кэши будут подхватываться и для различных valueExpr
-    public boolean compatibleEquals(Object object, DataClass compareClass, Object compareObject) {
-        DataClass compatible = getCompatible(compareClass, true);
-        return compatible != null && compatible.read(object).equals(compatible.read(compareObject));
+    @Override
+    public LocalizedString exToString(Function<String, LocalizedString> debugInfoFormatter) {
+        return caption;
     }
+
+    public abstract DataClass getCompatible(DataClass compClass, boolean or);
 
     public T readCast(Object value, ConcreteClass typeFrom) {
         if(!(typeFrom instanceof DataClass))
@@ -194,6 +193,10 @@ public abstract class DataClass<T> extends AbstractType<T> implements StaticClas
 
     protected abstract Class getReportJavaClass();
 
+    public boolean markupHtml() {
+        return false;
+    }
+
     public int getReportMinimumWidth() {
         return getReportPreferredWidth();
     }
@@ -202,9 +205,11 @@ public abstract class DataClass<T> extends AbstractType<T> implements StaticClas
         return 50;
     }
 
+    @Override
     public void fillReportDrawField(ReportDrawField reportField) {
         reportField.valueClass = getReportJavaClass();
         reportField.alignment = HorizontalTextAlignEnum.LEFT;
+        reportField.markupHtml = markupHtml();
     }
 
     public ObjectInstance newInstance(ObjectEntity entity) {
@@ -247,7 +252,7 @@ public abstract class DataClass<T> extends AbstractType<T> implements StaticClas
     }
 
     @Override
-    public LA getDefaultOpenAction(BusinessLogics BL) {
+    public LA getDefaultOpenAction(BaseLogicsModule baseLM) {
         return null;
     }
 
@@ -329,17 +334,6 @@ public abstract class DataClass<T> extends AbstractType<T> implements StaticClas
         return "";
     }
 
-    @Override
-    public boolean isZero(Object object) {
-        return isValueZero(read(object));
-    }
-    
-    public boolean isValueZero(T value) {
-        return false;
-    }
-
-    public abstract String getString(Object value, SQLSyntax syntax);
-    
     @Override
     public String toString() {
         return getCanonicalName() + " '" + ThreadLocalContext.localize(caption) + "'";

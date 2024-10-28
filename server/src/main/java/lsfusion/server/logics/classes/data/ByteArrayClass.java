@@ -5,7 +5,9 @@ import lsfusion.base.file.RawFileData;
 import lsfusion.interop.classes.DataType;
 import lsfusion.interop.form.property.ExtInt;
 import lsfusion.server.data.sql.syntax.SQLSyntax;
+import lsfusion.server.data.type.DBType;
 import lsfusion.server.data.type.exec.TypeEnvironment;
+import lsfusion.server.logics.classes.data.file.FileBasedClass;
 import lsfusion.server.physics.dev.i18n.LocalizedString;
 import org.apache.commons.net.util.Base64;
 
@@ -16,7 +18,7 @@ import java.sql.SQLException;
 
 //import net.sourceforge.jtds.jdbc.BlobImpl;
 
-public class ByteArrayClass extends DataClass<RawFileData> {
+public class ByteArrayClass extends FileBasedClass<RawFileData> implements DBType {
 
     public final static ByteArrayClass instance = new ByteArrayClass();
 
@@ -42,7 +44,11 @@ public class ByteArrayClass extends DataClass<RawFileData> {
         return DataType.BYTEARRAY;
     }
 
-    public String getDB(SQLSyntax syntax, TypeEnvironment typeEnv) {
+    @Override
+    public DBType getDBType() {
+        return this;
+    }
+    public String getDBString(SQLSyntax syntax, TypeEnvironment typeEnv) {
         return syntax.getByteArrayType();
     }
     public String getDotNetType(SQLSyntax syntax, TypeEnvironment typeEnv) {
@@ -60,14 +66,6 @@ public class ByteArrayClass extends DataClass<RawFileData> {
 
     public int getSQL(SQLSyntax syntax) {
         return syntax.getByteArraySQL();
-    }
-
-    public boolean isSafeString(Object value) {
-        return false;
-    }
-
-    public String getString(Object value, SQLSyntax syntax) {
-        throw new RuntimeException("not supported");
     }
 
     public RawFileData read(Object value) {
@@ -108,8 +106,13 @@ public class ByteArrayClass extends DataClass<RawFileData> {
     }
 
     @Override
-    public String formatString(RawFileData value) {
-        return value != null ? Base64.encodeBase64String(value.getBytes()) : null;
+    public String formatString(RawFileData value, boolean ui) {
+        return value != null ? Base64.encodeBase64StringUnChunked(value.getBytes()) : null;
+    }
+
+    @Override
+    public String formatStringSource(String valueSource, SQLSyntax syntax) {
+        return "encode(" + valueSource + ", 'base64')";
     }
 
     public String getSID() {
@@ -127,22 +130,12 @@ public class ByteArrayClass extends DataClass<RawFileData> {
     }
 
     @Override
-    public RawFileData parseHTTP(Object o, Charset charset) throws ParseException {
-        if(o instanceof String)
-            return super.parseHTTP(o, charset);
-        
-        if (((FileData) o).getLength() == 0)
-            return null;
-        return ((FileData) o).getRawFile();
+    protected RawFileData parseHTTPNotNull(FileData b, String charsetName) {
+        return b.getRawFile();
     }
-    
-    @Override
-    public Object formatHTTP(RawFileData value, Charset charset) {
-        if(charset != null)
-            return super.formatHTTP(value, charset);
 
-        if (value == null)
-            return FileData.EMPTY;
+    @Override
+    protected FileData formatHTTPNotNull(RawFileData value, Charset charset) {
         return new FileData(value, "bytea");
     }
 }

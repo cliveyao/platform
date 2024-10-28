@@ -6,7 +6,6 @@ import lsfusion.base.col.MapFact;
 import lsfusion.base.col.interfaces.immutable.ImMap;
 import lsfusion.base.col.interfaces.immutable.ImOrderMap;
 import lsfusion.base.col.interfaces.immutable.ImRevMap;
-import lsfusion.interop.action.MessageClientAction;
 import lsfusion.server.data.expr.key.KeyExpr;
 import lsfusion.server.data.query.build.QueryBuilder;
 import lsfusion.server.data.sql.exception.SQLHandledException;
@@ -25,6 +24,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import static lsfusion.server.base.controller.thread.ThreadLocalContext.localize;
+
 public class CalculatePathAction extends DistanceGeoAction {
 
 
@@ -34,7 +35,6 @@ public class CalculatePathAction extends DistanceGeoAction {
 
     public void executeInternal(ExecutionContext<ClassPropertyInterface> context) {
         try {
-            boolean useTor = findProperty("useTor[]").read(context) != null;
 
             KeyExpr poiExpr = new KeyExpr("poi");
             ImRevMap<String, KeyExpr> keys = MapFact.singletonRev("poi", poiExpr);
@@ -46,7 +46,7 @@ public class CalculatePathAction extends DistanceGeoAction {
             ImOrderMap<ImMap<String, DataObject>, ImMap<Object, ObjectValue>> result = query.executeClasses(context.getSession());
 
             boolean coordinatesFlag = true;
-            Object startPathPOI = findProperty("startPathPOI[]").read(context.getSession().sql, context.getModifier(), context.getQueryEnv());
+            Object startPathPOI = findProperty("startPathPOI[]").read(context);
             if (startPathPOI != null) {
                 Map<Integer, DataObject> poiMap = new HashMap<>();
                 Map<Integer, String> points = new HashMap<>();
@@ -99,7 +99,7 @@ public class CalculatePathAction extends DistanceGeoAction {
                                             count++;
                                             if (count % partSize == 0) {
                                                 ServerLoggers.systemLogger.info(String.format("Getting distance between point %s and %s others", i + 1, partSize));
-                                                int[] partDistances = readDistances(partSize, points.get(i), destinations, useTor, 0);
+                                                int[] partDistances = readDistances(partSize, points.get(i), destinations, 0);
                                                 for (int k = 0; k < partDistances.length; k++) {
                                                     localDistances[queryIndices.get(k)] = partDistances[k]; 
                                                 }
@@ -111,7 +111,7 @@ public class CalculatePathAction extends DistanceGeoAction {
                                 }
                                 if (!destinations.isEmpty()) {
                                     ServerLoggers.systemLogger.info(String.format("Getting distance between point %s and %s, others", i + 1, count % partSize));
-                                    int[] partDistances = readDistances(count % partSize, points.get(i), destinations, useTor, 0);
+                                    int[] partDistances = readDistances(count % partSize, points.get(i), destinations, 0);
                                     for (int k = 0; k < partDistances.length; k++) {
                                         localDistances[queryIndices.get(k)] = partDistances[k];
                                     }
@@ -140,10 +140,10 @@ public class CalculatePathAction extends DistanceGeoAction {
 
                     }
                 } else {
-                    context.requestUserInteraction(new MessageClientAction("Не все координаты проставлены", "Ошибка"));
+                    context.messageError(localize("{geo.not.all.coordinates.set}"));
                 }
             } else {
-                context.requestUserInteraction(new MessageClientAction("Не задана начальная точка", "Ошибка"));
+                context.messageError(localize("{geo.starting.point.not.set}"));
             }
         } catch (Exception e) {
             throw Throwables.propagate(e);

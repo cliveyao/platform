@@ -4,52 +4,68 @@ import com.google.gwt.event.dom.client.ClickHandler;
 import com.google.gwt.user.client.ui.Widget;
 import lsfusion.gwt.client.ClientMessages;
 import lsfusion.gwt.client.GFormChanges;
+import lsfusion.gwt.client.base.FocusUtils;
 import lsfusion.gwt.client.base.GwtClientUtils;
 import lsfusion.gwt.client.base.Pair;
+import lsfusion.gwt.client.base.StaticImage;
 import lsfusion.gwt.client.base.jsni.NativeHashMap;
-import lsfusion.gwt.client.base.view.ResizableComplexPanel;
-import lsfusion.gwt.client.base.view.ResizableSimplePanel;
 import lsfusion.gwt.client.classes.data.GIntegralType;
 import lsfusion.gwt.client.form.GUpdateMode;
 import lsfusion.gwt.client.form.controller.GFormController;
-import lsfusion.gwt.client.form.design.GComponent;
 import lsfusion.gwt.client.form.design.GContainer;
 import lsfusion.gwt.client.form.design.view.GAbstractContainerView;
+import lsfusion.gwt.client.form.design.view.GFormLayout;
+import lsfusion.gwt.client.form.filter.user.GFilter;
+import lsfusion.gwt.client.form.filter.user.GFilterControls;
 import lsfusion.gwt.client.form.filter.user.GPropertyFilter;
 import lsfusion.gwt.client.form.object.GGroupObject;
 import lsfusion.gwt.client.form.object.GGroupObjectValue;
 import lsfusion.gwt.client.form.object.table.controller.GAbstractTableController;
+import lsfusion.gwt.client.form.object.table.grid.GGridProperty;
 import lsfusion.gwt.client.form.object.table.grid.user.design.GGridUserPreferences;
 import lsfusion.gwt.client.form.object.table.grid.user.design.GGroupObjectUserPreferences;
 import lsfusion.gwt.client.form.object.table.grid.user.design.view.GUserPreferencesDialog;
 import lsfusion.gwt.client.form.object.table.grid.user.toolbar.view.GCalculateSumButton;
 import lsfusion.gwt.client.form.object.table.grid.user.toolbar.view.GCountQuantityButton;
 import lsfusion.gwt.client.form.object.table.grid.user.toolbar.view.GToolbarButton;
+import lsfusion.gwt.client.form.object.table.grid.user.toolbar.view.GToolbarButtonGroup;
 import lsfusion.gwt.client.form.object.table.grid.view.*;
-import lsfusion.gwt.client.form.object.table.view.GridPanel;
 import lsfusion.gwt.client.form.property.*;
 import lsfusion.gwt.client.form.view.Column;
 
-import java.util.*;
-
-import static lsfusion.gwt.client.base.GwtClientUtils.setupFillParent;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
 
 public class GGridController extends GAbstractTableController {
     private final ClientMessages messages = ClientMessages.Instance.get();
 
     public GGroupObject groupObject;
 
-    private Widget gridView;
-    private ResizableSimplePanel gridContainerView;
-    public Widget recordView;
-
     private GTableView table;
+
+    public Widget recordView;
 
     private static boolean isList(GGroupObject groupObject) {
         return groupObject.viewType.isList();
     }
     public boolean isList() {
         return groupObject.viewType.isList();
+    }
+    
+    @Override
+    public List<GFilter> getFilters() {
+        return groupObject.filters;
+    }
+
+    @Override
+    public GContainer getFiltersContainer() {
+        return groupObject.filtersContainer;
+    }
+
+    @Override
+    public GFilterControls getFilterControls() {
+        return groupObject.filtersControls;
     }
 
     public GPivotOptions getPivotOptions() {
@@ -60,55 +76,27 @@ public class GGridController extends GAbstractTableController {
         return groupObject.mapTileProvider;
     }
 
-    public boolean isGridAutosize() {
-        return groupObject.grid.autoSize;
-    }
-
     public GGridController(GFormController iformController, GGroupObject groupObject, GGridUserPreferences[] userPreferences) {
         super(iformController, groupObject.toolbar, isList(groupObject));
         this.groupObject = groupObject;
 
         if (isList()) {
-            boolean autoSize = groupObject.grid.autoSize;
-
-            ResizableSimplePanel gridContainerView = new ResizableSimplePanel();
-            gridContainerView.setStyleName("gridResizePanel");
-            if(autoSize) { // убираем default'ый minHeight
-                gridContainerView.getElement().getStyle().setProperty("minHeight", "0px");
-                gridContainerView.getElement().getStyle().setProperty("minWidth", "0px");
-            }
-            this.gridContainerView = gridContainerView;
-
-            Widget gridView = gridContainerView;
+            initGridView();
 
             // proceeding recordView
             GContainer record = groupObject.grid.record;
             if(record != null) {
-                GAbstractContainerView recordView = getFormLayout().getContainerView(record);
+                GFormLayout formLayout = getFormLayout();
+                GAbstractContainerView recordView = formLayout.getContainerView(record);
                 recordView.addUpdateLayoutListener(requestIndex -> table.updateRecordLayout(requestIndex));
                 this.recordView = recordView.getView();
 
                 // we need to add recordview somewhere, to attach it (events, listeners, etc.)
-                ResizableComplexPanel virtualGridView = new ResizableComplexPanel();
-                virtualGridView.setMain(gridView);
-                setupFillParent(gridView.getElement());
-
                 // need to wrap recordView to setVisible false recordView's parent and not recordView itself (since it will be moved and shown by table view implementation)
-                ResizableSimplePanel virtualRecordView = new ResizableSimplePanel();
-                virtualRecordView.add(this.recordView);
-                virtualRecordView.setVisible(false);
-                virtualGridView.add(virtualRecordView);
-
-                gridView = virtualGridView;
+                formLayout.attachContainer.add(this.recordView);
             }
 
-            this.gridView = new GridPanel(gridView, gridContainerView);
-
             this.userPreferences = userPreferences;
-
-            getFormLayout().addBaseComponent(groupObject.grid, this.gridView, getDefaultFocusReceiver());
-
-            configureToolbar();
 
             setUpdateMode(false);
             switch (groupObject.listViewType) { // we don't have to do changeListViewType, since it's a first start and it should be set on server
@@ -135,39 +123,19 @@ public class GGridController extends GAbstractTableController {
             updateSettingsButton();
         }
     }
-    
+
     private GGridUserPreferences[] userPreferences;
     private void setGridTableView() {
-        changeTableView(new GGridTable(formController, this, userPreferences));
-        gridTableButton.showBackground(true);
-        pivotTableButton.showBackground(false);
-        if(mapTableButton != null)
-            mapTableButton.showBackground(false);
-        if (customViewButton != null)
-            customViewButton.showBackground(false);
-        if (calendarTableButton != null)
-            calendarTableButton.showBackground(false);
+        changeTableView(new GGridTable(formController, this, gridView, userPreferences));
+        updateViewButtonsBackground(true, false, false, false, false);
     }
     private void setPivotTableView() {
-        changeTableView(new GPivot(formController, this, getSelectedProperty()));
-        pivotTableButton.showBackground(true);
-        gridTableButton.showBackground(false);
-        if(mapTableButton != null)
-            mapTableButton.showBackground(false);
-        if (customViewButton != null)
-            customViewButton.showBackground(false);
-        if (calendarTableButton != null)
-            calendarTableButton.showBackground(false);
+        changeTableView(new GPivot(formController, this, getSelectedProperty(), gridView));
+        updateViewButtonsBackground(false, true, false, false, false);
     }
     private void setMapTableView() {
-        changeTableView(new GMap(formController, this));
-        mapTableButton.showBackground(true);
-        gridTableButton.showBackground(false);
-        pivotTableButton.showBackground(false);
-        if (customViewButton != null)
-            customViewButton.showBackground(false);
-        if (calendarTableButton != null)
-            calendarTableButton.showBackground(false);
+        changeTableView(new GMap(formController, this, gridView));
+        updateViewButtonsBackground(false, false, true, false, false);
     }
 
     private String getCalendarDateType() {
@@ -182,43 +150,49 @@ public class GGridController extends GAbstractTableController {
     }
 
     private void setCalendarTableView() {
-        changeTableView(new GCalendar(formController, this, getCalendarDateType()));
-        calendarTableButton.showBackground(true);
-        pivotTableButton.showBackground(false);
-        gridTableButton.showBackground(false);
-        if(mapTableButton != null)
-            mapTableButton.showBackground(false);
-        if (customViewButton != null)
-            customViewButton.showBackground(false);
+        changeTableView(new GCalendar(formController, this, gridView, getCalendarDateType()));
+        updateViewButtonsBackground(false, false, false, false, true);
     }
 
     private void setCustomTableView() {
-        changeTableView(new GCustom(formController, this, groupObject.customRenderFunction));
-        if(mapTableButton != null)
-            mapTableButton.showBackground(false);
-        if (calendarTableButton != null)
-            calendarTableButton.showBackground(false);
-        gridTableButton.showBackground(false);
-        pivotTableButton.showBackground(false);
-        customViewButton.showBackground(true);
+        changeTableView(new GCustom(formController, this, gridView, groupObject.customRenderFunction));
+        updateViewButtonsBackground(false, false, false, true, false);
+    }
+
+    private void updateViewButtonsBackground(boolean grid, boolean pivot, boolean map, boolean custom, boolean calendar) {
+        if (groupObject.toolbar.showViews) {
+            gridTableButton.showBackground(grid);
+            pivotTableButton.showBackground(pivot);
+            if (mapTableButton != null)
+                mapTableButton.showBackground(map);
+            if (customViewButton != null)
+                customViewButton.showBackground(custom);
+            if (calendarTableButton != null)
+                calendarTableButton.showBackground(calendar);
+        }
     }
 
     private boolean manual;
     private void setUpdateMode(boolean manual) {
         this.manual = manual;
-        if(manual) {
-            forceUpdateTableButton.setVisible(true);
-            forceUpdateTableButton.setEnabled(false);
-        } else
-            forceUpdateTableButton.setVisible(false);
-        manualUpdateTableButton.showBackground(manual);
+        if(groupObject.toolbar.showManualUpdate) {
+            if (manual) {
+                forceUpdateTableButton.setVisible(true);
+                forceUpdateTableButton.setEnabled(false);
+            } else
+                forceUpdateTableButton.setVisible(false);
+            manualUpdateTableButton.showBackground(manual);
+        }
     }
 
     private void changeTableView(GTableView table) {
         assert isList();
 
-        gridContainerView.setFillWidget(table.getThisWidget());
-        
+        if (this.table != null)
+            this.table.onClear();
+
+        changeGridView(table, groupObject.grid.isBoxed(table));
+        table.onRender(formController.popEditEvent());
         this.table = table;
         updateSettingsButton();
     }
@@ -235,89 +209,93 @@ public class GGridController extends GAbstractTableController {
     private GToolbarButton mapTableButton;
     private GToolbarButton calendarTableButton;
 
-    private void configureToolbar() {
+    protected void configureToolbar() {
         assert isList();
 
-        gridTableButton = new GToolbarButton("grid.png", messages.formGridTableView()) {
-            @Override
-            public ClickHandler getClickHandler() {
-                return event -> {
-                    changeMode(() -> setGridTableView(), GListViewType.GRID, false);
-                };
-            }
-        };
-        addToToolbar(gridTableButton);
-
-        pivotTableButton = new GToolbarButton("pivot.png", messages.formGridPivotView()) {
-            @Override
-            public ClickHandler getClickHandler() {
-                return event -> {
-                    changeMode(() -> setPivotTableView(), GListViewType.PIVOT, true); // we need to make a call to get columns to init default config
-                };
-            }
-        };
-        addToToolbar(pivotTableButton);
-
-        if (groupObject.customRenderFunction != null){
-            customViewButton = new GToolbarButton("custom_view.png", messages.formGridCustomView()) {
+        if(groupObject.toolbar.showViews) {
+            GToolbarButtonGroup viewButtonGroup = new GToolbarButtonGroup();
+            gridTableButton = new GToolbarButton(StaticImage.GRID, messages.formGridTableView()) {
                 @Override
                 public ClickHandler getClickHandler() {
                     return event -> {
-                        changeMode(() -> setCustomTableView(), GListViewType.CUSTOM, false);
+                        changeMode(() -> setGridTableView(), GListViewType.GRID, false);
                     };
                 }
             };
-            addToToolbar(customViewButton);
-        }
+            viewButtonGroup.add(gridTableButton);
 
-        if(groupObject.isMap) {
-            mapTableButton = new GToolbarButton("map.png", messages.formGridMapView()) {
+            pivotTableButton = new GToolbarButton(StaticImage.PIVOT, messages.formGridPivotView()) {
                 @Override
                 public ClickHandler getClickHandler() {
                     return event -> {
-                        changeMode(() -> setMapTableView(), GListViewType.MAP, false);
+                        changeMode(() -> setPivotTableView(), GListViewType.PIVOT, true); // we need to make a call to get columns to init default config
                     };
                 }
             };
-            addToToolbar(mapTableButton);
-        }
+            viewButtonGroup.add(pivotTableButton);
 
-        if(getCalendarDateType() != null) {
-            calendarTableButton = new GToolbarButton("calendar_view.png", messages.formGridCalendarView()) {
-                @Override
-                public ClickHandler getClickHandler() {
-                    return event -> {
-                        changeMode(() -> setCalendarTableView(), GListViewType.CALENDAR, false);
-                    };
-                }
-            };
-            addToToolbar(calendarTableButton);
-        }
-
-        addToolbarSeparator();
-
-        if(showFilter() || groupObject.toolbar.showGridSettings) {
-
-            if (showFilter()) {
-                addFilterButton();
-            }
-
-            if (groupObject.toolbar.showGridSettings) {
-                settingsButton = new GToolbarButton("userPreferences.png", messages.formGridPreferences()) {
+            if (groupObject.customRenderFunction != null) {
+                customViewButton = new GToolbarButton(StaticImage.CUSTOMVIEW, messages.formGridCustomView()) {
                     @Override
                     public ClickHandler getClickHandler() {
                         return event -> {
-                            changeSettings();
+                            changeMode(() -> setCustomTableView(), GListViewType.CUSTOM, false);
                         };
                     }
                 };
-                addToToolbar(settingsButton);
+                viewButtonGroup.add(customViewButton);
             }
 
-            addToolbarSeparator();
+            if (groupObject.isMap) {
+                mapTableButton = new GToolbarButton(StaticImage.MAP, messages.formGridMapView()) {
+                    @Override
+                    public ClickHandler getClickHandler() {
+                        return event -> {
+                            changeMode(() -> setMapTableView(), GListViewType.MAP, false);
+                        };
+                    }
+                };
+                viewButtonGroup.add(mapTableButton);
+            }
+
+            if (getCalendarDateType() != null) {
+                calendarTableButton = new GToolbarButton(StaticImage.CALENDAR, messages.formGridCalendarView()) {
+                    @Override
+                    public ClickHandler getClickHandler() {
+                        return event -> {
+                            changeMode(() -> setCalendarTableView(), GListViewType.CALENDAR, false);
+                        };
+                    }
+                };
+                viewButtonGroup.add(calendarTableButton);
+            }
+
+            addToToolbar(viewButtonGroup);
+        }
+
+        if (groupObject.toolbar.showFilters && showFilter()) {
+            initFilters();
+        }
+
+        if (groupObject.toolbar.showSettings) {
+            GToolbarButtonGroup settingsButtonGroup = new GToolbarButtonGroup();
+
+            settingsButton = new GToolbarButton(StaticImage.USERPREFERENCES, messages.formGridPreferences()) {
+                @Override
+                public ClickHandler getClickHandler() {
+                    return event -> {
+                        changeSettings();
+                    };
+                }
+            };
+
+            settingsButtonGroup.add(settingsButton);
+            addToToolbar(settingsButtonGroup);
         }
 
         if(groupObject.toolbar.showCountQuantity || groupObject.toolbar.showCalculateSum) {
+
+            GToolbarButtonGroup calculateButtonGroup = new GToolbarButtonGroup();
 
             if (groupObject.toolbar.showCountQuantity) {
                 quantityButton = new GCountQuantityButton() {
@@ -326,7 +304,7 @@ public class GGridController extends GAbstractTableController {
                         return event -> formController.countRecords(groupObject);
                     }
                 };
-                addToToolbar(quantityButton);
+                calculateButtonGroup.add(quantityButton);
             }
 
             if (groupObject.toolbar.showCalculateSum) {
@@ -336,55 +314,57 @@ public class GGridController extends GAbstractTableController {
                         return event -> {
                             GPropertyDraw property = getSelectedProperty();
                             if (property != null) {
-                                if (property.baseType instanceof GIntegralType) {
+                                if (property.getValueType() instanceof GIntegralType)
                                     formController.calculateSum(groupObject, property, table.getCurrentColumnKey());
-                                } else {
+                                else
                                     showSum(null, property);
-                                }
                             }
                         };
                     }
                 };
-                addToToolbar(sumButton);
+                calculateButtonGroup.add(sumButton);
             }
 
-            addToolbarSeparator();
+            addToToolbar(calculateButtonGroup);
         }
 
         if(groupObject.toolbar.showPrintGroupXls) {
-            addToToolbar(new GToolbarButton("excelbw.png", messages.formGridExport()) {
+            GToolbarButtonGroup printButtonGroup = new GToolbarButtonGroup();
+
+            printButtonGroup.add(new GToolbarButton(StaticImage.EXCELBW, messages.formGridExport()) {
                 @Override
                 public ClickHandler getClickHandler() {
                     return event -> table.runGroupReport();
                 }
             });
 
-            addToolbarSeparator();
+            addToToolbar(printButtonGroup);
         }
 
+        if (groupObject.toolbar.showManualUpdate) {
+            GToolbarButtonGroup updateButtonGroup = new GToolbarButtonGroup();
 
-        manualUpdateTableButton = new GToolbarButton("update.png", messages.formGridManualUpdate()) {
-            @Override
-            public ClickHandler getClickHandler() {
-                return event -> {
-                    setUpdateMode(!manual);
-                    formController.changeMode(groupObject, false, null, null, 0, null, null, false, manual ? GUpdateMode.MANUAL : GUpdateMode.AUTO, null);
-                };
-            }
-        };
-        addToToolbar(manualUpdateTableButton);
+            manualUpdateTableButton = new GToolbarButton(StaticImage.UPDATE, messages.formGridManualUpdate()) {
+                @Override
+                public ClickHandler getClickHandler() {
+                    return event -> {
+                        setUpdateMode(!manual);
+                        formController.changeMode(groupObject, false, null, null, 0, null, null, false, manual ? GUpdateMode.MANUAL : GUpdateMode.AUTO, null);
+                    };
+                }
+            };
+            updateButtonGroup.add(manualUpdateTableButton);
 
-        forceUpdateTableButton = new GToolbarButton(messages.formGridUpdate(), "ok.png", messages.formGridUpdate(), false) {
-            @Override
-            public ClickHandler getClickHandler() {
-                return event -> {
-                    formController.changeMode(groupObject, false, null, null, 0, null, null, false, GUpdateMode.FORCE, null);
-                };
-            }
-        };
-        forceUpdateTableButton.addStyleName("actionPanelRendererValue");
+            forceUpdateTableButton = new GToolbarButton(messages.formGridUpdate(), StaticImage.OK, messages.formGridUpdate(), false) {
+                @Override
+                public ClickHandler getClickHandler() {
+                    return event -> formController.changeMode(groupObject, false, null, null, 0, null, null, false, GUpdateMode.FORCE, null);
+                }
+            };
+            updateButtonGroup.add(forceUpdateTableButton);
 
-        addToToolbar(forceUpdateTableButton);
+            addToToolbar(updateButtonGroup);
+        }
     }
 
     public void showRecordQuantity(int quantity) {
@@ -397,7 +377,7 @@ public class GGridController extends GAbstractTableController {
         sumButton.showPopup(sum, property);
     }
 
-    public void updateKeys(GGroupObject group, ArrayList<GGroupObjectValue> keys, GFormChanges fc) {
+    public void updateKeys(GGroupObject group, ArrayList<GGroupObjectValue> keys, GFormChanges fc, int requestIndex) {
         if(isList())
             table.setKeys(keys);
     }
@@ -417,63 +397,128 @@ public class GGridController extends GAbstractTableController {
     }
 
     @Override
-    public void updateCellBackgroundValues(GBackgroundReader reader, NativeHashMap<GGroupObjectValue, Object> values) {
+    public void updateCellValueElementClasses(GValueElementClassReader reader, NativeHashMap<GGroupObjectValue, PValue> values) {
+        table.updateCellValueElementClasses(formController.getProperty(reader.propertyID), values);
+    }
+
+    @Override
+    public void updateCellFontValues(GExtraPropReader reader, NativeHashMap<GGroupObjectValue, PValue> values) {
+        table.updateCellFontValues(formController.getProperty(reader.propertyID), values);
+    }
+
+    @Override
+    public void updateCellBackgroundValues(GBackgroundReader reader, NativeHashMap<GGroupObjectValue, PValue> values) {
         table.updateCellBackgroundValues(formController.getProperty(reader.propertyID), values);
     }
 
     @Override
-    public void updateCellForegroundValues(GForegroundReader reader, NativeHashMap<GGroupObjectValue, Object> values) {
+    public void updateCellForegroundValues(GForegroundReader reader, NativeHashMap<GGroupObjectValue, PValue> values) {
         table.updateCellForegroundValues(formController.getProperty(reader.propertyID), values);
     }
 
     @Override
-    public void updateImageValues(GImageReader reader, NativeHashMap<GGroupObjectValue, Object> values) {
+    public void updatePlaceholderValues(GExtraPropReader reader, NativeHashMap<GGroupObjectValue, PValue> values) {
+        table.updatePlaceholderValues(formController.getProperty(reader.propertyID), values);
+    }
+
+    @Override
+    public void updatePatternValues(GExtraPropReader reader, NativeHashMap<GGroupObjectValue, PValue> values) {
+        table.updatePatternValues(formController.getProperty(reader.propertyID), values);
+    }
+
+    @Override
+    public void updateRegexpValues(GExtraPropReader reader, NativeHashMap<GGroupObjectValue, PValue> values) {
+        table.updateRegexpValues(formController.getProperty(reader.propertyID), values);
+    }
+
+    @Override
+    public void updateRegexpMessageValues(GExtraPropReader reader, NativeHashMap<GGroupObjectValue, PValue> values) {
+        table.updateRegexpMessageValues(formController.getProperty(reader.propertyID), values);
+    }
+
+    @Override
+    public void updateTooltipValues(GExtraPropReader reader, NativeHashMap<GGroupObjectValue, PValue> values) {
+        table.updateTooltipValues(formController.getProperty(reader.propertyID), values);
+    }
+
+    @Override
+    public void updateValueTooltipValues(GExtraPropReader reader, NativeHashMap<GGroupObjectValue, PValue> values) {
+        table.updateValueTooltipValues(formController.getProperty(reader.propertyID), values);
+    }
+
+    @Override
+    public void updateImageValues(GImageReader reader, NativeHashMap<GGroupObjectValue, PValue> values) {
         table.updateImageValues(formController.getProperty(reader.propertyID), values);
     }
 
     @Override
-    public void updatePropertyCaptions(GCaptionReader reader, NativeHashMap<GGroupObjectValue, Object> values) {
+    public void updatePropertyCaptions(GCaptionReader reader, NativeHashMap<GGroupObjectValue, PValue> values) {
         table.updatePropertyCaptions(formController.getProperty(reader.propertyID), values);
     }
 
     @Override
-    public void updateShowIfValues(GShowIfReader reader, NativeHashMap<GGroupObjectValue, Object> values) {
+    public void updateCellCaptionElementClasses(GCaptionElementClassReader reader, NativeHashMap<GGroupObjectValue, PValue> values) {
+        table.updateCaptionElementClasses(formController.getProperty(reader.propertyID), values);
+    }
+
+    @Override
+    public void updateLoadings(GLoadingReader reader, NativeHashMap<GGroupObjectValue, PValue> values) {
+        table.updateLoadings(formController.getProperty(reader.propertyID), values);
+    }
+
+    @Override
+    public void updateShowIfValues(GShowIfReader reader, NativeHashMap<GGroupObjectValue, PValue> values) {
         table.updateShowIfValues(formController.getProperty(reader.propertyID), values);
     }
 
     @Override
-    public void updateFooterValues(GFooterReader reader, NativeHashMap<GGroupObjectValue, Object> values) {
+    public void updateFooterValues(GFooterReader reader, NativeHashMap<GGroupObjectValue, PValue> values) {
         table.updatePropertyFooters(formController.getProperty(reader.propertyID), values);
     }
 
     @Override
-    public void updateReadOnlyValues(GReadOnlyReader reader, NativeHashMap<GGroupObjectValue, Object> values) {
+    public void updateReadOnlyValues(GReadOnlyReader reader, NativeHashMap<GGroupObjectValue, PValue> values) {
         table.updateReadOnlyValues(formController.getProperty(reader.propertyID), values);
     }
 
     @Override
-    public void updateLastValues(GLastReader reader, NativeHashMap<GGroupObjectValue, Object> values) {
+    public void updatePropertyComments(GExtraPropReader reader, NativeHashMap<GGroupObjectValue, PValue> values) {
+    }
+
+    @Override
+    public void updateCellCommentElementClasses(GExtraPropReader reader, NativeHashMap<GGroupObjectValue, PValue> values) {
+    }
+
+    @Override
+    public void updateLastValues(GLastReader reader, NativeHashMap<GGroupObjectValue, PValue> values) {
         table.updateLastValues(formController.getProperty(reader.propertyID), reader.index, values);
     }
 
     @Override
-    public void updateRowBackgroundValues(NativeHashMap<GGroupObjectValue, Object> values) {
+    public void updateRowBackgroundValues(NativeHashMap<GGroupObjectValue, PValue> values) {
         if (isList()) {
             table.updateRowBackgroundValues(values);
         }
     }
 
     @Override
-    public void updateRowForegroundValues(NativeHashMap<GGroupObjectValue, Object> values) {
+    public void updateRowForegroundValues(NativeHashMap<GGroupObjectValue, PValue> values) {
         if (isList()) {
             table.updateRowForegroundValues(values);
         }
     }
 
-    public GGroupObjectValue getCurrentKey() {
+    @Override
+    public void updateCustomOptionsValues(NativeHashMap<GGroupObjectValue, PValue> values) {
+        if (isList()) {
+            table.updateCustomOptionsValues(values);
+        }
+    }
+
+    public GGroupObjectValue getSelectedKey() {
         GGroupObjectValue result = null;
         if (isList()) {
-            result = table.getCurrentKey();
+            result = table.getSelectedKey();
         }
         return result == null ? GGroupObjectValue.EMPTY : result;
     }
@@ -494,27 +539,34 @@ public class GGridController extends GAbstractTableController {
         return properties;
     }
 
-    @Override
     public GPropertyDraw getSelectedProperty() {
         return table != null ? table.getCurrentProperty() : null;
     }
+
+    @Override
+    public GPropertyDraw getSelectedFilterProperty() {
+        return getSelectedProperty();
+    }
+
     @Override
     public GGroupObjectValue getSelectedColumnKey() {
         return table.getCurrentColumnKey();
     }
 
     @Override
-    public Object getSelectedValue(GPropertyDraw property, GGroupObjectValue columnKey) {
+    public PValue getSelectedValue(GPropertyDraw property, GGroupObjectValue columnKey) {
         return table.getSelectedValue(property, columnKey);
     }
 
     @Override
-    public List<Pair<Column, String>> getSelectedColumns() {
-        return table.getSelectedColumns();
+    public List<Pair<Column, String>> getFilterColumns() {
+        return table.getFilterColumns();
     }
 
+
+
     @Override
-    public void updateProperty(GPropertyDraw property, ArrayList<GGroupObjectValue> columnKeys, boolean updateKeys, NativeHashMap<GGroupObjectValue, Object> values) {
+    public void updateProperty(GPropertyDraw property, ArrayList<GGroupObjectValue> columnKeys, boolean updateKeys, NativeHashMap<GGroupObjectValue, PValue> values) {
         table.updateProperty(property, columnKeys, updateKeys, values);
     }
 
@@ -525,17 +577,22 @@ public class GGridController extends GAbstractTableController {
 
     private void update(long requestIndex, Boolean updateState) {
         if (isList()) {
-            if(updateState != null)
+            if(updateState != null && groupObject.toolbar.showManualUpdate)
                 forceUpdateTableButton.setEnabled(updateState);
             table.update(updateState);
 
             boolean isVisible = !(table.isNoColumns() && requestIndex >= table.getSetRequestIndex());
-            gridView.setVisible(isVisible);
+            GwtClientUtils.setGridVisible(gridView, isVisible);
 
             if (toolbarView != null)
-                toolbarView.setVisible(isVisible);
+                GwtClientUtils.setGridVisible(toolbarView, isVisible);
 
             formController.setFiltersVisible(groupObject, isVisible);
+            
+            if (filter != null) {
+                filter.update();
+                filter.setVisible(isVisible);
+            }
         }
     }
 
@@ -600,9 +657,9 @@ public class GGridController extends GAbstractTableController {
         table.modifyGroupObject(key, add, position);
     }
 
-    public boolean focusFirstWidget() {
-        if (table != null && GwtClientUtils.isShowing(table.getThisWidget())) {
-            table.focus();
+    public boolean focusFirstWidget(FocusUtils.Reason reason) {
+        if (table != null && GwtClientUtils.isShowing(table.getWidget())) {
+            table.focus(reason);
             return true;
         }
 
@@ -610,18 +667,22 @@ public class GGridController extends GAbstractTableController {
     }
 
     @Override
-    public GComponent getGridComponent() {
+    public GGridProperty getGridComponent() {
         return isList() ? groupObject.grid : null;
     }
 
     @Override
     protected boolean showFilter() {
-        return isList() && groupObject.filter.visible;
+        return isList();
     }
 
     @Override
-    protected void changeFilter(ArrayList<GPropertyFilter> conditions) {
-        formController.changeFilter(groupObject, conditions);
+    protected long changeFilter(ArrayList<GPropertyFilter> conditions) {
+        return formController.changeFilter(groupObject, conditions);
+    }
+
+    public void changeFilters(List<GPropertyFilter> filters) {
+        filter.changeFilters(filters);
     }
 
     private void changeMode(Runnable updateView, GListViewType viewType, boolean setManualUpdateMode) {
@@ -638,7 +699,6 @@ public class GGridController extends GAbstractTableController {
 
     public void focusProperty(GPropertyDraw property) {
         GTableView table = this.table;
-        table.focus();
         table.focusProperty(property);
     }
 
@@ -661,6 +721,15 @@ public class GGridController extends GAbstractTableController {
         }
     }
 
+    @Override
+    public Pair<GGroupObjectValue, PValue> setLoadingValueAt(GPropertyDraw property, GGroupObjectValue fullCurrentKey, PValue value) {
+        if(table instanceof GGridTable) {
+            GGridTable gridTable = (GGridTable) table;
+            return gridTable.setLoadingValueAt(property, fullCurrentKey, value);
+        }
+        return null;
+    }
+
     private void updateSettingsButton() {
         if(settingsButton != null) {
             if (table instanceof GGridTable) {
@@ -672,18 +741,4 @@ public class GGridController extends GAbstractTableController {
             }
         }
     }
-
-//    private static void updateTooltip(GGridTable table) {
-//        String tooltip = messages.formGridPreferences() + " (";
-//        if (table.userPreferencesSaved()) {
-//            tooltip += messages.formGridPreferencesSavedForCurrentUser();
-//        } else if (table.generalPreferencesSaved()) {
-//            tooltip += messages.formGridPreferencesSavedForAllUsers();
-//        } else {
-//            tooltip += messages.formGridPreferencesNotSaved();
-//        }
-//
-//        setTitle(tooltip + ")");
-//    }
-
 }

@@ -1,21 +1,23 @@
 package lsfusion.server.logics.classes.data.file;
 
-import lsfusion.base.file.FileData;
+import com.google.common.base.Throwables;
+import lsfusion.base.file.IOUtils;
 import lsfusion.base.file.RawFileData;
 import lsfusion.interop.base.view.FlexAlignment;
 import lsfusion.interop.form.property.ExtInt;
 import lsfusion.server.data.sql.syntax.SQLSyntax;
+import lsfusion.server.data.type.DBType;
+import lsfusion.server.data.type.TypeSerializer;
 import lsfusion.server.data.type.exec.TypeEnvironment;
-import lsfusion.server.logics.classes.data.DataClass;
-import lsfusion.server.logics.classes.data.ParseException;
+import lsfusion.server.language.ScriptedStringUtils;
+import lsfusion.server.logics.classes.data.ByteArrayClass;
 import lsfusion.server.physics.dev.i18n.LocalizedString;
+import org.apache.commons.net.util.Base64;
 
-import java.io.DataOutputStream;
-import java.io.IOException;
-import java.nio.charset.Charset;
+import java.io.*;
 
 
-public abstract class FileClass<T> extends DataClass<T> {
+public abstract class FileClass<T> extends FileBasedClass<T> {
 
     public final boolean multiple;
     public boolean storeName;
@@ -27,8 +29,9 @@ public abstract class FileClass<T> extends DataClass<T> {
         this.storeName = storeName;
     }
 
-    public String getDB(SQLSyntax syntax, TypeEnvironment typeEnv) {
-        return syntax.getByteArrayType();
+    @Override
+    public DBType getDBType() {
+        return ByteArrayClass.instance;
     }
     public String getDotNetType(SQLSyntax syntax, TypeEnvironment typeEnv) {
         return "SqlBinary";
@@ -51,28 +54,26 @@ public abstract class FileClass<T> extends DataClass<T> {
         return syntax.getByteArraySQL();
     }
 
-    public boolean isSafeString(Object value) {
-        return false;
-    }
-
-    public String getString(Object value, SQLSyntax syntax) {
-        throw new RuntimeException("not supported");
-    }
-
     @Override
     public ExtInt getCharLength() {
         return ExtInt.UNLIMITED;
     }
 
     @Override
-    public FlexAlignment getValueAlignment() {
+    public FlexAlignment getValueAlignmentHorz() {
         return FlexAlignment.CENTER;
     }
 
     protected abstract String getFileSID();
 
+    @Override
     public String getSID() {
         return getFileSID() + (multiple ? "_Multiple" : "") + (storeName ? "_StoreName" : "");
+    }
+
+    @Override
+    public String getCanonicalName() {
+        return getFileSID();
     }
 
     @Override
@@ -88,27 +89,53 @@ public abstract class FileClass<T> extends DataClass<T> {
         outStream.writeBoolean(storeName);
     }
 
-    @Override
-    public T parseHTTP(Object o, Charset charset) throws ParseException {
-        if(o instanceof String)
-            return super.parseHTTP(o, charset);
+    public String formatString(T value, boolean ui) {
+        return value != null ? Base64.encodeBase64StringUnChunked(getRawFileData(value).getBytes()) : null;
+    }
 
-        if (((FileData) o).getExtension().equals("null"))
+    public T parseString(String s) {
+        return getValue(new RawFileData(Base64.decodeBase64(s)));
+    }
+
+    public abstract String getCastToStatic(String value);
+
+    public String getCastToConvert(boolean needImage, String value, SQLSyntax syntax) {
+        String stringConcatenate = syntax.getStringConcatenate();
+        return "'" + ScriptedStringUtils.wrapFile((needImage ? "1" : "0") + serializeString(), "'" + stringConcatenate + getEncode(value, syntax) + stringConcatenate + "'") + "'";
+    }
+
+    @Override
+    public String formatStringSource(String valueSource, SQLSyntax syntax) {
+        return getEncode(valueSource, syntax);
+    }
+
+    private String getEncode(String valueSource, SQLSyntax syntax) {
+        return "encode(" + getCastToStatic(valueSource) + ", 'base64')";
+    }
+
+    @Override
+    public String formatMessage(T object) {
+        if(object == null)
             return null;
-        return parseHTTPNotNull((FileData) o);
+        return getRawFileData(object).convertString();
     }
 
-    @Override
-    public Object formatHTTP(T value, Charset charset) {
-        if(charset != null)
-            return super.formatHTTP(value, charset);
+    protected abstract RawFileData getRawFileData(T value);
+    protected abstract T getValue(RawFileData data);
 
-        if(value == null) 
-            return new FileData(RawFileData.EMPTY, "null");
-        return formatHTTPNotNull(value);
+
+    public String serializeString() {
+        try {
+            ByteArrayOutputStream outStream = new ByteArrayOutputStream();
+            serialize(new DataOutputStream(outStream));
+            return IOUtils.serializeStream(outStream);
+        } catch (IOException e) {
+            throw Throwables.propagate(e);
+        }
     }
 
-    protected abstract T parseHTTPNotNull(FileData b);
-
-    protected abstract FileData formatHTTPNotNull(T b);
+    public static <T> FileClass<T> deserializeString(String image) throws IOException {
+        DataInputStream dataStream = new DataInputStream(IOUtils.deserializeStream(image));
+        return (FileClass) TypeSerializer.deserializeDataClass(dataStream);
+    }
 }

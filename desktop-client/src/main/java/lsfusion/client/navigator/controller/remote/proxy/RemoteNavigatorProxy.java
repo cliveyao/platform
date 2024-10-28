@@ -1,19 +1,16 @@
 package lsfusion.client.navigator.controller.remote.proxy;
 
-import com.google.common.base.Throwables;
 import lsfusion.base.Pair;
-import lsfusion.client.controller.remote.proxy.PendingRemoteObjectProxy;
-import lsfusion.client.controller.remote.proxy.RemoteRequestObjectProxy;
+import lsfusion.client.connection.RemoteConnectionProxy;
 import lsfusion.interop.action.ServerResponse;
 import lsfusion.interop.form.remote.RemoteFormInterface;
-import lsfusion.interop.navigator.ClientSettings;
+import lsfusion.interop.navigator.ClientInfo;
 import lsfusion.interop.navigator.remote.ClientCallBackInterface;
 import lsfusion.interop.navigator.remote.RemoteNavigatorInterface;
 
 import java.rmi.RemoteException;
-import java.util.concurrent.Callable;
 
-public class RemoteNavigatorProxy<T extends RemoteNavigatorInterface> extends RemoteRequestObjectProxy<T> implements RemoteNavigatorInterface {
+public class RemoteNavigatorProxy<T extends RemoteNavigatorInterface> extends RemoteConnectionProxy<T> implements RemoteNavigatorInterface {
 
     public RemoteNavigatorProxy(T target, String realHostName) {
         super(target, realHostName);
@@ -33,21 +30,12 @@ public class RemoteNavigatorProxy<T extends RemoteNavigatorInterface> extends Re
     }
 
     public byte[] getNavigatorTree() throws RemoteException {
-        try {
-            return callImmutableMethod("getNavigatorTree", new Callable<byte[]>() {
-                @Override
-                public byte[] call() throws Exception {
-                    return target.getNavigatorTree();
-                }
-            });
-        } catch (Exception e) {
-            throw Throwables.propagate(e);
-        }
+        return target.getNavigatorTree();
     }
 
     @Override
-    public ClientSettings getClientSettings() throws RemoteException {
-        return target.getClientSettings();
+    public void voidNavigatorAction(long requestIndex, long lastReceivedRequestIndex, long waitRequestIndex) throws RemoteException {
+        target.voidNavigatorAction(requestIndex, lastReceivedRequestIndex, waitRequestIndex);
     }
 
     @Override
@@ -58,5 +46,15 @@ public class RemoteNavigatorProxy<T extends RemoteNavigatorInterface> extends Re
     @Override
     public ServerResponse executeNavigatorAction(long requestIndex, long lastReceivedRequestIndex, String navigatorActionSID, int type) throws RemoteException {
         return target.executeNavigatorAction(requestIndex, lastReceivedRequestIndex, navigatorActionSID, type);
+    }
+    
+    @Override
+    public void updateClientInfo(ClientInfo clientInfo) throws RemoteException {
+        target.updateClientInfo(clientInfo);
+    }
+
+    @Override
+    public void updateServiceClientInfo(String subscription, String clientId) throws RemoteException {
+        target.updateServiceClientInfo(subscription, clientId);
     }
 }

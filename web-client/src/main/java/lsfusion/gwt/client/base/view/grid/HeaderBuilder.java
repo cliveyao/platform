@@ -16,6 +16,9 @@
 package lsfusion.gwt.client.base.view.grid;
 
 import com.google.gwt.dom.client.Element;
+import com.google.gwt.dom.client.TableRowElement;
+
+import java.util.List;
 
 /**
  * Builds the DOM elements for the header section of a CellTable. It also
@@ -32,6 +35,10 @@ public interface HeaderBuilder<T> {
 
     void update(boolean columnsChanged);
 
+    void updateStickyLeft(List<Integer> stickyColumns, List<DataGrid.StickyParams> stickyLefts);
+    
+    void updateStickedState(List<Integer> stickyColumns, int lastSticked);
+
     /**
      * If you want to handle browser events using a subclass of {@link Header},
      * implement this method to return the appropriate instance and cell table
@@ -43,4 +50,5 @@ public interface HeaderBuilder<T> {
      */
     Header<?> getHeader(Element elem);
 
+    TableRowElement getHeaderRow();
 }

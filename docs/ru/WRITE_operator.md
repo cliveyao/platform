@@ -6,7 +6,9 @@ title: 'Оператор WRITE'
 
 ### Синтаксис
 
-    WRITE [CLIENT [DIALOG]] fileExpr TO urlExpr [APPEND]
+```
+WRITE [CLIENT [DIALOG]] fileExpr TO urlExpr [APPEND]
+```
 
 ### Описание
 
@@ -14,24 +16,27 @@ title: 'Оператор WRITE'
 
 Поддерживаются следующие типы URL:
 
-    [file://]path_to_file
-    [s]ftp://username:password[;charset]@host:port[/path_to_file][?passivemode=true|false]
+```
+[file://]path_to_file
+[s]ftp://username:password[;charset]@host:port[/path_to_file][?passivemode=true|false]
+```
 
 Предполагается, что в URL расширение файла не задается (то есть точка `.` также считается частью имени файла). Это расширение определяется автоматически, в зависимости от класса записываемого файла, следующим образом:
 
-|Расширение                                     |Класс      |
-|-----------------------------------------------|-----------|
-|читается из переданного объекта                |`FILE`     |
-|json                                           |`JSONFILE` |
-|xml                                            |`XMLFILE`  |
-|csv                                            |`CSVFILE`  |
-|xls или xlsx в зависимости от содержимого файла|`EXCELFILE`|
-|dbf                                            |`DBFFILE`  |
-|table                                          |`TABLEFILE`|
-|html                                           |`HTMLFILE` |
-|doc или docx в зависимости от содержимого файла|`WORDFILE` |
-|jpg                                            |`IMAGEFILE`|
-|pdf                                            |`PDFFILE`  |
+| Расширение                                      | Класс       |
+|-------------------------------------------------|-------------|
+| читается из переданного объекта                 | `FILE`      |
+| json                                            | `JSONFILE`  |
+| xml                                             | `XMLFILE`   |
+| csv                                             | `CSVFILE`   |
+| xls или xlsx в зависимости от содержимого файла | `EXCELFILE` |
+| dbf                                             | `DBFFILE`   |
+| table                                           | `TABLEFILE` |
+| html                                            | `HTMLFILE`  |
+| doc или docx в зависимости от содержимого файла | `WORDFILE`  |
+| jpg                                             | `IMAGEFILE` |
+| pdf                                             | `PDFFILE`   |
+| mp4                                             | `VIDEOFILE` |
 
 На клиенте текущим директорием считается директорий `Downloads` внутри пользовательского директория.
 

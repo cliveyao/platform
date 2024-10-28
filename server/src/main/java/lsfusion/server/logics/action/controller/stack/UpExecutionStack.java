@@ -8,6 +8,7 @@ import lsfusion.base.col.interfaces.immutable.ImSet;
 import lsfusion.base.lambda.Processor;
 import lsfusion.server.data.sql.exception.SQLHandledException;
 import lsfusion.server.data.value.ObjectValue;
+import lsfusion.server.language.EvalScriptingLogicsModule;
 import lsfusion.server.language.property.LP;
 import lsfusion.server.logics.action.session.DataSession;
 import lsfusion.server.logics.action.session.classes.change.UpdateCurrentClassesSession;
@@ -61,11 +62,24 @@ public abstract class UpExecutionStack implements ExecutionStack {
             upStack.updateCurrentClasses(session);
     }
 
+    @Override
+    public void dropPushAsyncResult() {
+        if(upStack != null)
+            upStack.dropPushAsyncResult();
+    }
+
     // nullable
     protected abstract DataSession getSession();
 
     public boolean sameSession(UpdateCurrentClassesSession session) {
         DataSession thisSession = getSession();
         return thisSession == null || session.sameSession(thisSession);
+    }
+
+    @Override
+    public EvalScriptingLogicsModule getEvalLM() {
+        if(upStack != null)
+            return upStack.getEvalLM();
+        return null;
     }
 }

@@ -6,9 +6,6 @@ import lsfusion.base.BaseUtils;
 import lsfusion.base.SystemUtils;
 import lsfusion.client.SplashScreen;
 import lsfusion.client.base.view.SwingDefaults;
-import lsfusion.client.classes.data.ClientDateIntervalClass;
-import lsfusion.client.classes.data.ClientDateTimeIntervalClass;
-import lsfusion.client.classes.data.ClientTimeIntervalClass;
 import lsfusion.client.controller.MainController;
 import lsfusion.client.controller.remote.ConnectionLostManager;
 import lsfusion.client.controller.remote.ReconnectWorker;
@@ -17,23 +14,26 @@ import lsfusion.client.form.controller.ClientFormController;
 import lsfusion.client.form.controller.remote.proxy.RemoteFormProxy;
 import lsfusion.client.form.print.view.EditReportInvoker;
 import lsfusion.client.form.view.ClientFormDockable;
+import lsfusion.client.navigator.controller.AsyncFormController;
 import lsfusion.interop.action.ICleanListener;
-import lsfusion.interop.action.ReportPath;
 import lsfusion.interop.base.exception.AppServerNotAvailableException;
 import lsfusion.interop.base.exception.AuthenticationException;
 import lsfusion.interop.base.exception.RemoteMessageException;
 import lsfusion.interop.connection.ClientType;
 import lsfusion.interop.connection.LocalePreferences;
-import lsfusion.interop.form.ModalityType;
+import lsfusion.interop.connection.TFormats;
+import lsfusion.interop.form.FormClientData;
 import lsfusion.interop.form.event.EventBus;
 import lsfusion.interop.form.print.ReportGenerationData;
 import lsfusion.interop.form.remote.RemoteFormInterface;
-import lsfusion.interop.logics.LogicsRunnable;
 import lsfusion.interop.logics.LogicsSessionObject;
 import lsfusion.interop.logics.remote.RemoteLogicsInterface;
+import lsfusion.interop.navigator.ClientInfo;
 import lsfusion.interop.navigator.ClientSettings;
 import lsfusion.interop.navigator.NavigatorInfo;
 import lsfusion.interop.navigator.remote.RemoteNavigatorInterface;
+import lsfusion.interop.session.ExternalRequest;
+import lsfusion.interop.session.SessionInfo;
 import org.apache.log4j.Logger;
 import org.jdesktop.jxlayer.JXLayer;
 import org.jdesktop.jxlayer.plaf.effect.BufferedImageOpEffect;
@@ -52,8 +52,6 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.rmi.RemoteException;
-import java.text.DateFormat;
-import java.text.SimpleDateFormat;
 import java.util.List;
 import java.util.*;
 import java.util.concurrent.Callable;
@@ -63,7 +61,7 @@ import static lsfusion.client.ClientResourceBundle.getString;
 
 public abstract class MainFrame extends JFrame {
     private final static Logger logger = Logger.getLogger(MainController.class);
-    
+
     public static MainFrame instance;
     public static void load() {
         try {
@@ -74,13 +72,27 @@ public abstract class MainFrame extends JFrame {
                         return RmiQueue.runRetryableRequest(new Callable<RemoteNavigatorInterface>() { // we need to retry request (at leastbecause remoteLogics ref can be invalid), just like in logicsDispatchAsync in web-client
                             public RemoteNavigatorInterface call() throws Exception {
                                 try {
-                                    return MainController.runRequest(new LogicsRunnable<RemoteNavigatorInterface>() {
-                                        public RemoteNavigatorInterface run(LogicsSessionObject sessionObject) throws RemoteException {
-                                            RemoteLogicsInterface remoteLogics = sessionObject.remoteLogics;
-                                            MainController.remoteLogics = remoteLogics;
-                                            MainController.initRmiClassLoader(remoteLogics);
-                                            return MainController.remoteLogics.createNavigator(MainController.authToken, getNavigatorInfo());
+                                    return MainController.runRequest((sessionObject, retry) -> {
+                                        RemoteLogicsInterface remoteLogics = sessionObject.remoteLogics;
+                                        MainController.remoteLogics = remoteLogics;
+                                        MainController.initRmiClassLoader(remoteLogics);
+
+                                        RemoteNavigatorInterface remoteNavigator = MainController.remoteLogics.createNavigator(MainController.authToken, getNavigatorInfo());
+
+                                        String screenSize = null;
+                                        Dimension dimension = Toolkit.getDefaultToolkit().getScreenSize();
+                                        if(dimension != null) {
+                                            screenSize = (int) dimension.getWidth() + "x" + (int) dimension.getHeight();
                                         }
+
+                                        GraphicsDevice[] devices = GraphicsEnvironment.getLocalGraphicsEnvironment().getScreenDevices();
+                                        Rectangle bounds = devices[0].getDefaultConfiguration().getBounds();
+                                        DisplayMode dm = devices[0].getDefaultConfiguration().getDevice().getDisplayMode();
+                                        double scale = dm.getWidth() / bounds.getWidth();
+
+                                        remoteNavigator.updateClientInfo(new ClientInfo(screenSize, scale, ClientType.NATIVE_DESKTOP, false));
+
+                                        return remoteNavigator;
                                     });
                                 } catch (AppServerNotAvailableException e) { // suppress and try again
                                     return null;
@@ -101,17 +113,25 @@ public abstract class MainFrame extends JFrame {
 
             startSplashScreen();
 
-            ClientSettings clientSettings = remoteNavigator.getClientSettings();
+            ClientSettings clientSettings = getClientSettings(remoteNavigator);
 
             LocalePreferences localePreferences = clientSettings.localePreferences;
             fontSize = clientSettings.fontSize;
             MainController.busyDialog = clientSettings.busyDialog;
             MainController.busyDialogTimeout = Math.max(clientSettings.busyDialogTimeout, 1000); //минимальный таймаут 1000мс
             MainController.useRequestTimeout = clientSettings.useRequestTimeout;
+            MainController.projectLSFDir = clientSettings.projectLSFDir;
             MainController.showDetailedInfo = clientSettings.showDetailedInfo;
+            MainController.showDetailedInfoDelay = clientSettings.showDetailedInfoDelay;
             MainController.forbidDuplicateForms = clientSettings.forbidDuplicateForms;
             MainController.showNotDefinedStrings = clientSettings.showNotDefinedStrings;
+            MainController.matchSearchSeparator = clientSettings.matchSearchSeparator;
             MainController.colorPreferences = clientSettings.colorPreferences;
+            MainController.useTextAsFilterSeparator = clientSettings.useTextAsFilterSeparator;
+            MainController.userFiltersManualApplyMode = clientSettings.userFiltersManualApplyMode;
+            MainController.disableActionsIfReadonly = clientSettings.disableActionsIfReadonly;
+            MainController.enableShowingRecentlyLogMessages = clientSettings.enableShowingRecentlyLogMessages;
+            MainController.maxRequestQueueSize = clientSettings.maxRequestQueueSize;
             SwingDefaults.resetClientSettingsProperties();
             MainController.setClientSettingsDependentUIDefaults();
 
@@ -131,6 +151,8 @@ public abstract class MainFrame extends JFrame {
 
             setupTimePreferences(localePreferences);
 
+            setupFormattableDates();
+
             setUIFontSize();
 
             logger.info("Before init frame");
@@ -148,7 +170,7 @@ public abstract class MainFrame extends JFrame {
             frame.setExtendedState(MAXIMIZED_BOTH);
             logger.info("After setExtendedState");
 
-            ConnectionLostManager.start(frame, remoteNavigator.getClientCallBack(), clientSettings.devMode);
+            ConnectionLostManager.start(frame, remoteNavigator.getClientCallBack(), clientSettings.devMode, clientSettings.autoReconnectOnConnectionLost);
 
             frame.setVisible(true);
 
@@ -158,7 +180,7 @@ public abstract class MainFrame extends JFrame {
             
             MainController.changeColorTheme(clientSettings.colorTheme);
 
-            frame.executeNavigatorAction("SystemEvents.onClientStarted[]", 0, null, null);
+            frame.executeNavigatorAction("SystemEvents.onClientStartedApply[]", 0, null, null);
         } catch (Throwable e) {
             closeSplashScreen();
             logger.error(getString("client.error.application.initialization"), e);
@@ -168,12 +190,8 @@ public abstract class MainFrame extends JFrame {
 
     // time
     
-    public static DateFormat dateFormat;
-    public static DateFormat timeFormat;
-    public static DateFormat dateTimeFormat;
-    public static ClientDateTimeIntervalClass.DateTimeIntervalFormat dateTimeIntervalFormat;
-    public static ClientDateIntervalClass.DateIntervalFormat dateIntervalFormat;
-    public static ClientTimeIntervalClass.TimeIntervalFormat timeIntervalFormat;
+    public static TFormats tFormats;
+
     public static Date wideFormattableDate;
     public static Date wideFormattableDateTime;
     public static BigDecimal wideFormattableDateTimeInterval;
@@ -185,31 +203,10 @@ public abstract class MainFrame extends JFrame {
             TimeZone.setDefault(timeZone);
         }
 
-        Date twoDigitYearStartDate = null;
-        if (localePreferences.twoDigitYearStart != null) {
-            GregorianCalendar c = new GregorianCalendar(localePreferences.twoDigitYearStart, Calendar.JANUARY, 1);
-            twoDigitYearStartDate = c.getTime();
-        }
+        tFormats = new TFormats(localePreferences.twoDigitYearStart, localePreferences.dateFormat, localePreferences.timeFormat, timeZone);
+    }
 
-        //dateFormat = DateFormat.getDateInstance(DateFormat.SHORT);
-        dateFormat = new SimpleDateFormat(localePreferences.dateFormat);
-        if (twoDigitYearStartDate != null) {
-            ((SimpleDateFormat) dateFormat).set2DigitYearStart(twoDigitYearStartDate);
-        }
-
-        //timeFormat = DateFormat.getTimeInstance(DateFormat.MEDIUM);
-        timeFormat = new SimpleDateFormat(localePreferences.timeFormat);
-
-        //dateTimeFormat = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.MEDIUM);
-        dateTimeFormat = new SimpleDateFormat(localePreferences.dateFormat + " " + localePreferences.timeFormat);
-        if (twoDigitYearStartDate != null) {
-            ((SimpleDateFormat) dateTimeFormat).set2DigitYearStart(twoDigitYearStartDate);
-        }
-
-        dateTimeIntervalFormat = new ClientDateTimeIntervalClass.DateTimeIntervalFormat();
-        dateIntervalFormat = new ClientDateIntervalClass.DateIntervalFormat();
-        timeIntervalFormat = new ClientTimeIntervalClass.TimeIntervalFormat();
-
+    private static void setupFormattableDates() {
         wideFormattableDate = createWideFormattableDate();
         wideFormattableDateTime = createWideFormattableDate();
         wideFormattableDateTimeInterval = createWideFormattableDateTimeInterval();
@@ -292,25 +289,14 @@ public abstract class MainFrame extends JFrame {
         Integer freeMemory = (int) (Runtime.getRuntime().freeMemory() / 1048576);
         String javaVersion = SystemUtils.getJavaVersion() + " " + System.getProperty("sun.arch.data.model") + " bit";
 
-        String screenSize = null;
-        Dimension dimension = Toolkit.getDefaultToolkit().getScreenSize();
-        if(dimension != null) {
-            screenSize = (int) dimension.getWidth() + "x" + (int) dimension.getHeight();
-        }
-
         return new NavigatorInfo(MainController.getSessionInfo(), osVersion, processor, architecture, cores, physicalMemory, totalMemory,
-                maximumMemory, freeMemory, javaVersion, screenSize, ClientType.NATIVE_DESKTOP, BaseUtils.getPlatformVersion(), BaseUtils.getApiVersion());
+                maximumMemory, freeMemory, javaVersion, BaseUtils.getPlatformVersion(), BaseUtils.getApiVersion());
     }
 
     public ClientFormController currentForm;
 
     public void setCurrentForm(ClientFormController currentForm) {
         this.currentForm = currentForm;
-    }
-
-    public void dropCurrentForm(ClientFormController form) {
-        if(currentForm != null && currentForm.equals(form))
-            currentForm = null;
     }
 
     public void executeNotificationAction(final Integer idNotification) {
@@ -361,8 +347,6 @@ public abstract class MainFrame extends JFrame {
 
     protected File baseDir;
     public RemoteNavigatorInterface remoteNavigator;
-    public JLabel statusComponent;
-    public JComponent status;
 
     private LockableUI lockableUI;
 
@@ -375,10 +359,6 @@ public abstract class MainFrame extends JFrame {
         setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
 
         updateUser(userName);
-
-        statusComponent = new JLabel();
-        status = new JPanel(new BorderLayout());
-        status.add(statusComponent, BorderLayout.CENTER);
 
         loadLayout();
 
@@ -466,9 +446,13 @@ public abstract class MainFrame extends JFrame {
         setTitle(MainController.getMainTitle() + " - " + userName + " (" + MainController.serverInfo.host + ":" + MainController.serverInfo.port + ")");
     }
 
-    public abstract Integer runReport(List<ReportPath> customReportPathList, String formCaption, String formSID, boolean isModal, ReportGenerationData generationData, String printerName) throws IOException, ClassNotFoundException;
+    public abstract Integer runReport(List<String> customReportPathList, String formCaption, String formSID, boolean isModal, ReportGenerationData generationData, String printerName) throws IOException, ClassNotFoundException;
 
     public abstract Integer runReport(boolean isModal, String formCaption, ReportGenerationData generationData, String printerName, EditReportInvoker editInvoker) throws IOException, ClassNotFoundException;
 
-    public abstract ClientFormDockable runForm(Long requestIndex, String canonicalName, String formSID, boolean forbidDuplicate, RemoteFormInterface remoteForm, byte[] firstChanges, FormCloseListener closeListener);
+    public abstract ClientFormDockable runForm(AsyncFormController asyncFormController, boolean forbidDuplicate, RemoteFormInterface remoteForm, FormClientData clientData, FormCloseListener closeListener, String formId);
+
+    public static ClientSettings getClientSettings(RemoteNavigatorInterface remoteNavigator) throws RemoteException {
+        return LogicsSessionObject.getClientSettings(ExternalRequest.EMPTY, remoteNavigator);
+    }
 }

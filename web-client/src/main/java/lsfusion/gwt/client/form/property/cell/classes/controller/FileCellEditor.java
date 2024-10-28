@@ -6,118 +6,121 @@ import com.google.gwt.dom.client.Element;
 import com.google.gwt.dom.client.InputElement;
 import com.google.gwt.user.client.Event;
 import com.google.gwt.user.client.Timer;
-import com.google.gwt.user.client.ui.*;
+import com.google.gwt.user.client.ui.SimplePanel;
+import com.google.gwt.user.client.ui.Widget;
 import lsfusion.gwt.client.ClientMessages;
 import lsfusion.gwt.client.base.GProgressBar;
 import lsfusion.gwt.client.base.GwtClientUtils;
 import lsfusion.gwt.client.base.GwtSharedUtils;
-import lsfusion.gwt.client.base.view.FlexPanel;
-import lsfusion.gwt.client.base.view.ProgressBar;
-import lsfusion.gwt.client.base.view.WindowBox;
+import lsfusion.gwt.client.base.view.*;
 import lsfusion.gwt.client.form.event.GKeyStroke;
+import lsfusion.gwt.client.form.property.PValue;
 import lsfusion.gwt.client.form.property.cell.classes.GFilesDTO;
-import lsfusion.gwt.client.form.property.cell.controller.CellEditor;
 import lsfusion.gwt.client.form.property.cell.controller.EditManager;
+import lsfusion.gwt.client.form.property.cell.controller.KeepCellEditor;
+import lsfusion.gwt.client.form.property.cell.view.RenderContext;
 import org.moxieapps.gwt.uploader.client.File;
 import org.moxieapps.gwt.uploader.client.Uploader;
+import org.moxieapps.gwt.uploader.client.events.UploadErrorEvent;
 
-import java.util.ArrayList;
+import java.util.List;
 
-import static lsfusion.gwt.client.base.GwtSharedUtils.isRedundantString;
+public class FileCellEditor extends ARequestValueCellEditor implements KeepCellEditor {
 
-public class FileCellEditor implements CellEditor {
     private static final ClientMessages messages = ClientMessages.Instance.get();
-    private EditManager editManager;
     private boolean storeName;
-    private String description;
-    private ArrayList<String> validContentTypes; // null if FILE (with any extension/contenttype)
+    private List<String> validExtensions; // null if FILE (with any extension/contenttype)
+    private boolean named;
 
     private Uploader newVersionUploader;
     private FileInfo fileInfo = new FileInfo();
     
-    public FileCellEditor(EditManager editManager, String description, boolean storeName, ArrayList<String> validContentTypes) {
-        this.editManager = editManager;
+    public FileCellEditor(EditManager editManager, boolean storeName, List<String> validExtensions, boolean named) {
+        super(editManager);
         this.storeName = storeName;
-        this.validContentTypes = validContentTypes;
-        this.description = description;
+        this.validExtensions = validExtensions;
+        this.named = named;
     }
 
-    private boolean addFilesToUploader(JsArray files) {
+    private boolean addFilesToUploader(JsArray files, Element parent, Widget popupOwnerWidget) {
         JsArray validFiles = JsArray.createArray().cast();
         for (int i = 0; i < files.length(); i++) {
             File file = files.get(i).cast();
-            String type = file.getType(); //some input files may have empty type
-            if ((validContentTypes == null || emptyValidContentType() || isRedundantString(type) || validContentTypes.contains(type)) && (validFiles.length() == 0)) {
+            String extension = GwtClientUtils.getFileExtension(file.getName()).toLowerCase();
+            if ((validExtensions == null || emptyValidExtension() || validExtensions.contains(extension)) && (validFiles.length() == 0)) {
                 validFiles.push(file);
             }
         }
 
         boolean hasValidFiles = validFiles.length() > 0;
         if(hasValidFiles) {
-            newVersionUploader = createUploader();
+            newVersionUploader = createUploader(parent, popupOwnerWidget);
             newVersionUploader.addFilesToQueue(validFiles);
             newVersionUploader.startUpload();
         }
+
+        // we can catch "File name too long" error only in UploadFileRequestHandler,
+        // but we need to handle it in this place,
+        // we use a hack: in UploadFileRequestHandler write 270 code in response when this error occurs,
+        // and in this place when 270 code (FILE_VALIDATION_FAILED) appears we know that it is an error related to "File name too long".
+        newVersionUploader.setUploadErrorHandler(uploadErrorEvent -> {
+            if (!uploadErrorEvent.getErrorCode().equals(UploadErrorEvent.ErrorCode.FILE_CANCELLED)) { // this check is necessary because loadingBox.hideLoadingBox() throws FILE_CANCELLED error
+                String errorMessage = uploadErrorEvent.getMessage().endsWith(String.valueOf(-UploadErrorEvent.ErrorCode.FILE_VALIDATION_FAILED.toInt())) ?
+                        ClientMessages.Instance.get().fileNameTooLong() : uploadErrorEvent.getMessage();
+                loadingBox.hideLoadingBox(true);
+                throw new RuntimeException(errorMessage);
+            }
+            return false;
+        });
         return hasValidFiles;
     }
 
-    private boolean emptyValidContentType() {
-        return validContentTypes.size() == 1 && validContentTypes.get(0).isEmpty();
-    }
-
-    public void commit() {
-        ArrayList<String> fileSIDS = new ArrayList<>();
-        fileSIDS.add(fileInfo.filePrefix + "_" + fileInfo.fileName);
-        editManager.commitEditing(new GFilesDTO(fileSIDS, false, storeName, validContentTypes == null));
-        newVersionUploader = null;
-    }
-
-    public void cancel() {
-        if(newVersionUploader != null) {
-            newVersionUploader.cancelUpload();
-        }
-        editManager.cancelEditing();
-        newVersionUploader = null;
+    private boolean emptyValidExtension() {
+        return validExtensions.size() == 1 && validExtensions.get(0).isEmpty();
     }
 
     @Override
-    public void startEditing(Event editEvent, Element parent, Object oldValue) {
-        if(GKeyStroke.isDropEvent(editEvent)) {
-            drop(editEvent);
+    public void stop(Element parent, boolean cancel, boolean blurred) {
+        if(cancel && newVersionUploader != null)
+            newVersionUploader.cancelUpload();
+        newVersionUploader = null;
+    }
+
+    private boolean uploaded = false;
+
+    @Override
+    public PValue getCommitValue(Element parent, Integer contextAction) throws InvalidEditException {
+        if(!uploaded)
+            throw new InvalidEditException();
+        return PValue.getPValue(new GFilesDTO(fileInfo.filePrefix + "_" + fileInfo.fileName, fileInfo.fileName, storeName, validExtensions == null, named));
+    }
+
+    @Override
+    public void start(EventHandler handler, Element parent, RenderContext renderContext, boolean notFocusable, PValue oldValue) {
+        Event event;
+        Widget popupOwnerWidget = renderContext.getPopupOwnerWidget();
+        if(handler != null && GKeyStroke.isDropEvent(event = handler.event)) {
+            drop(event, parent, popupOwnerWidget);
         } else {
-            click(parent, createFileInputElement());
+            click(parent, createFileInputElement(), popupOwnerWidget);
         }
     }
 
-    private void drop(Event editEvent) {
+    private void drop(Event editEvent, Element parent, Widget popupOwnerWidget) {
         JsArray droppedFiles = Uploader.getDroppedFiles(editEvent);
-        if(!addFilesToUploader(droppedFiles))
+        if(!addFilesToUploader(droppedFiles, parent, popupOwnerWidget))
             cancel();
     }
 
-    private native void click(Element parent, Element inputElement) /*-{
+    private native void click(Element parent, Element inputElement, Widget popupOwnerWidget) /*-{
         var instance = this;
 
-        var needToCancel = true;
         inputElement.onchange = function () {
-            needToCancel = !instance.@FileCellEditor::addFilesToUploader(*)(this.files);
+            !instance.@FileCellEditor::addFilesToUploader(*)(this.files, parent, popupOwnerWidget);
         }
 
-
-        //in grid focus returns to DataGrid, not cell
-        var dataGrid = @GwtClientUtils::getParentWithClass(*)(parent, @lsfusion.gwt.client.base.view.grid.DataGrid::DATA_GRID_CLASS);
-        if(dataGrid != null) {
-            parent = dataGrid.parentElement;
-        }
-
-        parent.onfocus = function () {
-            setTimeout(function () {//onfocus event fires before onchange event, so we need a timeout
-                if (needToCancel) {
-                    instance.@FileCellEditor::cancel(*)();
-                    needToCancel = false;
-                }
-                parent.onfocus = null;
-            }, 300)
+        inputElement.oncancel = function () {
+            instance.@FileCellEditor::cancel()();
         }
 
         inputElement.click();
@@ -125,26 +128,26 @@ public class FileCellEditor implements CellEditor {
 
     private InputElement createFileInputElement() {
         InputElement inputElement = Document.get().createFileInputElement();
-        if(validContentTypes != null) {
+        if(validExtensions != null) {
             String accept = "";
-            for(String type : validContentTypes) {
-                accept += (accept.isEmpty() ? "" : ",") + type;
+            for(String type : validExtensions) {
+                accept += (accept.isEmpty() ? "" : ",") + "." + type;
             }
             inputElement.setAccept(accept);
         }
         return inputElement;
     }
-
-    private Uploader createUploader() {
-        LoadingBox loadingBox = new LoadingBox(this::cancel);
+    private LoadingBox loadingBox;
+    private Uploader createUploader(Element parent, Widget popupOwnerWidget) {
+        loadingBox = new LoadingBox(this::cancel);
 
         Uploader newVersionUploader = new Uploader();
-        newVersionUploader.setUploadURL(GwtClientUtils.getWebAppBaseURL() + "uploadFile")
+        newVersionUploader.setUploadURL(GwtClientUtils.getUploadURL(null)) // not sure that is needed
                 .setFileQueuedHandler(fileQueuedEvent -> {
                     final File file = fileQueuedEvent.getFile();
                     fileInfo.filePrefix = GwtSharedUtils.randomString(15);
                     fileInfo.fileName = file.getName();
-                    loadingBox.showLoadingBox();
+                    loadingBox.showLoadingBox(new PopupOwner(popupOwnerWidget, parent));
                     return true;
                 })
                 .setUploadProgressHandler(uploadProgressEvent -> {
@@ -152,124 +155,74 @@ public class FileCellEditor implements CellEditor {
                     return true;
                 })
                 .setUploadStartHandler(uploadStartEvent -> {
-                    newVersionUploader.setUploadURL(GwtClientUtils.getWebAppBaseURL() + "uploadFile?sid=" + fileInfo.filePrefix);
+                    newVersionUploader.setUploadURL(GwtClientUtils.getUploadURL(fileInfo.filePrefix));
                     return true;
                 })
                 .setUploadSuccessHandler(uploadSuccessEvent -> {
-                    loadingBox.hideLoadingBox();
-                    commit();
+                    loadingBox.hideLoadingBox(false);
+                    uploaded = true;
+                    commit(parent);
                     return true;
                 });
-
-        String validFileTypes = null;
-        if (validContentTypes != null) {
-            validFileTypes = "";
-            int count = 0;
-            for (String extension : validContentTypes) {
-                validFileTypes += extension;
-                count++;
-                if (count < validContentTypes.size()) {
-                    validFileTypes += ",";
-                }
-            }
-        }
-        if (validFileTypes != null) {
-            newVersionUploader.setFileTypes(validFileTypes);
-        }
-        if (description != null) {
-            newVersionUploader.setFileTypesDescription(description);
-        }
 
         return newVersionUploader;
     }
 
     private class FileInfo {
-        public boolean dialogStarted;
         public String filePrefix;
         public String fileName;
     }
 
-    private class LoadingBox extends WindowBox {
-        private VerticalPanel progressPanel;
+    private class LoadingBox extends DialogModalWindow {
+
+        private final SimplePanel progressPane;
         private GProgressBar prevProgress;
         private Timer timer;
+        private final Runnable cancelAction;
 
         public LoadingBox(Runnable cancelAction) {
-            super(false, false, false);
-            setModal(true);
-            setGlassEnabled(true);
+            super(messages.loading(), false, ModalWindowSize.FIT_CONTENT);
+            this.cancelAction = cancelAction;
 
-            setText(messages.loading());
+            progressPane = new SimplePanel();
+            GwtClientUtils.addClassName(progressPane, "dialog-loading-progress");
+            setBodyWidget(progressPane);
 
-            VerticalPanel mainPanel = new VerticalPanel();
-
-            progressPanel = new VerticalPanel();
-            mainPanel.add(progressPanel);
-
-            HorizontalPanel bottomPanel = new HorizontalPanel();
-            bottomPanel.setWidth("100%");
-            bottomPanel.setHorizontalAlignment(HasHorizontalAlignment.ALIGN_CENTER);
-
-            Button btnCancel = new Button(messages.cancel());
-            btnCancel.addClickHandler(clickEvent -> {
-                hideLoadingBox();
-                cancelAction.run();
-            });
-            bottomPanel.add(btnCancel);
-
-            mainPanel.setVerticalAlignment(HasVerticalAlignment.ALIGN_BOTTOM);
-            mainPanel.add(bottomPanel);
-
-            setWidget(mainPanel);
+            addFooterWidget(new FormButton(messages.cancel(), FormButton.ButtonStyle.SECONDARY, clickEvent -> hideLoadingBox(true)));
         }
 
-        public void makeMaskVisible(boolean visible) {
-            getElement().getStyle().setOpacity(visible ? 1 : 0);
-            getGlassElement().getStyle().setOpacity(visible ? 0.3 : 0);
-        }
-
-        public void showLoadingBox() {
+        private boolean isShowing = false;
+        public void showLoadingBox(PopupOwner popupOwner) {
             timer = new Timer() {
                 @Override
                 public void run() {
-                    show();
+                    isShowing = true; show(popupOwner);
                 }
             };
             timer.schedule(1000);
         }
 
-        public void hideLoadingBox() {
-            if(isShowing())
+        public void hideLoadingBox(boolean cancel) {
+            if(isShowing) {
+                isShowing = false;
                 hide();
-            progressPanel.clear();
+            }
             timer.cancel();
+
+            if (cancel)
+                cancelAction.run();
         }
 
         public void setProgress(GProgressBar progress) {
             if (prevProgress == null || !prevProgress.equals(progress)) {
-                progressPanel.clear();
-                progressPanel.add(createProgressBarPanel(progress));
+                progressPane.setWidget(new ProgressBar(0, progress.total, progress.progress, new ProgressBar.TextFormatter() {
+                    @Override
+                    protected String getText(ProgressBar bar, double curProgress) {
+                        return progress.message;
+                    }
+                }));
                 prevProgress = progress;
             }
-
-            if(!isShowing())
-                center();
-        }
-
-        private FlexPanel createProgressBarPanel(final GProgressBar line) {
-            FlexPanel progressBarPanel = new FlexPanel(true);
-            progressBarPanel.addStyleName("stackMessage");
-            ProgressBar progressBar = new ProgressBar(0, line.total, line.progress, new ProgressBar.TextFormatter() {
-                @Override
-                protected String getText(ProgressBar bar, double curProgress) {
-                    return line.message;
-                }
-            });
-            progressBar.setWidth("200px");
-            progressBarPanel.add(progressBar);
-            if (line.params != null)
-                progressBarPanel.add(new HTML(line.params));
-            return progressBarPanel;
         }
     }
 }

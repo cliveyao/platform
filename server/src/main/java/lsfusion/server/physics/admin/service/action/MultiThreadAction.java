@@ -1,6 +1,5 @@
 package lsfusion.server.physics.admin.service.action;
 
-import lsfusion.interop.action.MessageClientAction;
 import lsfusion.server.base.controller.thread.ThreadUtils;
 import lsfusion.server.base.task.TaskRunner;
 import lsfusion.server.data.sql.exception.SQLHandledException;
@@ -50,7 +49,8 @@ public abstract class MultiThreadAction extends InternalAction {
             
             ThreadUtils.interruptThread(context, Thread.currentThread());
         } finally {
-            context.delayUserInterfaction(createMessageClientAction(task, errorOccurred));
+            Messages messages = getMessages(task, errorOccurred);
+            context.message(messages.message, messages.header);
         }
     }
 
@@ -58,5 +58,14 @@ public abstract class MultiThreadAction extends InternalAction {
 
     protected abstract String getCaptionError();
 
-    protected abstract MessageClientAction createMessageClientAction(GroupPropertiesSingleTask task, boolean errorOccurred);
+    protected static class Messages {
+        public final String message;
+        public final String header;
+
+        public Messages(String message, String header) {
+            this.message = message;
+            this.header = header;
+        }
+    }
+    protected abstract Messages getMessages(GroupPropertiesSingleTask task, boolean errorOccurred);
 }

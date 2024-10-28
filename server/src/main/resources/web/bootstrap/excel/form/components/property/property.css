@@ -1,0 +1,79 @@
+
+/* text */
+
+.text-based-prop-sized, .text-based-prop-sized.data-grid-cell, .form-select, .form-control, .data-grid-header-cell {
+    padding: 2px 3px;
+}
+
+/* action */
+
+
+/* ------------ Colored corner triangles  ------------ */
+
+.property-not-null.data-grid-header-cell,
+.property-not-null.panel-renderer-value.form-control,
+.property-not-null.prop-input-w-toolbar,
+.property-has-change.data-grid-header-cell,
+.property-has-change.panel-renderer-value.form-control,
+.property-has-change.prop-input-w-toolbar {
+    position: relative;
+    overflow: hidden; /* to hide inner corners */
+}
+.property-not-null.data-grid-header-cell::after,
+.property-not-null.panel-renderer-value.form-control::after,
+.property-not-null.prop-input-w-toolbar::after,
+.property-has-change.data-grid-header-cell::after,
+.property-has-change.panel-renderer-value.form-control::after,
+.property-has-change.prop-input-w-toolbar::after {
+    content: "";
+    width: 0;
+    height: 0;
+    border-style: solid;
+    border-width: 0 0 5px 5px;
+    position: absolute;
+    right: 0;
+    bottom: 0;
+}
+
+.property-has-change.data-grid-header-cell::after,
+.property-has-change.panel-renderer-value.form-control::after,
+.property-has-change.prop-input-w-toolbar::after {
+    border-color: transparent transparent var(--focus-color) transparent;
+}
+
+.property-not-null.data-grid-header-cell::after,
+.property-not-null.panel-renderer-value.form-control::after,
+.property-not-null.prop-input-w-toolbar::after {
+    border-color: transparent transparent var(--not-null-corner-triangle-color) transparent;
+}
+
+.text-based-value-null.text-based-value-required {
+    /*color: var(--required-value-string-color);*/
+    position: relative;
+}
+.text-based-value-null.text-based-value-required::before { /* using ::before to do not conflict with triangles  */
+    content: "";
+    background: var(--not-null-line-color);
+    height: 1px;
+    bottom: 2px;
+    right:0;
+    left:0;
+    margin: 0 0.3125rem;
+    position:absolute;
+}
+
+.text-based-value-null:not(a),
+.text-based-value-empty:not(a),
+select > option.option-null {
+    color: var(--null-value-string-color);
+}
+.text-based-value-null > input[type="color"] {
+    opacity: 0.5;
+}
+a.text-based-value-null,
+a.text-based-value-empty {
+    opacity: 0.5;
+}
+select > option {
+    color: var(--text-color);
+}

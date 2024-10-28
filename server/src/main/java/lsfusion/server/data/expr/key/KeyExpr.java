@@ -1,11 +1,15 @@
 package lsfusion.server.data.expr.key;
 
+import lsfusion.base.col.ListFact;
+import lsfusion.base.col.SetFact;
+import lsfusion.base.col.interfaces.immutable.ImOrderSet;
 import lsfusion.base.col.interfaces.immutable.ImRevMap;
 import lsfusion.base.col.interfaces.immutable.ImSet;
 import lsfusion.base.col.interfaces.mutable.MMap;
 import lsfusion.base.comb.map.GlobalInteger;
 import lsfusion.server.data.query.compile.CompileSource;
 import lsfusion.server.data.query.compile.FJData;
+import lsfusion.server.data.table.IndexType;
 import lsfusion.server.data.where.Where;
 import lsfusion.server.physics.admin.SystemProperties;
 
@@ -21,6 +25,9 @@ public class KeyExpr extends ParamExpr {
             return objects.mapRevValues((Function<T, KeyExpr>) genStringKeys);
 
         return objects.mapRevValues(genIndexKeys);
+    }
+    public static ImOrderSet<KeyExpr> getMapKeys(int keys) {
+        return SetFact.toOrderExclSet(keys, genIndexKeys);
     }
 
     private final Object name;
@@ -46,8 +53,9 @@ public class KeyExpr extends ParamExpr {
     public void fillAndJoinWheres(MMap<FJData, Where> joins, Where andWhere) {
     }
 
-    public boolean isIndexed() {
-        return true;
+    @Override
+    protected IndexType getIndexType() {
+        return IndexType.DEFAULT;
     }
 
     private final static GlobalInteger keyClass = new GlobalInteger(39916801);

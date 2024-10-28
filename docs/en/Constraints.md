@@ -1,6 +1,5 @@
 ---
 title: 'Constraints'
-sidebar_label: Overview
 ---
 
 Constraints in the platform determine which values the [data properties](Data_properties_DATA.md) can have and which cannot. In general, a constraint is defined as a property which value should always be `NULL`.
@@ -20,7 +19,7 @@ Note that in some cases, instead of showing a message to the user and canceling 
 For any non-`NULL` value [output](In_a_print_view_PRINT.md) the platform uses an automatically generated [form](Forms.md), consisting of:
 
 -   one [group of objects](Form_structure.md#objects) with the objects corresponding to the parameters of the constrained property.
--   properties with the matching classes belonging to the `System.recognize` [property group](Groups_of_properties_and_actions.md).
+-   properties with the matching classes and either belonging to [property group](Groups_of_properties_and_actions.md) `System.id` or explicitly specified when creating the constraint.
 -   a [filter](Form_structure.md#filters) equal to the constrained property.
 -   a global message defined by the developer when creating the constraint.
 
@@ -32,17 +31,19 @@ Constraints are created using the [`CONSTRAINT` statement](CONSTRAINT_statement.
 
 ```lsf
 // balance not less than 0
-CONSTRAINT balance(Sku s, Stock st) < 0
-    MESSAGE 'The balance cannot be negative for ' + (GROUP CONCAT 'Product: ' + name(Sku ss) + ' Warehouse: ' + name(Stock sst), '\n' IF SET(balance(ss, sst) < 0));
+CONSTRAINT balance(Sku s, Stock st) < 0 MESSAGE 'The balance cannot be negative for ' + 
+    (GROUP CONCAT 'Product: ' + name(Sku ss) + ' Warehouse: ' + name(Stock sst), '\n' IF SET(balance(ss, sst) < 0) ORDER sst);
 
 barcode = DATA STRING[15] (Sku);
 // "emulation" security policy
-CONSTRAINT DROPCHANGED(barcode(Sku s)) AND name(currentUser()) != 'admin' MESSAGE 'Only the administrator is allowed to change the barcode for an already created product';
+CONSTRAINT DROPCHANGED(barcode(Sku s)) AND name(currentUser()) != 'admin'
+    MESSAGE 'Only the administrator is allowed to change the barcode for an already created product';
 
 sku = DATA Sku (OrderDetail);
 in = DATA BOOLEAN (Sku, Customer);
 
 CONSTRAINT sku(OrderDetail d) AND NOT in(sku(d), customer(order(d)))
-    CHECKED BY sku[OrderDetail] // a filter by available sku when selecting an item for an order line will be applied
+    // a filter by available sku when selecting an item for an order line will be applied
+    CHECKED BY sku[OrderDetail] 
     MESSAGE 'In the order, a product unavailable to the user is selected for the selected customer';
 ```

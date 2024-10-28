@@ -3,13 +3,14 @@ package lsfusion.client.form.object.table.tree.view;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
 import lsfusion.base.BaseUtils;
+import lsfusion.base.Pair;
+import lsfusion.base.Result;
 import lsfusion.base.col.MapFact;
 import lsfusion.client.ClientResourceBundle;
 import lsfusion.client.base.SwingUtils;
 import lsfusion.client.base.view.SwingDefaults;
 import lsfusion.client.classes.ClientType;
-import lsfusion.client.classes.data.ClientLogicalClass;
-import lsfusion.client.classes.data.ClientTextClass;
+import lsfusion.client.classes.data.ClientRichTextClass;
 import lsfusion.client.controller.remote.RmiQueue;
 import lsfusion.client.form.controller.ClientFormController;
 import lsfusion.client.form.object.ClientGroupObject;
@@ -17,22 +18,28 @@ import lsfusion.client.form.object.ClientGroupObjectValue;
 import lsfusion.client.form.object.table.tree.ClientTreeGroup;
 import lsfusion.client.form.object.table.tree.GroupTreeTableModel;
 import lsfusion.client.form.object.table.tree.TreeGroupNode;
+import lsfusion.client.form.object.table.tree.controller.TreeGroupController;
 import lsfusion.client.form.object.table.view.GridPropertyTable;
 import lsfusion.client.form.order.user.MultiLineHeaderRenderer;
 import lsfusion.client.form.order.user.TableSortableHeaderManager;
 import lsfusion.client.form.property.ClientPropertyDraw;
+import lsfusion.client.form.property.async.ClientInputList;
+import lsfusion.client.form.property.async.ClientInputListAction;
 import lsfusion.client.form.property.cell.EditBindingMap;
 import lsfusion.client.form.property.cell.controller.ClientAbstractCellEditor;
 import lsfusion.client.form.property.cell.controller.dispatch.EditPropertyDispatcher;
 import lsfusion.client.form.property.cell.view.ClientAbstractCellRenderer;
+import lsfusion.client.form.property.table.view.AsyncChangeCellTableInterface;
+import lsfusion.client.form.property.table.view.AsyncInputComponent;
 import lsfusion.client.form.property.table.view.CellTableContextMenuHandler;
-import lsfusion.client.form.property.table.view.CellTableInterface;
 import lsfusion.client.form.property.table.view.InternalEditEvent;
+import lsfusion.client.form.view.Column;
+import lsfusion.client.tooltip.LSFTooltipManager;
 import lsfusion.interop.action.ServerResponse;
 import lsfusion.interop.form.event.BindingMode;
 import lsfusion.interop.form.event.KeyInputEvent;
 import lsfusion.interop.form.event.KeyStrokes;
-import lsfusion.interop.form.event.MouseInputEvent;
+import lsfusion.interop.form.event.MouseStrokes;
 import lsfusion.interop.form.order.user.Order;
 import org.jdesktop.swingx.JXTableHeader;
 import org.jdesktop.swingx.table.TableColumnExt;
@@ -47,6 +54,7 @@ import javax.swing.table.TableCellEditor;
 import javax.swing.table.TableCellRenderer;
 import javax.swing.table.TableColumn;
 import javax.swing.text.JTextComponent;
+import javax.swing.tree.DefaultTreeCellRenderer;
 import javax.swing.tree.ExpandVetoException;
 import javax.swing.tree.TreePath;
 import java.awt.*;
@@ -58,15 +66,16 @@ import java.lang.reflect.Method;
 import java.text.ParseException;
 import java.util.List;
 import java.util.*;
+import java.util.stream.Collectors;
 
 import static java.lang.Math.max;
 import static java.util.Collections.singletonList;
 import static java.util.Collections.singletonMap;
 import static lsfusion.client.form.controller.ClientFormController.PasteData;
 import static lsfusion.client.form.property.cell.EditBindingMap.getPropertyEventActionSID;
-import static lsfusion.client.form.property.cell.EditBindingMap.isEditableAwareEditEvent;
+import static lsfusion.client.form.property.cell.EditBindingMap.isChangeEvent;
 
-public class TreeGroupTable extends ClientFormTreeTable implements CellTableInterface {
+public class TreeGroupTable extends ClientFormTreeTable implements AsyncChangeCellTableInterface {
     private final EditPropertyDispatcher editDispatcher;
 
     private final EditBindingMap editBindingMap = new EditBindingMap(true);
@@ -81,11 +90,15 @@ public class TreeGroupTable extends ClientFormTreeTable implements CellTableInte
     protected int editCol;
     protected ClientType currentEditType;
     protected Object currentEditValue;
+    protected ClientInputList currentInputList;
+    protected ClientInputListAction[] currentInputListActions;
+    protected String currentActionSID;
     protected boolean editPerformed;
     protected boolean commitingValue;
 
     private final TreeGroupNode rootNode;
     public final ClientFormController form;
+    private TreeGroupController treeGroupController;
     private final ClientTreeGroup treeGroup;
 
     public GroupTreeTableModel model;
@@ -106,8 +119,13 @@ public class TreeGroupTable extends ClientFormTreeTable implements CellTableInte
     private WeakReference<TableCellRenderer> defaultHeaderRendererRef;
     private TableCellRenderer wrapperHeaderRenderer;
 
-    public TreeGroupTable(ClientFormController iform, ClientTreeGroup itreeGroup) {
+    private static ClientGroupObject lastGroupObject(ClientTreeGroup treeGroup) {
+        return treeGroup.groups.size() > 0 ? treeGroup.groups.get(treeGroup.groups.size() - 1) : null;
+    }
+
+    public TreeGroupTable(ClientFormController iform, TreeGroupController treeGroupController, ClientTreeGroup itreeGroup) {
         form = iform;
+        this.treeGroupController = treeGroupController;
         treeGroup = itreeGroup;
         plainTreeMode = itreeGroup.plainTreeMode;
 
@@ -230,8 +248,9 @@ public class TreeGroupTable extends ClientFormTreeTable implements CellTableInte
         if (treeGroup.expandOnClick) {
             addMouseListener(new MouseAdapter() {
                 @Override
-                public void mouseClicked(MouseEvent e) {
-                    if (e.getClickCount() == 2 && !editPerformed) {
+                public void mousePressed(MouseEvent e) {
+                    // should be synchronized with checkMouseEvent (see below)
+                    if (!e.isConsumed() && MouseStrokes.isDblClickEvent(e) && !editPerformed) {
                         final TreePath path = getPathForRow(rowAtPoint(e.getPoint()));
                         if (path != null && !isLocationInExpandControl(getHierarhicalColumnRenderer().getUI(), path, e.getX(), e.getY())) {
                             final TreeGroupNode node = (TreeGroupNode) path.getLastPathComponent();
@@ -255,20 +274,10 @@ public class TreeGroupTable extends ClientFormTreeTable implements CellTableInte
             });
         }
 
-        addMouseListener(new MouseAdapter() {
-            public void mouseClicked(MouseEvent e) {
-                if(!e.isConsumed()) {
-                    ClientPropertyDraw property = getSelectedProperty();
-                    //игнорируем double click по editable boolean
-                    boolean ignore = property != null && property.baseType instanceof ClientLogicalClass && !property.isReadOnly();
-                    if (!ignore)
-                        form.processBinding(new MouseInputEvent(e), null, () -> null, false);
-                }
-            }
-        });
-
         initializeActionMap();
         currentTreePath = new TreePath(rootNode);
+
+        enableEvents(AWTEvent.MOUSE_EVENT_MASK); // just in case, because we override processMouseEvent (however there are addMouseListeners)
     }
 
     private void orderChanged(ClientPropertyDraw columnKey, Order modiType) {
@@ -288,7 +297,21 @@ public class TreeGroupTable extends ClientFormTreeTable implements CellTableInte
 
     @Override
     public Dimension getPreferredScrollableViewportSize() {
-        return treeGroup.autoSize ? getPreferredSize() : SwingDefaults.getTablePreferredSize();
+        boolean autoWidth = treeGroup.width == -1;
+        boolean autoHeight = treeGroup.height == -1;
+
+        Dimension tablePreferredSize = SwingDefaults.getTablePreferredSize();
+        if(autoWidth || autoHeight) {
+            Dimension preferredSize = getPreferredSize();
+            if(autoWidth && autoHeight)
+                return preferredSize;
+
+            int preferredWidth = autoWidth ? preferredSize.width : tablePreferredSize.width;
+            int preferredHeight = autoHeight ? preferredSize.height : tablePreferredSize.height;
+            return new Dimension(preferredWidth, preferredHeight);
+        }
+
+        return tablePreferredSize;
     }
 
     private void ordersSet(ClientGroupObject groupObject, LinkedHashMap<ClientPropertyDraw, Boolean> orders) {
@@ -345,12 +368,14 @@ public class TreeGroupTable extends ClientFormTreeTable implements CellTableInte
         actionMap.put("selectLastRow", lastRowAction);
 
         this.moveToNextCellAction = nextColumnAction;
+
+        treeGroupController.addFilterBindings(lastGroupObject(treeGroup));
     }
 
     private ClientFormController.Binding getEnterBinding(boolean shiftPressed) {
         ClientFormController.Binding binding = new ClientFormController.Binding(BaseUtils.last(treeGroup.groups), -100) {
             @Override
-            public boolean pressed(KeyEvent ke) {
+            public boolean pressed(InputEvent ke) {
                 tabAction(!shiftPressed);
                 return true;
             }
@@ -359,6 +384,7 @@ public class TreeGroupTable extends ClientFormTreeTable implements CellTableInte
                 return true;
             }
         };
+        binding.bindPreview = BindingMode.NO;
         binding.bindEditing = BindingMode.NO;
         binding.bindGroup = BindingMode.ONLY;
         return binding;
@@ -379,7 +405,7 @@ public class TreeGroupTable extends ClientFormTreeTable implements CellTableInte
         }
     }
 
-    public void updateKeys(ClientGroupObject group, List<ClientGroupObjectValue> keys, List<ClientGroupObjectValue> parents, Map<ClientGroupObjectValue, Boolean> expandables) {
+    public void updateKeys(ClientGroupObject group, List<ClientGroupObjectValue> keys, List<ClientGroupObjectValue> parents, Map<ClientGroupObjectValue, Integer> expandables) {
         model.updateKeys(group, keys, parents, expandables);
     }
 
@@ -476,10 +502,42 @@ public class TreeGroupTable extends ClientFormTreeTable implements CellTableInte
         TableColumnExt tableColumn = getColumnExt(0);
 
         hierarchicalColumn = tableColumn;
-        hierarchicalWidth = treeGroup.calculateSize();
+        hierarchicalWidth = treeGroup.getExpandWidth();
 //        setColumnSizes(tableColumn, pref, pref, pref);
 
         getColumnModel().getSelectionModel().setSelectionInterval(0, 0);
+
+        setTreeCellRenderer(new DefaultTreeCellRenderer() {
+            // it's rather hard to properly set up these colors via UIDefaults
+            @Override
+            public Color getBackgroundSelectionColor() {
+                return SwingDefaults.getSelectionColor();
+            }
+
+            @Override
+            public Color getTextSelectionColor() {
+                return SwingDefaults.getTableCellForeground();
+            }
+
+            //override behaviour of default getTreeCellRendererComponent with setText()
+            //c/p from JXTreeTable.ClippedTreeCellRenderer
+            @Override
+            public Component getTreeCellRendererComponent(JTree tree, Object value, boolean sel, boolean expanded, boolean leaf, int row, boolean hasFocus) {
+                return super.getTreeCellRendererComponent(tree, getHierarchicalTableValue(value), sel, expanded, leaf,
+                        row, hasFocus);
+            }
+
+            private Object getHierarchicalTableValue(Object node) {
+                Object val;
+                int treeColumn = getTreeTableModel().getHierarchicalColumn();
+                Object o = null;
+                if (treeColumn >= 0) {
+                    o = getTreeTableModel().getValueAt(node, treeColumn);
+                }
+                val = o;
+                return val;
+            }
+        });
     }
 
     private TableColumnExt createColumn(int pos) {
@@ -532,7 +590,7 @@ public class TreeGroupTable extends ClientFormTreeTable implements CellTableInte
             getColumnModel().getSelectionModel().setLeadSelectionIndex(pos <= currentSelectedColumn ? currentSelectedColumn + 1 : currentSelectedColumn);
         }
 
-        tableColumn.setToolTipText(property.getTooltipText(model.getColumnName(pos)));
+        LSFTooltipManager.initTooltip(getTableHeader(), model, this);
 
         columnsMap.put(property, tableColumn);
 
@@ -641,7 +699,7 @@ public class TreeGroupTable extends ClientFormTreeTable implements CellTableInte
     @Override
     public boolean richTextSelected() {
         ClientPropertyDraw property = getSelectedProperty();
-        return property != null && property.baseType instanceof ClientTextClass && ((ClientTextClass) property.baseType).rich;
+        return property != null && property.baseType instanceof ClientRichTextClass;
     }
 
     public void pasteTable(List<List<String>> table) {
@@ -656,13 +714,13 @@ public class TreeGroupTable extends ClientFormTreeTable implements CellTableInte
             if (property != null) {
                 try {
                     String value = table.get(0).get(0);
-                    Object newValue = value == null ? null : property.parseChangeValueOrNull(value);
+                    Object newValue = property.parsePaste(value);
                     if (property.canUsePasteValueForRendering()) {
                         model.setValueAt(newValue, row, column);
                     }
 
                     form.pasteMulticellValue(
-                            singletonMap(property, new PasteData(newValue, singletonList(currentPath), singletonList(getValueAt(row, column))))
+                            singletonMap(property, new PasteData(newValue, value, singletonList(currentPath), singletonList(getValueAt(row, column))))
                     );
                 } catch (IOException e) {
                     throw Throwables.propagate(e);
@@ -729,21 +787,29 @@ public class TreeGroupTable extends ClientFormTreeTable implements CellTableInte
         int column = getSelectedColumn();
         int row = getSelectedRow();
 
-        ClientPropertyDraw selectedProperty = null;
+        if (column >= 0 && column < getColumnCount() && row >= 0 && row <= getRowCount())
+            return getProperty(row, column);
 
-        if (column == 0) {
-            ++column;
+        return null;
+    }
+
+    public ClientPropertyDraw getSelectedFilterProperty() {
+        int column = getSelectedColumn();
+        int row = getSelectedRow();
+        
+        // neighbour column for filter 
+        if (isHierarchical(column)) {
+            if (column < getColumnCount() - 1) {
+                column++;
+            } else if (column > 0) {
+                column --;
+            }
         }
 
-        if (column >= 0 && column < getColumnCount() && row >= 0 && row <= getRowCount()) {
-            selectedProperty = getProperty(row, column);
-        }
+        if (column >= 0 && column < getColumnCount() && row >= 0 && row <= getRowCount())
+            return getProperty(row, column);
 
-        return selectedProperty != null
-               ? selectedProperty
-               : model.getColumnCount() > 1
-                 ? model.getColumnProperty(1)
-                 : null;
+        return null;
     }
 
     public Object getSelectedValue(ClientPropertyDraw property) {
@@ -760,6 +826,24 @@ public class TreeGroupTable extends ClientFormTreeTable implements CellTableInte
         return model.getPropertyValue(pathForRow.getLastPathComponent(), property);
     }
 
+    public List<Pair<Column, String>> getFilterColumns(ClientGroupObject selectedGroupObject) {
+        List<ClientPropertyDraw> properties = model.getProperties(selectedGroupObject);
+        if (properties != null) {
+            return properties.stream().map(property ->
+                    getFilterColumn(property, ClientGroupObjectValue.EMPTY)
+            ).collect(Collectors.toList());
+        }
+        return new ArrayList<>();
+    }
+
+    public Pair<Column, String> getFilterColumn(ClientPropertyDraw property, ClientGroupObjectValue columnKey) {
+        String propertyCaption = property.getPropertyCaption();
+        if (BaseUtils.isRedundantString(propertyCaption)) { // to see something in user filters
+            propertyCaption = property.getPropertyFormName();
+        }
+        return new Pair<>(new Column(property, columnKey), propertyCaption);
+    }
+
     @Override
     public ClientType getCurrentEditType() {
         return currentEditType;
@@ -769,7 +853,34 @@ public class TreeGroupTable extends ClientFormTreeTable implements CellTableInte
     public Object getCurrentEditValue() {
         return currentEditValue;
     }
-    
+
+    @Override
+    public EventObject getCurrentEditEvent() {
+        return editEvent;
+    }
+
+    @Override
+    public ClientInputList getCurrentInputList() {
+        return currentInputList;
+    }
+
+    @Override
+    public ClientInputListAction[] getCurrentInputListActions() {
+        return currentInputListActions;
+    }
+
+    public String getCurrentActionSID() {
+        return currentActionSID;
+    }
+
+    @Override
+    public Integer getContextAction() {
+        return null;
+    }
+
+    @Override
+    public void setContextAction(Integer contextAction) {
+    }
     @Override
     public Object getEditValue() {
         return getValueAt(editRow, editCol);
@@ -803,12 +914,13 @@ public class TreeGroupTable extends ClientFormTreeTable implements CellTableInte
             return false;
         }
 
-        String actionSID = getPropertyEventActionSID(e, property, editBindingMap);
+        Result<Integer> contextAction = new Result<>();
+        String actionSID = getPropertyEventActionSID(e, contextAction, property, editBindingMap);
         if (actionSID == null) {
             return false;
         }
 
-        if (isEditableAwareEditEvent(actionSID) && !isCellEditable(row, column)) {
+        if (isChangeEvent(actionSID) && !isCellEditable(row, column)) {
             return false;
         }
         if(ServerResponse.EDIT_OBJECT.equals(actionSID) && !property.hasEditObjectAction) {
@@ -822,20 +934,20 @@ public class TreeGroupTable extends ClientFormTreeTable implements CellTableInte
         //здесь немного запутанная схема...
         //executePropertyEventAction возвращает true, если редактирование произошло на сервере, необязательно с вводом значения...
         //но из этого editCellAt мы должны вернуть true, только если началось редактирование значения
-        editPerformed = edit(actionSID, property, columnKey, row, column, e);
+        editPerformed = edit(actionSID, property, columnKey, row, column, e, contextAction.result);
         return editorComp != null;
     }
 
-    public boolean edit(String actionSID, ClientPropertyDraw property, ClientGroupObjectValue columnKey, int row, int column, EventObject e) {
+    public boolean edit(String actionSID, ClientPropertyDraw property, ClientGroupObjectValue columnKey, int row, int column, EventObject e, Integer contextAction) {
         editRow = row;
         editCol = column;
         commitingValue = false;
         editEvent = e;
 
-        return editDispatcher.executePropertyEventAction(property, columnKey, actionSID, editEvent);
+        return editDispatcher.executePropertyEventAction(property, columnKey, actionSID, editEvent, contextAction);
     }
 
-    public boolean requestValue(ClientType valueType, Object oldValue) {
+    public boolean requestValue(ClientType valueType, Object oldValue, ClientInputList inputList, ClientInputListAction[] inputListActions, String actionSID) {
         //пока чтение значения можно вызывать только один раз в одном изменении...
         //если получится безусловно задержать фокус, то это ограничение можно будет убрать
         Preconditions.checkState(!commitingValue, "You can request value only once per edit action.");
@@ -843,6 +955,9 @@ public class TreeGroupTable extends ClientFormTreeTable implements CellTableInte
         // need this because we use getTableCellEditorComponent infrastructure and we need to pass currentEditValue there somehow
         currentEditType = valueType;
         currentEditValue = oldValue;
+        currentInputList = inputList;
+        currentInputListActions = inputListActions;
+        currentActionSID = actionSID;
 
         if (!super.editCellAt(editRow, editCol, editEvent)) {
             return false;
@@ -850,6 +965,10 @@ public class TreeGroupTable extends ClientFormTreeTable implements CellTableInte
 
         if (editEvent instanceof KeyEvent) {
             prepareTextEditor();
+        }
+
+        if (editorComp instanceof AsyncInputComponent) {
+            ((AsyncInputComponent) editorComp).initEditor(editEvent, !KeyStrokes.isChangeAppendKeyEvent(editEvent));
         }
 
         editorComp.requestFocusInWindow();
@@ -925,10 +1044,36 @@ public class TreeGroupTable extends ClientFormTreeTable implements CellTableInte
         }
     }
 
+    private void checkMouseEvent(MouseEvent e, boolean preview) {
+        ClientPropertyDraw selectedProperty = getSelectedProperty();
+        // in web-client we do the same with adding binding with high priority
+        // to avoid refactoring her we just put this sime
+        if(!(preview && selectedProperty == null && MouseStrokes.isDblClickEvent(e)))
+            form.checkMouseEvent(e, preview, selectedProperty, () -> lastGroupObject(treeGroup), false);
+    }
+
+    private void checkKeyEvent(KeyStroke ks, boolean preview, KeyEvent e, int condition, boolean pressed) {
+        form.checkKeyEvent(ks, e, preview, getSelectedProperty(), () -> lastGroupObject(treeGroup), false, condition, pressed);
+    }
+
+    @Override
+    protected void processMouseEvent(MouseEvent e) {
+        checkMouseEvent(e, true);
+
+        super.processMouseEvent(e);
+
+        checkMouseEvent(e, false);
+    }
+
     protected boolean processKeyBinding(KeyStroke ks, KeyEvent e, int condition, boolean pressed) {
+        checkKeyEvent(ks, true, e, condition, pressed);
+
         editPerformed = false;
-        boolean consumed = super.processKeyBinding(ks, e, condition, pressed);
-        return consumed || editPerformed;
+        boolean consumed = e.isConsumed() || super.processKeyBinding(ks, e, condition, pressed) || editPerformed;
+
+        checkKeyEvent(ks, false, e, condition, pressed);
+
+        return consumed || e.isConsumed();
     }
 
     @Override
@@ -942,7 +1087,7 @@ public class TreeGroupTable extends ClientFormTreeTable implements CellTableInte
             if (property != null && columnKey != null) {
                 String keyPressedActionSID = EditBindingMap.getPropertyKeyPressActionSID(e, property);
                 if (keyPressedActionSID != null) {
-                    edit(keyPressedActionSID, property, columnKey, row, column, new InternalEditEvent(this, keyPressedActionSID));
+                    edit(keyPressedActionSID, property, columnKey, row, column, new InternalEditEvent(this, keyPressedActionSID), null);
                 }
             }
         }
@@ -1231,6 +1376,11 @@ public class TreeGroupTable extends ClientFormTreeTable implements CellTableInte
             if(i==0)
                 return hierarchicalWidth;
             return super.getColumnBaseWidth(i - 1);
+        }
+
+        @Override
+        protected Boolean isResizeOverflow() {
+            return treeGroup.resizeOverflow;
         }
     };
 }

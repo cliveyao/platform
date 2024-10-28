@@ -4,7 +4,7 @@ import com.google.common.base.Throwables;
 import lsfusion.base.ReflectionUtils;
 import lsfusion.client.base.SwingUtils;
 import lsfusion.client.base.view.SwingDefaults;
-import lsfusion.client.classes.data.ClientTextClass;
+import lsfusion.client.classes.data.ClientRichTextClass;
 import lsfusion.client.form.controller.ClientFormController;
 import lsfusion.client.form.object.ClientGroupObjectValue;
 import lsfusion.client.form.property.ClientPropertyDraw;
@@ -45,6 +45,11 @@ public abstract class SingleCellTable extends ClientPropertyTable {
         super.setIntercellSpacing(new Dimension(getSingleCellTableIntercellSpacing(), getSingleCellTableIntercellSpacing()));
     }
 
+    @Override
+    protected ClientPropertyDraw getSelectedProperty() {
+        return model.getProperty();
+    }
+
     public void setProperty(ClientPropertyDraw property) {
         setName(property.getPropertyCaption());
         model.setProperty(property);
@@ -56,7 +61,7 @@ public abstract class SingleCellTable extends ClientPropertyTable {
 
     public void setValue(Object value) {
         model.setValue(value);
-        if(getProperty().autoSize && value instanceof String) {
+        if(getProperty().isAutoSize() && value instanceof String && ((String)value).contains("\n")) {
             Dimension size = getSize();
             if (size != null && size.getWidth() > 0) {
                 setPreferredSize(new Dimension((int) getPreferredSize().getWidth(), getHeight((String) value, (int) size.getWidth())));
@@ -122,8 +127,7 @@ public abstract class SingleCellTable extends ClientPropertyTable {
 
     @Override
     public boolean richTextSelected() {
-        ClientPropertyDraw property = getProperty();
-        return property.baseType instanceof ClientTextClass && ((ClientTextClass) property.baseType).rich;
+        return getProperty().baseType instanceof ClientRichTextClass;
     }
 
     public void pasteTable(List<List<String>> table) {
@@ -140,13 +144,13 @@ public abstract class SingleCellTable extends ClientPropertyTable {
                     }
                 }
                 if(matches) {
-                    Object newValue = value == null ? null : property.parseChangeValueOrNull(value);
+                    Object newValue = property.parsePaste(value);
                     if (property.canUsePasteValueForRendering()) {
                         setValue(newValue);
                     }
 
                     getForm().pasteMulticellValue(
-                            singletonMap(property, new PasteData(newValue, singletonList(model.getColumnKey()), singletonList(model.getValue())))
+                            singletonMap(property, new PasteData(newValue, value, singletonList(model.getColumnKey()), singletonList(model.getValue())))
                     );
                 }
             } catch (IOException e) {

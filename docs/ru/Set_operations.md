@@ -1,6 +1,5 @@
 ---
 title: 'Операции с множествами'
-sidebar_label: Обзор
 ---
 
 Одной из ключевых возможностей платформы является возможность выполнения некоторых операций для всех наборов объектов, для которых значения одного или нескольких [свойств](Properties.md) не равны `NULL`. В логике свойств такой операцией является вычисление различных *агрегирующих функций*. 
@@ -20,8 +19,8 @@ sidebar_label: Обзор
 |`SUM`                   |`NULL`            |operand        |result = result (+) operand|result|+|число|
 |`MAX`                   |`NULL`            |operand        |result = max(result, operand)|result|+|любой сравнимый|
 |`MIN`                   |`NULL`            |operand        |result = min(result, operand)|result|+|любой сравнимый|
-|`CONCAT`                |`NULL`            |separator, operand|<p>result = CONCAT separator, result, operand</p>|result|-|строковый|
-|`LAST / PREV`           |`NULL`            |where, operand |result = IF where THEN operand ELSE result|result|-|<p>любой</p>|
+|`CONCAT`                |`NULL`            |separator, operand|result = CONCAT separator, result, operand|result|-|строковый|
+|`LAST / PREV`           |`NULL`            |where, operand |result = IF where THEN operand ELSE result|result|-|любой|
 
 С точки зрения определения множества наборов объектов, а также способа представления результата, можно выделить четыре основных оператора работы с множествами:
 
@@ -52,7 +51,8 @@ FORM f
 
 printFWithD { PRINT f OBJECTS d=currentDate(); } // успешно выполнится
 
-printFWithoutD { PRINT f; } // фильтра для дат нет, а d IS DATE не NULL для бесконечного числа d, платформа выдаст ошибку
+// фильтра для дат нет, а d IS DATE не NULL для бесконечного числа d, платформа выдаст ошибку
+printFWithoutD { PRINT f; } 
 ```
 
 
@@ -61,5 +61,7 @@ printFWithoutD { PRINT f; } // фильтра для дат нет, а d IS DATE
 ```lsf
 hs = GROUP SUM 1 IF (a AS INTEGER) >= 4 AND a <= 6;
 messageHS  { MESSAGE hs(); } // теоретически должна выдать 3, но платформа все равно выдаст ошибку
-hi = GROUP SUM 1 IF iterate(a, 4, 6); // workaround: для работы с интервалами можно использовать свойство iterate (оно в свою очередь реализуется через рекурсию)
+// workaround: для работы с интервалами можно использовать свойство iterate
+// (оно в свою очередь реализуется через рекурсию)
+hi = GROUP SUM 1 IF iterate(a, 4, 6); 
 ```

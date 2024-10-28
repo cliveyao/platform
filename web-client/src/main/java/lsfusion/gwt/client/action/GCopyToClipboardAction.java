@@ -1,6 +1,8 @@
 package lsfusion.gwt.client.action;
 
-public class GCopyToClipboardAction implements GAction {
+import lsfusion.gwt.client.base.view.CopyPasteUtils;
+
+public class GCopyToClipboardAction extends GExecuteAction {
     public String value;
 
     @SuppressWarnings("UnusedDeclaration")
@@ -11,8 +13,7 @@ public class GCopyToClipboardAction implements GAction {
     }
 
     @Override
-    public Object dispatch(GActionDispatcher dispatcher) throws Throwable {
-        //копирование в буфер обмена реализовано только в desktop, web пока не удалось
-        return false;
+    public void execute(GActionDispatcher dispatcher) throws Throwable {
+        CopyPasteUtils.copyToClipboard(value);
     }
 }

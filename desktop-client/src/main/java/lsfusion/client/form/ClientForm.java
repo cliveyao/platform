@@ -4,7 +4,6 @@ import lsfusion.base.BaseUtils;
 import lsfusion.base.col.heavy.OrderedMap;
 import lsfusion.base.context.ApplicationContextHolder;
 import lsfusion.base.context.ContextIdentityObject;
-import lsfusion.client.base.SwingUtils;
 import lsfusion.client.controller.MainController;
 import lsfusion.client.form.controller.remote.serialization.ClientCustomSerializable;
 import lsfusion.client.form.controller.remote.serialization.ClientSerializationPool;
@@ -16,8 +15,11 @@ import lsfusion.client.form.object.ClientGroupObject;
 import lsfusion.client.form.object.ClientObject;
 import lsfusion.client.form.object.table.tree.ClientTreeGroup;
 import lsfusion.client.form.property.ClientPropertyDraw;
+import lsfusion.client.form.property.async.ClientAsyncEventExec;
+import lsfusion.client.form.property.async.ClientAsyncSerializer;
+import lsfusion.interop.form.event.FormEvent;
+import lsfusion.interop.form.event.FormScheduler;
 
-import javax.swing.*;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
@@ -30,8 +32,10 @@ public class ClientForm extends ContextIdentityObject implements ClientCustomSer
 
     public String canonicalName = "";
     public String creationPath = "";
+    public String path = "";
 
-    public int autoRefresh = 0;
+    public List<FormScheduler> formSchedulers = new ArrayList<>();
+    public Map<FormEvent, ClientAsyncEventExec> asyncExecMap;
 
     public static ClientGroupObject lastActiveGroupObject;
 
@@ -145,7 +149,7 @@ public class ClientForm extends ContextIdentityObject implements ClientCustomSer
     }
 
     public String getCaption() {
-        return mainContainer.caption;
+        return mainContainer.getNotNullCaption();
     }
 
     public String getTooltip(String caption) {
@@ -183,8 +187,8 @@ public class ClientForm extends ContextIdentityObject implements ClientCustomSer
 
         pool.writeString(outStream, canonicalName);
         pool.writeString(outStream, creationPath);
+        pool.writeString(outStream, path);
         pool.writeInt(outStream, overridePageWidth);
-        outStream.writeInt(autoRefresh);
     }
 
     public void customDeserialize(ClientSerializationPool pool, DataInputStream inStream) throws IOException {
@@ -209,8 +213,10 @@ public class ClientForm extends ContextIdentityObject implements ClientCustomSer
 
         canonicalName = pool.readString(inStream);
         creationPath = pool.readString(inStream);
+        path = pool.readString(inStream);
         overridePageWidth = pool.readInt(inStream);
-        autoRefresh = inStream.readInt();
+        formSchedulers = deserializeFormSchedulers(inStream);
+        asyncExecMap = deserializeAsyncExecMap(inStream);
     }
 
     private List<List<ClientPropertyDraw>> deserializePivot(ClientSerializationPool pool, DataInputStream inStream) throws IOException {
@@ -220,6 +226,24 @@ public class ClientForm extends ContextIdentityObject implements ClientCustomSer
             properties.add(pool.deserializeList(inStream));
         }
         return properties;
+    }
+
+    private List<FormScheduler> deserializeFormSchedulers(DataInputStream inStream) throws IOException {
+        List<FormScheduler> formSchedulers = new ArrayList<>();
+        int size = inStream.readInt();
+        for(int i = 0; i < size; i++) {
+            formSchedulers.add((FormScheduler) FormEvent.deserialize(inStream));
+        }
+        return formSchedulers;
+    }
+
+    private Map<FormEvent, ClientAsyncEventExec> deserializeAsyncExecMap(DataInputStream inStream) throws IOException {
+        Map<FormEvent, ClientAsyncEventExec> asyncExecMap = new HashMap<>();
+        int size = inStream.readInt();
+        for(int i = 0; i < size; i++) {
+            asyncExecMap.put(FormEvent.deserialize(inStream), ClientAsyncSerializer.deserializeEventExec(inStream));
+        }
+        return asyncExecMap;
     }
 
     public boolean removePropertyDraw(ClientPropertyDraw clientPropertyDraw) {
@@ -252,6 +276,10 @@ public class ClientForm extends ContextIdentityObject implements ClientCustomSer
 
     public ClientContainer findContainerByID(int id) {
         return mainContainer.findContainerByID(id);
+    }
+
+    public ClientComponent findComponentByID(int id) {
+        return mainContainer.findComponentByID(id);
     }
 
     public ClientContainer findParentContainerBySID(String sID) {

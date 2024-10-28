@@ -26,6 +26,8 @@ public interface ClientMessages extends Messages {
     String hide();
 
     String loading();
+    
+    String navigator();
 
     String formRendererEmpty();
     String formRendererNotDefined();
@@ -51,10 +53,6 @@ public interface ClientMessages extends Messages {
     String formQueriesCalculateSum();
     String formQueriesSumResult();
     String formQueriesUnableToCalculateSum();
-    String formQueriesFilter();
-    String formQueriesFilterAddCondition();
-    String formQueriesFilterRemoveCondition();
-    String formQueriesFilterResetConditions();
     String formQueriesNumberOfEntries();
 
     String formGridPreferences();
@@ -64,9 +62,6 @@ public interface ClientMessages extends Messages {
     String formGridPreferencesReset();
     String formGridPreferencesSaveSuccess();
     String formGridPreferencesResetSuccess();
-    String formGridPreferencesNotSaved();
-    String formGridPreferencesSavedForCurrentUser();
-    String formGridPreferencesSavedForAllUsers();
     String formGridPreferencesSureToSave();
     String formGridPreferencesSureToReset();
     String formGridPreferencesForCurrentUser();
@@ -87,10 +82,25 @@ public interface ClientMessages extends Messages {
     String formGridPreferencesFontStyleBold();
     String formGridPreferencesFontStyleItalic();
 
-    String formFilterConditionViewNot();
+    String formFilterCompareGreater();
+    String formFilterCompareGreaterEquals();
+    String formFilterCompareEquals();
+    String formFilterCompareInArray();
+    String formFilterCompareLess();
+    String formFilterCompareLessEquals();
+    String formFilterCompareContains();
+    String formFilterCompareNot();
+    String formFilterCompareNotEquals();
+    String formFilterCompareSearch();
     String formFilterConditionViewAnd();
     String formFilterConditionViewOr();
-    String formFilterDialogHeader();
+    String formFilterConditionAllowNull();
+    String formFilterAddCondition();
+    String formFilterApply();
+    String formFilterRemoveCondition();
+    String formFilterResetConditions();
+    String formFilterShowControls();
+    String formFilterHideControls();
 
     String tooltipPath();
 
@@ -104,8 +114,6 @@ public interface ClientMessages extends Messages {
     String busyDialogLoading();
     String busyDialogReconnect();
 
-    String expandFilterWindow();
-    String hideFilterWindow();
     String uncaughtGWTException();
     String formGridSureToPasteMultivalue();
 
@@ -130,6 +138,9 @@ public interface ClientMessages extends Messages {
     String propertyTooltipFormPropertyName();
     String propertyTooltipFormPropertyDeclaration();
     String propertyTooltipHotkey();
+    String showInEditor();
+    String enterPath();
+    String absolutePathToLsfusionDir();
 
     String propertyEmptyCaption();
 
@@ -137,6 +148,10 @@ public interface ClientMessages extends Messages {
     String typeZDateTimeCaption();
     String typeActionCaption();
     String typeColorCaption();
+    String typeNamedFileCaption();
+    String typeJSONCaption();
+    String typeJSONTextCaption();
+    String typeTSVectorCaption();
     String typeCustomDynamicFormatFileCaption();
     String typeCustomStaticFormatFileCaption();
     String typeDateCaption();
@@ -151,9 +166,15 @@ public interface ClientMessages extends Messages {
     String typeTextCaption();
     String typeObjectCaption();
     String typeTimeCaption();
+    String typeDateIntervalCaption();
+    String typeTimeIntervalCaption();
+    String typeDateTimeIntervalCaption();
+    String typeZDateTimeIntervalCaption();
     String typeExcelFileCaption();
     String typeImageCaption();
     String typePDFFileCaption();
+    String typeVideoFileCaption();
+    String typeDBFFileCaption();
     String typeWordFileCaption();
     String typeTextFileCaption();
     String typeCSVFileCaption();
@@ -166,6 +187,8 @@ public interface ClientMessages extends Messages {
     String typeExcelFileLinkCaption();
     String typeImageLinkCaption();
     String typePDFFileLinkCaption();
+    String typeVideoFileLinkCaption();
+    String typeDBFFileLinkCaption();
     String typeWordFileLinkCaption();
     String typeTextFileLinkCaption();
     String typeCSVFileLinkCaption();
@@ -174,12 +197,7 @@ public interface ClientMessages extends Messages {
     String typeXMLFileLinkCaption();
     String typeTableFileLinkCaption();
 
-    String filterCompareStartsWith();
-    String filterCompareContains();
-    String filterCompareEndsWith();
     String filterDataValue();
-    String filterObjectValue();
-    String filterPropertyValue();
 
     String multipleFilterComponentAll();
 
@@ -206,10 +224,13 @@ public interface ClientMessages extends Messages {
     String pivotHorizontalStackedBarchartRenderer();
     String pivotTreemapRenderer();
 
-    String linkEditModeEnable();
-    String linkEditModeDisable();
     String fullScreenModeEnable();
     String fullScreenModeDisable();
+
+    String editModeDefault();
+    String editModeLink();
+    String editModeDialog();
+    String editModeGroupChange();
 
 //    dateRangePicker
     String applyLabel();
@@ -237,10 +258,34 @@ public interface ClientMessages extends Messages {
     String today();
     String yesterday();
     String last7Days();
+    String sevenDaysAgo();
     String last30Days();
+    String thirtyDaysAgo();
     String thisMonth();
-    String lastMonth();
+    String monthStart();
+    String monthEnd();
+    String toMonthEnd();
+    String previousMonth();
+    String previousMonthStart();
+    String previousMonthEnd();
+    String monthStartToCurrentDate();
+    String thisYear();
+    String thisYearStart();
+    String thisYearEnd();
+    String toYearEnd();
     String clear();
+
+    String noResults();
+    String needMoreSymbols();
+
+    String doYouReallyWantToCloseForm();
+
+    String suggestBoxMatchTip(String separator);
+    String suggestBoxContainsTip();
+
+    String fileNameTooLong();
+
+    String copyToClipboard();
 
     class Instance {
         private static final ClientMessages instance = GWT.create(ClientMessages.class);

@@ -1,10 +1,12 @@
 package lsfusion.client.base.view;
 
+import lsfusion.client.form.design.view.widget.ButtonWidget;
+
 import javax.swing.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 
-public class FlatRolloverButton extends JButton {
+public class FlatRolloverButton extends ButtonWidget {
     private boolean showBackground;
 
     public FlatRolloverButton() {
@@ -55,7 +57,7 @@ public class FlatRolloverButton extends JButton {
     
     public void updateBackground() {
         setBackground(showBackground ? SwingDefaults.getSelectionColor() : null);
-        setBorder(showBackground ? SwingDefaults.getButtonBorder() : null);
+        setBorder(showBackground ? SwingDefaults.getButtonBorder() : SwingDefaults.getDefaultButtonBorder());
     }
 
     @Override

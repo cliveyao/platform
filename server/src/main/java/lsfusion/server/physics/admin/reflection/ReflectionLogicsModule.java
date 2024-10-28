@@ -6,9 +6,9 @@ import lsfusion.server.language.action.LA;
 import lsfusion.server.language.property.LP;
 import lsfusion.server.logics.BaseLogicsModule;
 import lsfusion.server.logics.BusinessLogics;
-import lsfusion.server.logics.classes.data.LogicalClass;
 import lsfusion.server.logics.classes.data.StringClass;
 import lsfusion.server.logics.classes.user.ConcreteCustomClass;
+import lsfusion.server.logics.classes.user.CustomClass;
 import lsfusion.server.logics.form.interactive.property.focus.CurrentFormProperty;
 import lsfusion.server.physics.exec.db.table.ImplementTable;
 import org.antlr.runtime.RecognitionException;
@@ -30,6 +30,7 @@ public class ReflectionLogicsModule extends ScriptingLogicsModule {
     public ConcreteCustomClass tableKey;
     public ConcreteCustomClass tableColumn;
     public ConcreteCustomClass dropColumn;
+    public CustomClass actionOrProperty;
     public ConcreteCustomClass property;
     public ConcreteCustomClass action;
     public ConcreteCustomClass groupObject;
@@ -48,12 +49,15 @@ public class ReflectionLogicsModule extends ScriptingLogicsModule {
     public LP numberProperty;
     public LP dbNameProperty;
     public LP canonicalNameActionOrProperty;
+    public LP isProperty;
     public LP canonicalNameAction;
     public LP canonicalNameProperty;
     public LP loggableProperty;
     public LP userLoggableProperty;
     public LP storedProperty;
     public LP isSetNotNullProperty;
+    public LP disableInputListProperty;
+    public LP nameSelectProperty;
     public LP returnProperty;
     public LP classProperty;
     public LP complexityProperty;
@@ -63,6 +67,7 @@ public class ReflectionLogicsModule extends ScriptingLogicsModule {
     public LP statsProperty;
     public LP overStatsProperty;
     public LP maxStatsProperty;
+    public LP actionOrPropertyCanonicalNameWithPostfix;
     public LP propertyCanonicalName;
     public LP actionCanonicalName;
     public LP propertyTableSID;
@@ -73,9 +78,6 @@ public class ReflectionLogicsModule extends ScriptingLogicsModule {
     public LP hasNotNullQuantity;
 
     public LP numberNavigatorElement;
-    
-    // temporary for migration
-    public ImplementTable navigatorElementTable;
 
     public LP navigatorElementCanonicalName;
     public LP canonicalNameNavigatorElement;
@@ -95,6 +97,7 @@ public class ReflectionLogicsModule extends ScriptingLogicsModule {
     public LP formGroupObject;
     public LP groupObjectSIDFormNameGroupObject;
 
+    public LP actionOrPropertyPropertyDraw;
     public LP sidPropertyDraw;
     public LP captionPropertyDraw;
     public LP formPropertyDraw;
@@ -113,6 +116,8 @@ public class ReflectionLogicsModule extends ScriptingLogicsModule {
     public LP columnPatternPropertyDraw;
     public LP columnWidthPropertyDrawCustomUser;
     public LP columnWidthPropertyDraw;
+    public LP columnFlexPropertyDrawCustomUser;
+    public LP columnFlexPropertyDraw;
     public LP columnOrderPropertyDrawCustomUser;
     public LP columnOrderPropertyDraw;
     public LP columnSortPropertyDrawCustomUser;
@@ -163,17 +168,17 @@ public class ReflectionLogicsModule extends ScriptingLogicsModule {
 
     public LP overQuantityTableColumn;
     public LP notNullQuantityTableColumn;
-    public LA recalculateAggregationTableColumn;
+    public LA recalculateMaterializationsTableColumn;
 
     public LP disableClassesTable;
     public LP disableStatsTable;
-    public LP disableAggregationsTableColumn;
+    public LP disableMaterializationsTableColumn;
     public LP disableClassesTableColumn;
     public LP disableStatsTableColumn;
 
     public LP disableClassesTableSID;
     public LP disableStatsTableSID;
-    public LP disableAggregationsTableColumnSID;
+    public LP disableMaterializationsTableColumnSID;
     public LP disableStatsTableColumnSID;
 
     public LP<?> sidTableDropColumn;
@@ -196,14 +201,11 @@ public class ReflectionLogicsModule extends ScriptingLogicsModule {
     public final StringClass propertyClassValueClass = StringClass.get(100);
     public final StringClass propertyTableValueClass = StringClass.get(100);
     public final StringClass propertyDrawSIDClass = StringClass.get(100);
-    public final LogicalClass propertyLoggableValueClass = LogicalClass.instance;
-    public final LogicalClass propertyStoredValueClass = LogicalClass.instance;
-    public final LogicalClass propertyIsSetNotNullValueClass = LogicalClass.instance;
 
     public LP currentForm;
 
     public ReflectionLogicsModule(BusinessLogics BL, BaseLogicsModule baseLM) throws IOException {
-        super(ReflectionLogicsModule.class.getResourceAsStream("/system/Reflection.lsf"), "/system/Reflection.lsf", baseLM, BL);
+        super(baseLM, BL, "/system/Reflection.lsf");
     }
 
     @Override
@@ -221,6 +223,7 @@ public class ReflectionLogicsModule extends ScriptingLogicsModule {
         tableKey = (ConcreteCustomClass) findClass("TableKey");
         tableColumn = (ConcreteCustomClass) findClass("TableColumn");
         dropColumn = (ConcreteCustomClass) findClass("DropColumn");
+        actionOrProperty = (CustomClass) findClass("ActionOrProperty");
         property = (ConcreteCustomClass) findClass("Property");
         action = (ConcreteCustomClass) findClass("Action");
         groupObject = (ConcreteCustomClass) findClass("GroupObject");
@@ -252,16 +255,20 @@ public class ReflectionLogicsModule extends ScriptingLogicsModule {
         numberProperty = findProperty("number[ActionOrProperty]");
         dbNameProperty = findProperty("dbName[Property]");
         canonicalNameActionOrProperty = findProperty("canonicalName[ActionOrProperty]");
+        isProperty = findProperty("isProperty[ActionOrProperty]");
         canonicalNameAction = findProperty("canonicalName[Action]");
         canonicalNameProperty = findProperty("canonicalName[Property]");
         loggableProperty = findProperty("loggable[Property]");
         userLoggableProperty = findProperty("userLoggable[Property]");
         storedProperty = findProperty("stored[Property]");
         isSetNotNullProperty = findProperty("isSetNotNull[Property]");
+        disableInputListProperty = findProperty("disableInputList[Property]");
+        nameSelectProperty = findProperty("nameSelect[Property]");
         returnProperty = findProperty("return[Property]");
         classProperty = findProperty("class[Property]");
         complexityProperty = findProperty("complexity[Property]");
         captionProperty = findProperty("caption[Property]");
+        actionOrPropertyCanonicalNameWithPostfix = findProperty("actionOrPropertyCanonicalNameWithPostfix[STRING]");
         propertyCanonicalName = findProperty("propertyCanonicalName[STRING]");
         actionCanonicalName = findProperty("actionCanonicalName[STRING]");
         propertyTableSID = findProperty("propertyTable[STRING[100],STRING[100]]");
@@ -285,8 +292,6 @@ public class ReflectionLogicsModule extends ScriptingLogicsModule {
         
         isNavigatorFolder = findProperty("isNavigatorFolder[?]");
         isNavigatorAction = findProperty("isNavigatorAction[?]");
-
-        navigatorElementTable = findTable("navigatorElement");
         
         // ----- Формы ---- //
         formCanonicalName = findProperty("canonicalName[Form]");
@@ -304,6 +309,7 @@ public class ReflectionLogicsModule extends ScriptingLogicsModule {
 
 
         // PropertyDraw
+        actionOrPropertyPropertyDraw = findProperty("actionOrProperty[PropertyDraw]");
         sidPropertyDraw = findProperty("sid[PropertyDraw]");
         captionPropertyDraw = findProperty("caption[PropertyDraw]");
         formPropertyDraw = findProperty("form[PropertyDraw]");
@@ -326,6 +332,9 @@ public class ReflectionLogicsModule extends ScriptingLogicsModule {
         
         columnWidthPropertyDrawCustomUser = findProperty("columnWidth[PropertyDraw,CustomUser]");
         columnWidthPropertyDraw = findProperty("columnWidth[PropertyDraw]");
+
+        columnFlexPropertyDrawCustomUser = findProperty("columnFlex[PropertyDraw,CustomUser]");
+        columnFlexPropertyDraw = findProperty("columnFlex[PropertyDraw]");
 
         columnOrderPropertyDrawCustomUser = findProperty("columnOrder[PropertyDraw,CustomUser]");
         columnOrderPropertyDraw = findProperty("columnOrder[PropertyDraw]");
@@ -398,18 +407,18 @@ public class ReflectionLogicsModule extends ScriptingLogicsModule {
         overQuantityTableColumn = findProperty("overQuantity[TableColumn]");
         notNullQuantityTableColumn = findProperty("notNullQuantity[TableColumn]");
 
-        recalculateAggregationTableColumn = findAction("recalculateAggregation[TableColumn]");
+        recalculateMaterializationsTableColumn = findAction("recalculateMaterializations[TableColumn]");
 
         //Отключение пересчётов и проверок
         disableClassesTable = findProperty("disableClasses[Table]");
         disableStatsTable = findProperty("disableStatsTable[Table]");
-        disableAggregationsTableColumn = findProperty("disableAggregations[TableColumn]");
+        disableMaterializationsTableColumn = findProperty("disableMaterializations[TableColumn]");
         disableClassesTableColumn = findProperty("disableClasses[TableColumn]");
         disableStatsTableColumn = findProperty("disableStatsTableColumn[TableColumn]");
 
         disableClassesTableSID = findProperty("disableClasses[ISTRING[100]]");
         disableStatsTableSID = findProperty("disableStatsTable[ISTRING[100]]");
-        disableAggregationsTableColumnSID = findProperty("disableAggregations[ISTRING[100]]");
+        disableMaterializationsTableColumnSID = findProperty("disableAggregations[ISTRING[100]]");
         disableStatsTableColumnSID = findProperty("disableStatsTableColumn[ISTRING[100]]");
 
         // Удаленные колонки

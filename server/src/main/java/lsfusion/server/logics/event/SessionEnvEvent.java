@@ -7,7 +7,6 @@ import lsfusion.base.col.interfaces.mutable.SimpleAddValue;
 import lsfusion.base.col.interfaces.mutable.SymmAddValue;
 import lsfusion.base.mutability.TwinImmutableObject;
 import lsfusion.server.logics.action.session.DataSession;
-import lsfusion.server.logics.form.interactive.instance.FormInstance;
 import lsfusion.server.logics.form.struct.FormEntity;
 
 public class SessionEnvEvent extends TwinImmutableObject {
@@ -40,17 +39,11 @@ public class SessionEnvEvent extends TwinImmutableObject {
 
     public boolean contains(DataSession element) {
         if(forms==null) { // вообще говоря не только оптимизация, так как activeForms может быть пустым
-            assert this==ALWAYS;
+            assert this == ALWAYS;
             return true;
         }
 
-        for(FormInstance form : element.getAllActiveForms())
-            if(forms.contains(form.entity))
-                return true;
-        if(element.hasSessionEventActiveForms(forms))
-            return true;
-
-        return false;
+        return forms.intersect(element.getAllActiveForms());
     }
 
     public boolean isEmpty() {

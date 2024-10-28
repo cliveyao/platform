@@ -106,7 +106,9 @@ createCity (FILE f)  {
 
 Since the property is named `createCity` and located in the [module](Modules.md) with the namespace `Location`, the url on which the request will be handled looks like this:
 
-    http://localhost:7651/exec?action=Location.createCity
+```
+http://localhost:7651/exec?action=Location.createCity
+```
 
 Body of the HTTP request will be passed as a parameter of the type `FILE`. The values read from the `countryId` and `name` parameters are written to the local properties `cy` and `ne` respectively.
 
@@ -390,3 +392,67 @@ The response JSON will look like this:
     ]
 }
 ```
+
+## Example 8
+
+### Task
+
+Similar to [**Example 3**](#example 3).
+
+For each order, there is a list of files attached to it.
+```lsf
+CLASS Attachment 'Attachment';
+order = DATA Order (Attachment) NONULL DELETE;
+name 'Name' = DATA STRING (Attachment);
+file = DATA FILE (Attachment);
+```
+We need to implement HTTP GET request that will return for the passed internal identifier of the order its parameters and a list of files.
+In addition, we need to implement a separate request to retrieve the content of a specific file.  
+
+### Solution
+```lsf
+FORM orderAttachments
+    OBJECTS o = Order
+    PROPERTIES(o) number, date
+
+    OBJECTS attachments = Attachment
+    PROPERTIES id = VALUE(attachments), name(attachments)
+;
+
+getOrderAttachments (LONG orderId) {
+    FOR LONG(Order o AS Order) = orderId DO {
+        EXPORT orderAttachments OBJECTS o = o JSON;
+    }
+}
+```
+To generate an HTTP request, use the following url : http://localhost:7651/exec?action=getOrderAttachments&p=32178.
+In it _p_ parameter contains internal order identifier.
+
+The response will return for example the following JSON :
+```json
+{
+    "date": "20.10.2021",
+    "number": "12",
+    "attachments": [
+        {
+            "name": "File 1",
+            "id": 32180
+        },
+        {
+            "name": "File 2",
+            "id": 32183
+        }
+    ]
+}
+```
+
+The _id_ attributes will contain internal file identifiers. The contents of these files can then be read by a query using the following url :
+http://localhost:7651/exec?action=getOrderAttachment&p=32180. The _getOrderAttachment_ action is declared as follows :
+
+```lsf
+getOrderAttachment (LONG id) {
+    FOR LONG(Attachment a AS Attachment) = id DO
+        exportFile() <- file(a); 
+}
+```
+The query will return a file with _Content-Type_ corresponding to the extension of the _file_ property.

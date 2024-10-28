@@ -1,6 +1,7 @@
 package lsfusion.server.logics.classes.data;
 
 import lsfusion.server.data.sql.syntax.SQLSyntax;
+import lsfusion.server.data.type.DBType;
 import lsfusion.server.data.type.Type;
 import lsfusion.server.data.type.exec.TypeEnvironment;
 import lsfusion.server.physics.dev.i18n.LocalizedString;
@@ -11,7 +12,7 @@ import java.sql.Types;
 import java.util.ArrayList;
 import java.util.Collection;
 
-public class ArrayClass<T> extends DataClass<T[]> {
+public class ArrayClass<T> extends DataClass<T[]> implements DBType {
 
     private final Type<T> type;
 
@@ -24,7 +25,11 @@ public class ArrayClass<T> extends DataClass<T[]> {
         return type;
     }
 
-    public String getDB(SQLSyntax syntax, TypeEnvironment typeEnv) {
+    @Override
+    public DBType getDBType() {
+        return this;
+    }
+    public String getDBString(SQLSyntax syntax, TypeEnvironment typeEnv) {
         return syntax.getArrayType(this, typeEnv);
     }
     public String getDotNetType(SQLSyntax syntax, TypeEnvironment typeEnv) {
@@ -42,14 +47,6 @@ public class ArrayClass<T> extends DataClass<T[]> {
 
     public int getSQL(SQLSyntax syntax) {
         return Types.ARRAY;
-    }
-
-    public boolean isSafeString(Object value) {
-        return false;
-    }
-
-    public String getString(Object value, SQLSyntax syntax) {
-        throw new RuntimeException("not supported");
     }
 
     public void writeParam(PreparedStatement statement, int num, Object value, SQLSyntax syntax) throws SQLException {
@@ -84,11 +81,6 @@ public class ArrayClass<T> extends DataClass<T[]> {
     }
 
     public T[] parseString(String s) {
-        throw new RuntimeException("not supported");
-    }
-
-    @Override
-    public String formatString(T[] value) {
         throw new RuntimeException("not supported");
     }
 

@@ -134,22 +134,19 @@ FORM schedule '{schedule.schedule}'
 
 DESIGN schedule {
     NEW mainContainer{
-        type = SPLITV;
         fill=1;
         NEW topContainer{
-            type = CONTAINERV ;
             fill=1;
             caption = '{schedule.params}';
             MOVE BOX(s);
             MOVE BOX(d);
         }
         NEW bottomContainer{
-            type = CONTAINERV;
             fill = 1;
             caption = '{schedule.preview}';
             NEW dateCotainer{
                 caption = '{schedule.period}';
-                type = CONTAINERH;
+                horizontal = TRUE;
                 MOVE PROPERTY(dateFrom);
                 MOVE PROPERTY(dateTo);
             }
@@ -202,11 +199,10 @@ FORM schedules '{schedule.schedules}'
 
 DESIGN schedules{
     NEW mainContainer{
-        type = SPLITV;
         fill = 1;
         MOVE BOX(s);
         NEW tabbedContainer{
-            type = TABBED;
+            tabbed = TRUE;
             fill=2;
             MOVE BOX(d);
             NEW previewContainer{
@@ -214,7 +210,7 @@ DESIGN schedules{
                 caption = '{schedule.preview}';
                 NEW dateCotainer{
                     caption = '{schedule.period}';
-                    type = CONTAINERH;
+                    horizontal = TRUE;
                     MOVE PROPERTY(dateFrom);
                     MOVE PROPERTY(dateTo);
                 }

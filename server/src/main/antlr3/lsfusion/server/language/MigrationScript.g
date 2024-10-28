@@ -1,5 +1,24 @@
 grammar MigrationScript;
 
+@lexer::header { 
+    package lsfusion.server.language;
+}
+
+@lexer::members {
+	private List<String> errors = new ArrayList<>();
+
+    @Override
+    public void displayRecognitionError(String[] tokenNames, RecognitionException e) {
+        String hdr = getErrorHeader(e);
+        String msg = getErrorMessage(e, tokenNames);
+        errors.add(hdr + " " + msg);
+    }
+
+    public List<String> getErrors() {
+    	return errors;
+    }
+}
+
 @header {
 	package lsfusion.server.language;
 	import lsfusion.server.physics.exec.db.controller.manager.MigrationManager;
@@ -7,14 +26,22 @@ grammar MigrationScript;
 	import org.antlr.runtime.BitSet;
 }
 
-@lexer::header { 
-	package lsfusion.server.language;
-}
-
 @members {
 	public MigrationManager self;
-}
 
+	private List<String> errors = new ArrayList<>();
+
+    @Override
+    public void displayRecognitionError(String[] tokenNames, RecognitionException e) {
+        String hdr = getErrorHeader(e);
+        String msg = getErrorMessage(e, tokenNames);
+        errors.add(hdr + " " + msg);
+    }
+
+    public List<String> getErrors() {
+    	return errors;
+    }
+}
 
 
 script
@@ -66,7 +93,7 @@ classRename
 	;
 	
 tableRename
-	:	'TABLE' r=sidRename { self.addTableSIDChange($script::version, $r.from, $r.to); }
+	:	'TABLE' r=sidRename { self.addTableCNChange($script::version, $r.from, $r.to); }
 	;
 
 navigatorElementRename
@@ -172,9 +199,9 @@ fragment DIGIT		:	'0'..'9';
 fragment DIGITS		:	('0'..'9')+;
 
 PRIMITIVE_TYPE      :   'INTEGER' | 'DOUBLE' | 'LONG' | 'BOOLEAN' | 'DATETIME' | 'DATE' | 'YEAR' | 'TIME'
-                    |   'WORDFILE' | 'IMAGEFILE' | 'PDFFILE' | 'RAWFILE' | 'FILE' | 'EXCELFILE' | 'TEXTFILE' | 'CSVFILE' | 'HTMLFILE' | 'JSONFILE' | 'XMLFILE' | 'TABLEFILE'
-                    |   'WORDLINK' | 'IMAGELINK' | 'PDFLINK' | 'RAWLINK' | 'LINK' | 'EXCELLINK' | 'TEXTLINK' | 'CSVLINK' | 'HTMLLINK' | 'JSONLINK' | 'XMLLINK' | 'TABLELINK'
-                    |   'STRING' | 'NUMERIC' | 'COLOR'
+                    |   'WORDFILE' | 'IMAGEFILE' | 'PDFFILE' | 'VIDEOFILE' | 'DBFFILE' | 'RAWFILE' | 'FILE' | 'EXCELFILE' | 'TEXTFILE' | 'CSVFILE' | 'HTMLFILE' | 'JSONFILE' | 'XMLFILE' | 'TABLEFILE' | 'NAMEDFILE'
+                    |   'WORDLINK' | 'IMAGELINK' | 'PDFLINK' | 'VIDEOLINK' | 'DBFLINK' | 'RAWLINK' | 'LINK' | 'EXCELLINK' | 'TEXTLINK' | 'CSVLINK' | 'HTMLLINK' | 'JSONLINK' | 'XMLLINK' | 'TABLELINK'
+                    |   'STRING' | 'NUMERIC' | 'COLOR' | 'JSON'
                     ;
 
 VERSION     :	'V' DIGIT+ ('.' DIGIT+)*;

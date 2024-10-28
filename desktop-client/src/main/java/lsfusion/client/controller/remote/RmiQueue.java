@@ -17,6 +17,8 @@ import lsfusion.client.base.log.ClientLoggers;
 import lsfusion.client.controller.MainController;
 import lsfusion.client.controller.dispatch.DispatcherInterface;
 import lsfusion.client.controller.dispatch.DispatcherListener;
+import lsfusion.client.form.view.ClientFormDockable;
+import lsfusion.client.navigator.controller.AsyncFormController;
 import lsfusion.interop.base.exception.FatalRemoteClientException;
 import lsfusion.interop.base.exception.RemoteAbandonedException;
 import lsfusion.interop.base.exception.RemoteHandledException;
@@ -24,10 +26,7 @@ import org.apache.log4j.Logger;
 
 import javax.swing.*;
 import java.rmi.RemoteException;
-import java.util.ArrayDeque;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Queue;
+import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -58,13 +57,17 @@ public class RmiQueue implements DispatcherListener {
 
     private AtomicBoolean abandoned = new AtomicBoolean();
 
-    public RmiQueue(TableManager tableManager, Provider<String> serverMessageProvider, InterruptibleProvider<List<Object>> serverMessageListProvider, AsyncListener asyncListener) {
+    private boolean synchronizeRequests; // should be synchronized with the same method in RemoteRequestObject
+
+    public RmiQueue(TableManager tableManager, Provider<String> serverMessageProvider, InterruptibleProvider<List<Object>> serverMessageListProvider, AsyncListener asyncListener, boolean synchronizeRequests) {
         this.serverMessageProvider = serverMessageProvider;
         this.serverMessageListProvider = serverMessageListProvider;
         this.tableManager = tableManager;
         this.asyncListener = asyncListener;
 
         rmiExecutor = Executors.newCachedThreadPool(new DaemonThreadFactory("rmi-queue"));
+
+        this.synchronizeRequests = synchronizeRequests;
 
         ConnectionLostManager.registerRmiQueue(this);
     }
@@ -107,7 +110,7 @@ public class RmiQueue implements DispatcherListener {
     private static ExecutorService executorService = Executors.newCachedThreadPool();
     
     private static double getTimeout(Pair<Integer, Integer> timeoutParams, int exponent) {
-        return timeoutParams.second * Math.pow(timeoutParams.first, exponent);    
+        return timeoutParams.second * Math.pow(timeoutParams.first, Math.min(exponent, 4));
     }
     
     // вызывает request (предположительно remote) несколько раз, проблемы с целостностью предполагается что решается либо индексом, либо результат не так важен
@@ -130,15 +133,18 @@ public class RmiQueue implements DispatcherListener {
                                 Throwable cause = e.getCause();
                                 throw cause instanceof Exception ? (Exception) cause : Throwables.propagate(cause);
                             } catch (TimeoutException e) {
-                                if (futureInterface.isFirst()) {
+                                boolean isFirstFuture = futureInterface.isFirst();
+                                remoteLogger.info("TimeoutException: timeout - " + timeout + "s, next timeout - " + getTimeout(timeoutParams, exponent) + "s" + (isFirstFuture ? ", first" : ""));
+                                if (isFirstFuture) {
                                     future.cancel(true);
                                     exponent++;
-                                    remoteLogger.info("TimeoutException: timeout - " + timeout + "s, next timeout - " + getTimeout(timeoutParams, exponent) + "s");
                                     throw e;
                                 }
                             }
                         }
                     } else {
+                        if(futureInterface != null)
+                            remoteLogger.info("Remote call without a timeout");
                         return request.call();
                     }
                 } catch (Exception t) {
@@ -192,14 +198,14 @@ public class RmiQueue implements DispatcherListener {
 
     // возможно получится и было бы лучше сделать так же, как в вебе - без механизма direct запросов, а с добавленеим этих запросов в начало очереди
     public <T> T directRequest(long requestIndex, final RmiRequest<T> request) throws RemoteException {
-        if (logger.isDebugEnabled()) {
-            logger.debug("Direct request: " + request);
-        }
-
         request.setRequestIndex(requestIndex);
         request.setLastReceivedRequestIndex(lastReceivedRequestIndex);
 
         request.setTimeoutParams(new Pair<>(3, 20));
+
+        if (logger.isDebugEnabled()) {
+            logger.debug("Direct request: " + request);
+        }
 
         return blockingRequest(request, true);
     }
@@ -352,13 +358,25 @@ public class RmiQueue implements DispatcherListener {
         }
     }
 
-    public <T> void asyncRequest(final RmiRequest<T> request) {
+    public <T> void adaptiveSyncRequest(final RmiRequest<T> request) {
+        if (MainController.maxRequestQueueSize == 0 || rmiFutures.size() < MainController.maxRequestQueueSize || syncsDepth > 0)
+            asyncRequest(request, false);
+        else
+            syncRequest(request);
+    }
+
+    public <T> long asyncRequest(final RmiRequest<T> request) {
+        asyncRequest(request, false);
+        return request.getRequestIndex();
+    }
+
+    public <T> void asyncRequest(final RmiRequest<T> request, boolean preProceed) {
         if (logger.isDebugEnabled()) {
             logger.debug("Async request: " + request);
         }
         request.setTimeoutParams(new Pair<>(3, 20));
 
-        execRmiRequestInternal(request);
+        execRmiRequestInternal(request, preProceed);
 
         request.onAsyncRequest();
 
@@ -382,6 +400,10 @@ public class RmiQueue implements DispatcherListener {
     }
 
     private <T> RmiFuture<T> execRmiRequestInternal(RmiRequest<T> request) {
+        return execRmiRequestInternal(request, false);
+    }
+
+    private <T> RmiFuture<T> execRmiRequestInternal(RmiRequest<T> request, boolean preProceed) {
         SwingUtils.assertDispatchThread();
 
         request.setRequestIndex(nextRmiRequestIndex++);
@@ -391,7 +413,7 @@ public class RmiQueue implements DispatcherListener {
             logger.debug("Executing request's thread: " + request);
         }
 
-        RmiFuture<T> rmiFuture = createRmiFuture(request);
+        RmiFuture<T> rmiFuture = createRmiFuture(request, preProceed);
 
         if (rmiFutures.isEmpty() && !dispatchingInProgress) {
             rmiFuture.setFirst(true);
@@ -414,10 +436,28 @@ public class RmiQueue implements DispatcherListener {
             return;
         }
 
-        //не обрабатываем результат, пока не закончится редактирование и не вызовется this.editingStopped()
-        if (!tableManager.isEditing()) {
-            flushCompletedRequestsNow(false);
+        //не обрабатываем результат (кроме с preProceeded), пока не закончится редактирование и не вызовется this.editingStopped()
+        boolean isEditing = tableManager.isEditing();
+        if(isEditing || !synchronizeRequests) { // not sure that the last check is needed but just in case to guarantee the fallback behaviour
+            rmiFutures.forEach(future -> {
+                if(future.isDone() && future.preProceeded != null && !future.preProceeded) {
+                    try {
+                        dispatchingStarted();
+                        try {
+                            future.execCallback();
+                        } finally {
+                            dispatchingEnded();
+                        }
+                        future.preProceeded = true;
+                    } catch (Throwable t) {
+                        ClientExceptionManager.handle(t, false);
+                    }
+                }
+            });
         }
+
+        if(!isEditing)
+            flushCompletedRequestsNow(false);
     }
 
     private void flushCompletedRequestsNow(boolean inSyncRequest) {
@@ -462,7 +502,9 @@ public class RmiQueue implements DispatcherListener {
         dispatchingStarted();
         
         try {
-            future.execCallback();
+            if(future.preProceeded == null || !future.preProceeded) {
+                future.execCallback();
+            }
         } finally {
             dispatchingEnded();
             
@@ -472,10 +514,16 @@ public class RmiQueue implements DispatcherListener {
             }
         }
     }
-    
+
     private <T> RmiFuture<T> createRmiFuture(final RmiRequest<T> request) {
+        RmiFuture<T> rmiFuture = createRmiFuture(request, false);
+        rmiFuture.setFirst(true);
+        return rmiFuture;
+    }
+
+    private <T> RmiFuture<T> createRmiFuture(final RmiRequest<T> request, boolean preProceed) {
         RequestCallable<T> requestCallable = new RequestCallable<>(request, abandoned);
-        RmiFuture<T> future = new RmiFuture<>(request, requestCallable);
+        RmiFuture<T> future = new RmiFuture<>(request, requestCallable, preProceed || !synchronizeRequests);
         requestCallable.setFutureInterface(future);
         return future;
     }
@@ -526,10 +574,12 @@ public class RmiQueue implements DispatcherListener {
         private final RmiRequest<T> request;
         boolean executed;
         private boolean first = false;
+        private Boolean preProceeded;
 
-        public RmiFuture(final RmiRequest<T> request, final RequestCallable<T> requestCallable) {
+        public RmiFuture(final RmiRequest<T> request, final RequestCallable<T> requestCallable, boolean preProceed) {
             super(requestCallable);
             this.request = request;
+            this.preProceeded = preProceed ? false : null;
         }
 
         @Override
@@ -587,7 +637,7 @@ public class RmiQueue implements DispatcherListener {
 
     private static class RequestCallable<T> implements Callable<T> {
         private final RmiRequest<T> request;
-        private RmiFutureInterface futureInterface;
+        private RmiFutureInterface futureInterface; // actually not null final
         private final AtomicBoolean abandoned;
 
         public RequestCallable(RmiRequest<T> request, AtomicBoolean abandoned) {
@@ -601,11 +651,7 @@ public class RmiQueue implements DispatcherListener {
 
         @Override
         public T call() throws Exception {
-            return runRetryableRequest(new Callable<T>() {
-                public T call() throws Exception {
-                    return request.doRequest();
-                }
-            }, abandoned, request.getTimeoutParams(), futureInterface);
+            return runRetryableRequest(() -> request.doRequest(), abandoned, request.getTimeoutParams(), futureInterface);
         }
     }
 
@@ -613,7 +659,31 @@ public class RmiQueue implements DispatcherListener {
         boolean isFirst();
     }
 
-    public long getNextRmiRequestIndex() {
-        return nextRmiRequestIndex;
+    private long lastCompletedRequest = -1L;
+    private Map<Long, ClientFormDockable> asyncForms = new HashMap<>();
+
+    public AsyncFormController getAsyncFormController(long requestIndex) {
+        return new AsyncFormController() {
+            @Override
+            public ClientFormDockable removeAsyncForm() {
+                return asyncForms.remove(requestIndex);
+            }
+
+            @Override
+            public void putAsyncForm(ClientFormDockable container) {
+                asyncForms.put(requestIndex, container);
+            }
+
+            @Override
+            public boolean checkNotCompleted() {
+                return requestIndex > lastCompletedRequest;
+            }
+
+            @Override
+            public boolean onServerInvocationResponse() {
+                lastCompletedRequest = requestIndex;
+                return asyncForms.containsKey(requestIndex);
+            }
+        };
     }
 }

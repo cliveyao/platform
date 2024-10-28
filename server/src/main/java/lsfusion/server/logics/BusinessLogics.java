@@ -2,7 +2,11 @@ package lsfusion.server.logics;
 
 import com.google.common.base.Throwables;
 import com.google.common.collect.Iterables;
-import lsfusion.base.*;
+import lsfusion.base.BaseUtils;
+import lsfusion.base.Pair;
+import lsfusion.base.ReflectionUtils;
+import lsfusion.base.Result;
+import lsfusion.base.col.ListFact;
 import lsfusion.base.col.MapFact;
 import lsfusion.base.col.SetFact;
 import lsfusion.base.col.implementations.HMap;
@@ -11,17 +15,19 @@ import lsfusion.base.col.interfaces.immutable.*;
 import lsfusion.base.col.interfaces.mutable.*;
 import lsfusion.base.col.interfaces.mutable.add.MAddExclMap;
 import lsfusion.base.col.interfaces.mutable.add.MAddMap;
+import lsfusion.base.col.interfaces.mutable.add.MAddSet;
 import lsfusion.base.col.lru.LRUUtil;
 import lsfusion.base.col.lru.LRUWSASVSMap;
+import lsfusion.base.lambda.set.FunctionSet;
 import lsfusion.base.log.DebugInfoWriter;
-import lsfusion.base.log.StringDebugInfoWriter;
 import lsfusion.interop.connection.LocalePreferences;
+import lsfusion.interop.connection.TFormats;
 import lsfusion.interop.form.property.Compare;
+import lsfusion.server.base.ResourceUtils;
 import lsfusion.server.base.caches.CacheStats;
 import lsfusion.server.base.caches.CacheStats.CacheType;
 import lsfusion.server.base.caches.IdentityLazy;
 import lsfusion.server.base.caches.IdentityStrongLazy;
-import lsfusion.server.base.caches.ManualLazy;
 import lsfusion.server.base.controller.lifecycle.LifecycleAdapter;
 import lsfusion.server.base.controller.lifecycle.LifecycleEvent;
 import lsfusion.server.base.controller.thread.ThreadLocalContext;
@@ -46,6 +52,7 @@ import lsfusion.server.language.property.oraction.LAP;
 import lsfusion.server.logics.action.Action;
 import lsfusion.server.logics.action.controller.stack.ExecutionStack;
 import lsfusion.server.logics.action.flow.ChangeFlowType;
+import lsfusion.server.logics.action.implement.ActionMapImplement;
 import lsfusion.server.logics.action.session.ApplyFilter;
 import lsfusion.server.logics.action.session.DataSession;
 import lsfusion.server.logics.action.session.change.Correlation;
@@ -59,13 +66,11 @@ import lsfusion.server.logics.classes.data.utils.time.TimeLogicsModule;
 import lsfusion.server.logics.classes.user.ConcreteCustomClass;
 import lsfusion.server.logics.classes.user.CustomClass;
 import lsfusion.server.logics.classes.user.ObjectValueClassSet;
-import lsfusion.server.logics.classes.user.set.OrObjectClassSet;
 import lsfusion.server.logics.classes.user.set.ResolveClassSet;
-import lsfusion.server.logics.classes.user.set.ResolveOrObjectClassSet;
 import lsfusion.server.logics.event.*;
 import lsfusion.server.logics.form.interactive.listener.CustomClassListener;
-import lsfusion.server.logics.form.stat.print.FormReportManager;
 import lsfusion.server.logics.form.struct.FormEntity;
+import lsfusion.server.logics.form.struct.group.AbstractNode;
 import lsfusion.server.logics.form.struct.group.Group;
 import lsfusion.server.logics.navigator.NavigatorElement;
 import lsfusion.server.logics.navigator.controller.remote.RemoteNavigator;
@@ -75,7 +80,6 @@ import lsfusion.server.logics.property.Property;
 import lsfusion.server.logics.property.caches.MapCacheAspect;
 import lsfusion.server.logics.property.cases.AbstractCase;
 import lsfusion.server.logics.property.cases.graph.Graph;
-import lsfusion.server.logics.property.classes.ClassPropertyInterface;
 import lsfusion.server.logics.property.classes.IsClassProperty;
 import lsfusion.server.logics.property.classes.infer.ClassType;
 import lsfusion.server.logics.property.classes.user.ClassDataProperty;
@@ -87,10 +91,10 @@ import lsfusion.server.logics.property.oraction.ActionOrProperty;
 import lsfusion.server.logics.property.oraction.PropertyInterface;
 import lsfusion.server.physics.admin.Settings;
 import lsfusion.server.physics.admin.SystemProperties;
+import lsfusion.server.physics.admin.activity.UserEventsLogicsModule;
 import lsfusion.server.physics.admin.authentication.AuthenticationLogicsModule;
 import lsfusion.server.physics.admin.authentication.security.SecurityLogicsModule;
 import lsfusion.server.physics.admin.authentication.security.controller.manager.SecurityManager;
-import lsfusion.server.physics.admin.interpreter.EvalUtils;
 import lsfusion.server.physics.admin.log.LogInfo;
 import lsfusion.server.physics.admin.log.ServerLoggers;
 import lsfusion.server.physics.admin.monitor.StatusMessage;
@@ -104,11 +108,14 @@ import lsfusion.server.physics.dev.i18n.DefaultLocalizer;
 import lsfusion.server.physics.dev.i18n.LocalizedString;
 import lsfusion.server.physics.dev.i18n.ResourceBundleGenerator;
 import lsfusion.server.physics.dev.i18n.ReversedI18NDictionary;
+import lsfusion.server.physics.dev.icon.IconLogicsModule;
 import lsfusion.server.physics.dev.id.name.CanonicalNameUtils;
 import lsfusion.server.physics.dev.id.name.DBNamingPolicy;
 import lsfusion.server.physics.dev.id.name.DuplicateElementsChecker;
 import lsfusion.server.physics.dev.id.name.PropertyCanonicalNameUtils;
 import lsfusion.server.physics.dev.id.resolve.*;
+import lsfusion.server.physics.dev.integration.external.to.file.ClearCacheWatcher;
+import lsfusion.server.physics.dev.integration.external.to.file.SynchronizeSourcesWatcher;
 import lsfusion.server.physics.dev.integration.external.to.mail.EmailLogicsModule;
 import lsfusion.server.physics.dev.module.ModuleList;
 import lsfusion.server.physics.exec.db.controller.manager.DBManager;
@@ -119,34 +126,32 @@ import org.springframework.beans.factory.InitializingBean;
 import org.springframework.util.Assert;
 
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.PrintWriter;
 import java.lang.management.ManagementFactory;
 import java.lang.management.ThreadInfo;
 import java.lang.management.ThreadMXBean;
 import java.lang.reflect.Method;
 import java.nio.file.Files;
-import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.sql.SQLException;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.BiConsumer;
 import java.util.function.Function;
+import java.util.function.IntFunction;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 import static lsfusion.base.BaseUtils.*;
-import static lsfusion.server.logics.classes.data.time.DateTimeConverter.getWriteDate;
+import static lsfusion.server.physics.admin.log.ServerLoggers.runWithStartLog;
+import static lsfusion.server.physics.admin.log.ServerLoggers.startLog;
 import static lsfusion.server.physics.dev.id.resolve.BusinessLogicsResolvingUtils.findElementByCanonicalName;
 import static lsfusion.server.physics.dev.id.resolve.BusinessLogicsResolvingUtils.findElementByCompoundName;
 
-public abstract class BusinessLogics extends LifecycleAdapter implements InitializingBean {
+public abstract class BusinessLogics extends LifecycleAdapter implements InitializingBean, SessionEvents {
     protected final static Logger logger = ServerLoggers.systemLogger;
-    public final static Logger sqlLogger = ServerLoggers.sqlLogger;
-    protected final static Logger startLogger = ServerLoggers.startLogger;
     protected final static Logger allocatedBytesLogger = ServerLoggers.allocatedBytesLogger;
 
     public static final String systemScriptsPath = "/system/*.lsf";
@@ -164,11 +169,20 @@ public abstract class BusinessLogics extends LifecycleAdapter implements Initial
     public SecurityLogicsModule securityLM;
     public SystemEventsLogicsModule systemEventsLM;
     public EmailLogicsModule emailLM;
+    public IconLogicsModule iconLM;
     public SchedulerLogicsModule schedulerLM;
     public TimeLogicsModule timeLM;
     public UtilsLogicsModule utilsLM;
+    public UserEventsLogicsModule userEventsLM;
 
     public String topModule;
+
+    public String theme;
+    public String size;
+    public String navbar;
+    
+    public Boolean navigatorPinMode;
+
     public String logicsCaption;
 
     private String orderDependencies;
@@ -179,6 +193,12 @@ public abstract class BusinessLogics extends LifecycleAdapter implements Initial
     private String setTimezone;
     private String setLanguage;
     private String setCountry;
+
+    private Integer twoDigitYearStart;
+    private String dateFormat;
+    private String timeFormat;
+
+    public TFormats tFormats;
 
     private LocalizedString.Localizer localizer;
     
@@ -191,92 +211,28 @@ public abstract class BusinessLogics extends LifecycleAdapter implements Initial
         super(LOGICS_ORDER);
     }
 
-    public static int compareChangeExtProps(ActionOrProperty p1, ActionOrProperty p2) {
-        // если p1 не DataProperty
-        String c1 = p1.getChangeExtSID();
-        String c2 = p2.getChangeExtSID();
-
-        if(c1 == null && c2 == null)
-            return compareDeepProps(p1, p2);
-
-        if(c1 == null)
-            return 1;
-
-        if(c2 == null)
-            return -1;
-
-        int result = c1.compareTo(c2);
-        if(result != 0)
-            return result;
-
-        return compareDeepProps(p1, p2);
-    }
-
-    public static int compareDeepProps(ActionOrProperty p1, ActionOrProperty p2) {
-//           return Integer.compare(p1.hashCode(), p2.hashCode());
-
-        String className1 = p1.getClass().getName(); 
-        String className2 = p2.getClass().getName(); 
-
-        int result = className1.compareTo(className2);
-        if(result != 0)
-            return result;
-
-        DebugInfo debugInfo1 = p1.getDebugInfo();
-        DebugInfo debugInfo2 = p2.getDebugInfo();
-        
-        if((debugInfo1 == null) != (debugInfo2 == null))
-            return Boolean.compare(debugInfo1 == null, debugInfo2 == null);
-        
-        if(debugInfo1 != null) {
-            DebugInfo.DebugPoint point1 = debugInfo1.getPoint();
-            DebugInfo.DebugPoint point2 = debugInfo2.getPoint();
-            
-            result = point1.moduleName.compareTo(point2.moduleName);
-            if(result != 0)
-                return result;
-            
-            result = Integer.compare(point1.line, point2.line);
-            if(result != 0)
-                return result;
-
-            result = Integer.compare(point1.offset, point2.offset);
-            if(result != 0)
-                return result;
-        }
-
-        String caption1 = p1.caption != null ? p1.caption.getSourceString() : "";
-        String caption2 = p2.caption != null ? p2.caption.getSourceString() : "";
-        result = caption1.compareTo(caption2);
-        if(result != 0)
-            return result;
-
-        ImList<Property> depends1 = p1 instanceof Action ? ((Action<?>) p1).getSortedUsedProps() : ((Property<?>)p1).getSortedDepends(); 
-        ImList<Property> depends2 = p2 instanceof Action ? ((Action<?>) p2).getSortedUsedProps() : ((Property<?>)p2).getSortedDepends();
-        result = Integer.compare(depends1.size(), depends2.size());
-        if(result != 0)
-            return result;
-
-        for(int i=0,size=depends1.size();i<size;i++) {
-            Property dp1 = depends1.get(i);
-            Property dp2 = depends2.get(i);
-
-            result = propComparator().compare(dp1, dp2); 
-            if(result != 0)
-                return result;
-        }
-
-        return Integer.compare(p1.hashCode(), p2.hashCode());
-    }
-
-    // жестковато, но учитывая что пока есть несколько других кэшей со strong ref'ами на этот action, завязаных на IdentityLazy то цикл жизни у всех этих кэшей будет приблизительно одинаковый
-    @IdentityLazy
     public LA<?> evaluateRun(String script, boolean action) {
-        return LM.evaluateRun(script, action);
+        return LM.evaluateRun(script, null, action).first;
     }
 
     public void setTopModule(String topModule) {
         this.topModule = topModule;
+    }
+
+    public void setTheme(String theme) {
+        this.theme = theme;
+    }
+
+    public void setSize(String size) {
+        this.size = size;
+    }
+
+    public void setNavbar(String navbar) {
+        this.navbar = navbar;
+    }
+    
+    public void setNavigatorPinMode(Boolean navigatorPinMode) {
+        this.navigatorPinMode = navigatorPinMode;
     }
 
     public void setLogicsCaption(String logicsCaption) {
@@ -303,6 +259,18 @@ public abstract class BusinessLogics extends LifecycleAdapter implements Initial
         this.initTask = initTask;
     }
 
+    public void setTwoDigitYearStart(Integer twoDigitYearStart) {
+        this.twoDigitYearStart = twoDigitYearStart;
+    }
+
+    public void setDateFormat(String dateFormat) {
+        this.dateFormat = dateFormat;
+    }
+
+    public void setTimeFormat(String timeFormat) {
+        this.timeFormat = timeFormat;
+    }
+
     @Override
     public void afterPropertiesSet() {
         Assert.notNull(initTask, "initTask must be specified");
@@ -311,7 +279,7 @@ public abstract class BusinessLogics extends LifecycleAdapter implements Initial
     @Override
     protected void onInit(LifecycleEvent event) {
         if (initialized.compareAndSet(false, true)) {
-            startLogger.info("Initializing BusinessLogics");
+            startLog("Initializing BusinessLogics");
             try {
                 getDbManager().ensureLogLevel();
                 
@@ -323,8 +291,12 @@ public abstract class BusinessLogics extends LifecycleAdapter implements Initial
                 if (timeZone != null) {
                     TimeZone.setDefault(timeZone);
                 }
-                
-                new TaskRunner(this).runTask(initTask, startLogger);
+
+                tFormats = new TFormats(twoDigitYearStart,
+                        dateFormat != null ? dateFormat : BaseUtils.getDatePattern(),
+                        timeFormat != null ? timeFormat : BaseUtils.getTimePattern(), timeZone);
+
+                new TaskRunner(this).runTask(initTask);
             } catch (RuntimeException re) {
                 throw re;
             } catch (Exception e) {
@@ -335,11 +307,13 @@ public abstract class BusinessLogics extends LifecycleAdapter implements Initial
 
     public LRUWSASVSMap<Object, Method, Object, Object> startLruCache = new LRUWSASVSMap<>(LRUUtil.G2);
     public void cleanCaches() {
-        startLruCache = null;
-        MapCacheAspect.cleanClassCaches();
-        Property.cleanPropCaches();
+        runWithStartLog(() -> {
+            startLruCache = null;
+            MapCacheAspect.cleanClassCaches();
+            AbstractNode.cleanPropCaches();
+            cleanPropCaches();
+        }, "Cleaning obsolete caches");
 
-        startLogger.info("Obsolete caches were successfully cleaned");
     }
     
     public ScriptingLogicsModule getModule(String name) {
@@ -363,9 +337,11 @@ public abstract class BusinessLogics extends LifecycleAdapter implements Initial
         securityLM = addModule(new SecurityLogicsModule(this, LM));
         systemEventsLM = addModule(new SystemEventsLogicsModule(this, LM));
         emailLM = addModule(new EmailLogicsModule(this, LM));
+        iconLM = addModule(new IconLogicsModule(this, LM));
         schedulerLM = addModule(new SchedulerLogicsModule(this, LM));
         timeLM = addModule(new TimeLogicsModule(this, LM));
-        utilsLM = addModule(new UtilsLogicsModule(this, LM));        
+        utilsLM = addModule(new UtilsLogicsModule(this, LM));
+        userEventsLM = addModule(new UserEventsLogicsModule(this, LM));
     }
 
     protected void addModulesFromResource(List<String> includePaths, List<String> excludePaths) throws IOException {
@@ -420,10 +396,7 @@ public abstract class BusinessLogics extends LifecycleAdapter implements Initial
     }
     
     private void addModuleFromResource(String path) throws IOException {
-        InputStream is = getClass().getResourceAsStream(path);
-        if (is == null)
-            throw new RuntimeException(String.format("[error]:\tmodule '%s' cannot be found", path));
-        addModule(new ScriptingLogicsModule(is, path, LM, this));
+        addModule(new ScriptingLogicsModule(LM, this, path));
     }
     
     public void initObjectClass() {
@@ -501,41 +474,13 @@ public abstract class BusinessLogics extends LifecycleAdapter implements Initial
     }
 
     public void initClassDataProps(final DBNamingPolicy namingPolicy) {
-        ImMap<ImplementTable, ImSet<ConcreteCustomClass>> groupTables = getConcreteCustomClasses().group(new BaseUtils.Group<ImplementTable, ConcreteCustomClass>() {
-            public ImplementTable group(ConcreteCustomClass customClass) {
-                return LM.tableFactory.getClassMapTable(MapFact.singletonOrder("key", customClass), namingPolicy).table;
-            }
-        });
+        ImMap<ImplementTable, ImSet<ConcreteCustomClass>> groupTables = getConcreteCustomClasses().group(customClass ->
+                LM.tableFactory.getClassMapTable(MapFact.singletonOrder("key", customClass), namingPolicy).table);
 
-        for(int i=0,size=groupTables.size();i<size;i++) {
-            ImplementTable table = groupTables.getKey(i);
-            ImSet<ConcreteCustomClass> set = groupTables.getValue(i);
-
-            ObjectValueClassSet classSet = OrObjectClassSet.fromSetConcreteChildren(set);
-
-            CustomClass tableClass = (CustomClass) table.getMapFields().singleValue();
-            // помечаем full tables
-            assert tableClass.getUpSet().containsAll(classSet, false); // должны быть все классы по определению, исходя из логики раскладывания классов по таблицам
-            boolean isFull = classSet.containsAll(tableClass.getUpSet(), false);
-            if(isFull) // важно чтобы getInterfaceClasses дал тот же tableClass
-                classSet = tableClass.getUpSet();
-
-            ClassDataProperty dataProperty = new ClassDataProperty(LocalizedString.create(classSet.toString(), false), classSet);
-            LP<ClassPropertyInterface> lp = new LP<>(dataProperty);
-            LM.addProperty(null, new LP<>(dataProperty));
-            LM.makePropertyPublic(lp, PropertyCanonicalNameUtils.classDataPropPrefix + table.getName(), Collections.singletonList(ResolveOrObjectClassSet.fromSetConcreteChildren(set)));
-            // именно такая реализация, а не implementTable, из-за того что getInterfaceClasses может попасть не в "класс таблицы", а мимо и тогда нарушится assertion что должен попасть в ту же таблицу, это в принципе проблема getInterfaceClasses
-            dataProperty.markStored(table);
-            dataProperty.initStored(LM.tableFactory, namingPolicy); // we need to initialize because we use calcClassValueWhere for init stored properties
-
-            // помечаем dataProperty
-            for(ConcreteCustomClass customClass : set)
-                customClass.dataProperty = dataProperty;
-            if(isFull) // неважно implicit или нет
-                table.setFullField(dataProperty);
-        }
+        for(int i=0,size=groupTables.size();i<size;i++)
+            LM.markClassData(groupTables.getKey(i), groupTables.getValue(i), namingPolicy);
     }
-    
+
     // если добавлять CONSTRAINT SETCHANGED не забыть задание в графе запусков перетащить
     public void initClassAggrProps() {
         MOrderExclSet<Property> queue = SetFact.mOrderExclSet();
@@ -583,17 +528,13 @@ public abstract class BusinessLogics extends LifecycleAdapter implements Initial
         }
     }
 
-    // временный хак для перехода на явную типизацию
-    public static boolean useReparse = false;
-    public static final ThreadLocal<ImMap<String, String>> reparse = new ThreadLocal<>();
-
-    public <P extends PropertyInterface> void finishLogInit(Property property) {
+    public <P extends PropertyInterface> void finishLogInit(Property<P> property) {
         if (property.isLoggable()) {
-            Action<P> logAction = (Action<P>) property.getLogFormAction().action;
+            ActionMapImplement<?, P> logAction = property.getLogFormAction();
 
             //добавляем в контекстное меню пункт для показа формы
-            property.setContextMenuAction(property.getSID(), logAction.caption);
-            property.setEventAction(property.getSID(), logAction.getImplement(property.getReflectionOrderInterfaces()));
+            property.setContextMenuAction(property.getSID(), logAction.action.caption);
+            property.setEventAction(property.getSID(), logAction);
         }
     }
 
@@ -635,12 +576,15 @@ public abstract class BusinessLogics extends LifecycleAdapter implements Initial
         LM.getRootGroup().finalizeAroundInit();
     }
 
-    public ImOrderSet<ActionOrProperty> getOrderActionOrProperties() {
-        return LM.getRootGroup().getActionOrProperties();
+    public void cleanPropCaches() {
+        LM.getRootGroup().cleanAllActionOrPropertiesCaches();
     }
 
-    public ImSet<ActionOrProperty> getActionOrProperties() {
-        return getOrderActionOrProperties().getSet();
+    // the problem is in the changeChildrenToSimple method, when some props are added to that groups during the runtime
+    // actually most of the getOrderActionOrProperties calls filter action / props immediately, so the caching can be more sophisticated
+    // but right now we just do pretty simple memoization with the manual update
+    public ImOrderSet<ActionOrProperty> getOrderActionOrProperties() {
+        return LM.getRootGroup().getActionOrProperties();
     }
 
     public ImOrderSet<Property> getOrderProperties() {
@@ -653,10 +597,6 @@ public abstract class BusinessLogics extends LifecycleAdapter implements Initial
 
     public ImOrderSet<Action> getOrderActions() {
         return BaseUtils.immutableCast(getOrderActionOrProperties().filterOrder(element -> element instanceof Action));
-    }
-
-    public ImSet<Action> getActions() {
-        return getOrderActions().getSet();
     }
 
     public Iterable<LP<?>> getNamedProperties() {
@@ -677,20 +617,6 @@ public abstract class BusinessLogics extends LifecycleAdapter implements Initial
         return mResult.immutableOrder();                    
     }
 
-    private Collection<String> customReports;
-    @ManualLazy
-    public Collection<String> getAllCustomReports() {
-        if (SystemProperties.inDevMode || customReports == null) {
-            customReports = calculateAllCustomReports();
-        }
-        return customReports;
-    }
-
-    public Collection<String> calculateAllCustomReports() {
-        Pattern pattern = Pattern.compile("/"+FormReportManager.reportsDir+".*\\.jrxml");
-        return ResourceUtils.getResources(pattern);
-    }
-    
     public <P extends PropertyInterface> void resolveAutoSet(DataSession session, ConcreteCustomClass customClass, DataObject dataObject, CustomClassListener classListener) throws SQLException, SQLHandledException {
 
         for (Property<P> property : getAutoSetProperties()) {
@@ -698,7 +624,7 @@ public abstract class BusinessLogics extends LifecycleAdapter implements Initial
             ValueClass valueClass = property.getValueClass(ClassType.autoSetPolicy);
             if (valueClass instanceof CustomClass && interfaceClass instanceof CustomClass &&
                     customClass.isChild((CustomClass) interfaceClass)) { // в общем то для оптимизации
-                Long obj = classListener.getObject((CustomClass) valueClass);
+                Long obj = classListener.getObject((CustomClass) valueClass, null, null);
                 if (obj != null)
                     property.change(MapFact.singleton(property.interfaces.single(), dataObject), session, obj);
             }
@@ -864,8 +790,8 @@ public abstract class BusinessLogics extends LifecycleAdapter implements Initial
     }
 
     //for debug
-    public void outPropertyList() {
-        for(ActionOrProperty actionOrProperty : getPropertyList()) {
+    public void outPropertyList(ApplyFilter filter) {
+        for(ActionOrProperty actionOrProperty : getPropertyList(filter)) {
             if(actionOrProperty instanceof Action) {
                 if(actionOrProperty.getDebugInfo() != null) {
                     serviceLogger.info(actionOrProperty.getSID() + ": " + actionOrProperty.getDebugInfo() + ", hasCancel: " + ((Action) actionOrProperty).hasFlow(ChangeFlowType.CANCEL));
@@ -874,24 +800,24 @@ public abstract class BusinessLogics extends LifecycleAdapter implements Initial
         }
     }
 
-    public ImOrderSet<ActionOrProperty> getPropertyList() {
-        return getPropertyListWithGraph(ApplyFilter.NO).first;
+    public ImOrderSet<ActionOrProperty> getPropertyList(ApplyFilter filter) {
+        return getPropertyListWithGraph(filter).first;
     }
 
-    public void fillActionChangeProps() { // используется только для getLinks, соответственно построения лексикографики и поиска зависимостей
-        for (Action property : getOrderActions()) {
-            if (!property.getEvents().isEmpty()) { // вырежем Action'ы без Event'ов, они нигде не используются, а дают много компонент связности
-                ImMap<Property, Boolean> change = ((Action<?>) property).getChangeExtProps();
+    public void fillActionChangeProps(ApplyFilter filter) { // используется только для getLinks, соответственно построения лексикографики и поиска зависимостей
+        for (Action action : getOrderActions()) {
+            if (filter.containsChange(action)) { // вырежем Action'ы без Event'ов, они нигде не используются, а дают много компонент связности
+                ImMap<Property, Boolean> change = ((Action<?>) action).getChangeExtProps();
                 for (int i = 0, size = change.size(); i < size; i++) // вообще говоря DataProperty и IsClassProperty
-                    change.getKey(i).addActionChangeProp(new Pair<Action<?>, LinkType>((Action<?>) property, change.getValue(i) ? LinkType.RECCHANGE : LinkType.DEPEND));
+                    change.getKey(i).addActionChangeProp(new Pair<Action<?>, LinkType>((Action<?>) action, change.getValue(i) ? LinkType.RECCHANGE : LinkType.DEPEND));
             }
         }
     }
 
-    public void dropActionChangeProps() { // для экономии памяти - симметричное удаление ссылок
-        for (Action property : getOrderActions()) {
-            if (!property.getEvents().isEmpty()) {
-                ImMap<Property, Boolean> change = ((Action<?>) property).getChangeExtProps();
+    public void dropActionChangeProps(ApplyFilter filter) { // для экономии памяти - симметричное удаление ссылок
+        for (Action action : getOrderActions()) {
+            if (filter.containsChange(action)) {
+                ImMap<Property, Boolean> change = ((Action<?>) action).getChangeExtProps();
                 for (int i = 0, size = change.size(); i < size; i++)
                     change.getKey(i).dropActionChangeProps();
             }
@@ -930,32 +856,101 @@ public abstract class BusinessLogics extends LifecycleAdapter implements Initial
 
         String c1 = o1.getCanonicalName();
         String c2 = o2.getCanonicalName();
-        if(c1 == null && c2 == null) {
-            return compareChangeExtProps(o1, o2);
+        if(c1 != null || c2 != null) {
+            if(c1 == null)
+                return 1;
+
+            if(c2 == null)
+                return -1;
+
+            assert !(c1.equals(c2) && !BaseUtils.hashEquals(o1,o2) && !(o1 instanceof SessionDataProperty) && !(o2 instanceof SessionDataProperty));
+            return c1.compareTo(c2);
         }
 
-        if(c1 == null)
-            return 1;
+        // если p1 не DataProperty
+        c1 = o1.getChangeExtSID();
+        c2 = o2.getChangeExtSID();
 
-        if(c2 == null)
-            return -1;
+        if(c1 != null || c2 != null) {
+            if (c1 == null)
+                return 1;
 
-        assert !(c1.equals(c2) && !BaseUtils.hashEquals(o1,o2) && !(o1 instanceof SessionDataProperty) && !(o2 instanceof SessionDataProperty));
-        return c1.compareTo(c2);
+            if (c2 == null)
+                return -1;
+
+            int result = c1.compareTo(c2);
+            if (result != 0)
+                return result;
+        }
+
+        c1 = o1.getClass().getName();
+        c2 = o2.getClass().getName();
+
+        int result = c1.compareTo(c2);
+        if(result != 0)
+            return result;
+
+        DebugInfo debugInfo1 = o1.getDebugInfo();
+        DebugInfo debugInfo2 = o2.getDebugInfo();
+
+        if((debugInfo1 == null) != (debugInfo2 == null))
+            return Boolean.compare(debugInfo1 == null, debugInfo2 == null);
+
+        if(debugInfo1 != null) {
+            DebugInfo.DebugPoint point1 = debugInfo1.getPoint();
+            DebugInfo.DebugPoint point2 = debugInfo2.getPoint();
+
+            result = point1.moduleName.compareTo(point2.moduleName);
+            if(result != 0)
+                return result;
+
+            // we'll use global line number to make it independent of the fact if the metacodes are enabled
+            result = Integer.compare(point1.globalLine, point2.globalLine);
+            if(result != 0)
+                return result;
+
+            result = Integer.compare(point1.offset, point2.offset);
+            if(result != 0)
+                return result;
+        }
+
+        c1 = o1.caption != null ? o1.caption.getSourceString() : "";
+        c2 = o2.caption != null ? o2.caption.getSourceString() : "";
+        result = c1.compareTo(c2);
+        if(result != 0)
+            return result;
+
+        ImList<Property> depends1 = o1 instanceof Action ? ((Action<?>) o1).getSortedUsedProps() : ((Property<?>) o1).getSortedDepends();
+        ImList<Property> depends2 = o2 instanceof Action ? ((Action<?>) o2).getSortedUsedProps() : ((Property<?>) o2).getSortedDepends();
+        result = Integer.compare(depends1.size(), depends2.size());
+        if(result != 0)
+            return result;
+
+        for(int i=0,size=depends1.size();i<size;i++) {
+            Property dp1 = depends1.get(i);
+            Property dp2 = depends2.get(i);
+
+            result = propComparator().compare(dp1, dp2);
+            if(result != 0)
+                return result;
+        }
+
+        return Integer.compare(o1.hashCode(), o2.hashCode());
     };
     public static Comparator<Property> propComparator() {
         return BaseUtils.immutableCast(actionOrPropComparator);
     }
-    public final static Comparator<Link> linkComparator = (o1, o2) -> {
-        int result = actionOrPropComparator.compare(o1.from, o2.from);
-        if(result != 0)
-            return result;
-
-        result = Integer.compare(o1.type.getNum(), o2.type.getNum());
-        if(result != 0)
-            return result;
-
-        return actionOrPropComparator.compare(o1.to, o2.to);
+    public final static Comparator<Link> linkToComparator = (o1, o2) -> {
+//        int result = actionOrPropComparator.compare(o1.from, o2.from);
+//        if(result != 0)
+//            return result;
+//
+        return compare(o1.type, o1.to, o2.type, o2.to);
+//        result = Integer.compare(o1.type.getNum(), o2.type.getNum());
+//        if(result != 0)
+//            return result;
+//
+//        return actionOrPropComparator.compare(o1.to, o2.to);
     };
 
 
@@ -1098,7 +1093,7 @@ public abstract class BusinessLogics extends LifecycleAdapter implements Initial
     }
 
     // upComponent нужен так как изначально неизвестны все элементы
-    private static HSet<ActionOrProperty> buildList(HSet<ActionOrProperty> props, HSet<ActionOrProperty> exclude, HSet<Link> removedLinks, MOrderExclSet<ActionOrProperty> mResult, boolean events, DebugInfoWriter debugInfoWriter) {
+    private static HSet<ActionOrProperty> buildList(HSet<ActionOrProperty> props, HSet<ActionOrProperty> exclude, HSet<Link> removedLinks, HMap<Link, List<Link>> removedLinkCycles, MOrderExclSet<ActionOrProperty> mResult, boolean events, DebugInfoWriter debugInfoWriter) {
         HSet<ActionOrProperty> proceeded;
 
         List<ActionOrProperty> order = new ArrayList<>();
@@ -1110,27 +1105,31 @@ public abstract class BusinessLogics extends LifecycleAdapter implements Initial
         }
 
         proceeded = new HSet<>();
-        for (int i = 0; i < order.size(); i++) { // тут нужн
+        for (int i = 0; i < order.size(); i++) {
             ActionOrProperty orderProperty = order.get(order.size() - 1 - i);
             if (!proceeded.contains(orderProperty)) {
                 HMap<ActionOrProperty, LinkType> innerComponentOutTypes = new HMap<>(LinkType.minLinkAdd());                
                 findComponent(orderProperty, LinkType.MAX, linksMap, proceeded, innerComponentOutTypes);
 
-                ActionOrProperty minProperty = findMinProperty(innerComponentOutTypes);
                 HSet<ActionOrProperty> innerComponent = innerComponentOutTypes.keys();
                         
                 assert innerComponent.size() > 0;
                 if (innerComponent.size() == 1) { // если цикла нет все ОК
+                    ActionOrProperty innerProperty = innerComponent.single();
                     if(debugInfoWriter != null)
-                        debugInfoWriter.addLines(minProperty.toString());
-                    mResult.exclAdd(innerComponent.single());
+                        debugInfoWriter.addLines(innerProperty.toString());
+                    mResult.exclAdd(innerProperty);
                 } else { // нашли цикл
+                    ActionOrProperty minProperty = findMinProperty(innerComponentOutTypes);
+
                     // assert что minProperty один из ActionProperty.getChangeExtProps
                     List<Link> minCycle = findMinCycle(minProperty, linksMap, innerComponent);
                     assert BaseUtils.hashEquals(minCycle.get(0).from, minProperty) && BaseUtils.hashEquals(minCycle.get(minCycle.size()-1).to, minProperty);
 
                     Link minLink = getMinLink(minCycle);
                     removedLinks.exclAdd(minLink);
+                    if(removedLinkCycles != null)
+                        removedLinkCycles.exclAdd(minLink, minCycle);
 
                     DebugInfoWriter pushDebugInfoWriter = null;
                     if(debugInfoWriter != null) {
@@ -1146,7 +1145,7 @@ public abstract class BusinessLogics extends LifecycleAdapter implements Initial
 //                    printCycle("Features", minLink, innerComponent, minCycle);
                     if (minLink.type.equals(LinkType.DEPEND)) { // нашли сильный цикл
                         MOrderExclSet<ActionOrProperty> mCycle = SetFact.mOrderExclSet();
-                        buildList(innerComponent, null, removedLinks, mCycle, events, pushDebugInfoWriter);
+                        buildList(innerComponent, null, removedLinks, removedLinkCycles, mCycle, events, pushDebugInfoWriter);
                         ImOrderSet<ActionOrProperty> cycle = mCycle.immutableOrder();
 
                         String print = "";
@@ -1154,7 +1153,7 @@ public abstract class BusinessLogics extends LifecycleAdapter implements Initial
                             print = (print.length() == 0 ? "" : print + " -> ") + property.toString();
                         throw new RuntimeException(ThreadLocalContext.localize("{message.cycle.detected}") + " : " + print + " -> " + minLink.to);
                     }
-                    buildList(innerComponent, null, removedLinks, mResult, events, pushDebugInfoWriter);
+                    buildList(innerComponent, null, removedLinks, removedLinkCycles, mResult, events, pushDebugInfoWriter);
                 }
                 proceeded.exclAddAll(innerComponent);
             }
@@ -1163,151 +1162,197 @@ public abstract class BusinessLogics extends LifecycleAdapter implements Initial
         return proceeded;
     }
 
-    private static void printCycle(String property, Link minLink, ImSet<ActionOrProperty> innerComponent, List<Link> minCycle) {
+    private static void outputLink(StringBuilder result, boolean forward, Link link) {
+        LinkType type = link.type;
+        if(type == LinkType.DEPEND) {
+            result.append(forward ? " ---> " : " <--- ");
+            if(link.to instanceof Action)
+                result.append("(is changed by action) ");
+            else
+                result.append("(property uses)");
+        } else {
+            result.append(forward ? " - -> " : " <- - ").append("(").append(-type.getNum());
 
-        int showCycle = 0;
-
-        for(ActionOrProperty prop : innerComponent) {
-            if(prop.toString().contains(property))
-                showCycle = 1;
-        }
-
-        for(Link link : minCycle) {
-            if(link.from.toString().contains(property))
-                showCycle = 2;
-        }
-
-        if(showCycle > 0) {
-            String result = "";
-            for(Link link : minCycle) {
-                result += " " + link.from;
+            String linkText = "";
+            switch (type) {
+                case GOAFTERREC:
+                    linkText = "action has recursive AFTER";
+                    break;
+                case EVENTACTION:
+                    linkText = "action uses PREV";
+                    break;
+                case USEDACTION:
+                    linkText = "action uses";
+                    break;
+                case RECCHANGE:
+                    linkText = "is changed by action in NEWSESSION";
+                    break;
+                case RECEVENT:
+                    linkText = "action uses PREV in NEWSESSION";
+                    break;
+                case RECUSED:
+                    linkText = "action uses in NEWSESSION";
+                    break;
+                case REMOVEDCLASSES:
+                    linkText = "object is deleted";
+                    break;
+                default:
+                    throw new UnsupportedOperationException();
             }
-            System.out.println(showCycle + " LEN " + minCycle.size() + " COMP " + innerComponent.size() + " MIN " + minLink.from + " " + result);
+
+            result.append(",").append(linkText).append(") ");
+
         }
     }
 
-    private static boolean findDependency(ActionOrProperty<?> property, ActionOrProperty<?> with, HSet<ActionOrProperty> proceeded, Stack<Link> path, LinkType desiredType) {
-        if (property.equals(with))
-            return true;
+    private static void outputPath(StringBuilder result, String shift, String prefix, ImList<Link> path, boolean forward, boolean outputFrom, IntFunction<String> extraMark) {
+        shift = "\n" + shift;
+        result.append(shift).append(prefix).append(":");
 
-        if (proceeded.add(property))
-            return false;
-
-        for (Link link : property.getSortedLinks(true)) {
-            path.push(link);
-            if (link.type.getNum() <= desiredType.getNum() && findDependency(link.to, with, proceeded, path, desiredType))
-                return true;
-            path.pop();
+        if(forward) {
+            if(outputFrom)
+                result.append(shift).append("\t").append(path.get(0).from);
+            for (int i = 0, size = path.size(); i < size; i++)
+                outputLink(result, shift, path.get(i), forward, extraMark.apply(i));
+        } else {
+            if(outputFrom)
+                result.append(shift).append("\t").append(path.get(0).to);
+            for (int i = path.size() - 1; i >= 0; i--)
+                outputLink(result, shift, path.get(i), forward, extraMark.apply(i));
         }
-        property.dropLinks();
-
-        return false;
     }
 
-    private static boolean findCalcDependency(Property<?> property, Property<?> with, HSet<Property> proceeded, Stack<Property> path) {
-        if (property.equals(with))
-            return true;
+    private static void outputLink(StringBuilder result, String shift, Link link, boolean forward, String extra) {
+        result.append(shift).append("\t");
 
-        if (proceeded.add(property))
-            return false;
+        outputLink(result, forward, link);
 
-        for (Property link : property.getDepends()) {
-            path.push(link);
-            if (findCalcDependency(link, with, proceeded, path))
-                return true;
-            path.pop();
-        }
+        if(extra != null)
+            result.append(" [").append(extra).append("]");
 
-        return false;
+        result.append(shift).append("\t");
+        result.append(forward ? link.to : link.from);
     }
 
-    private static String outDependency(String direction, ActionOrProperty property, Stack<Link> path) {
-        String result = direction + " : " + property;
-        for (Link link : path)
-            result += " " + link.type + " " + link.to;
-        return result;
-    }
+    public String buildShowDeps(ImSet<ActionOrProperty> showDeps, ApplyFilter filter) {
 
-    private static String outCalcDependency(String direction, Property property, Stack<Property> path) {
-        String result = direction + " : " + property;
-        for (Property link : path)
-            result += " " + link;
-        return result;
-    }
+        Result<String> rResult = new Result<>();
+        calcPropertyListWithGraph(filter, null, (propertyList, removedLinkCycles) -> {
+            // we're doing it here, because we need the links to be valid`
+            ImMap<ActionOrProperty, ImMap<ActionOrProperty, ImList<Link>>> recShowDeps = showDeps.mapValues((Function<ActionOrProperty, ImMap<ActionOrProperty, ImList<Link>>>) actionOrProperty -> buildShowDeps(actionOrProperty, showDeps));
 
-    private static <X extends PropertyInterface> ActionOrProperty checkJoinProperty(ActionOrProperty<X> property) {
-        if(property instanceof Property)
-            return ((Property<X>) property).getIdentityImplement(property.getIdentityInterfaces()).property;
-        return property;
-    }
-    private static String findDependency(ActionOrProperty<?> property1, ActionOrProperty<?> property2, LinkType desiredType) {
-        property1 = checkJoinProperty(property1);
-        property2 = checkJoinProperty(property2);
+            StringBuilder result = new StringBuilder("LIST: ");
+            ImOrderSet<ActionOrProperty> orderedShowDeps = propertyList.filterOrder(showDeps);
+            for(int i=0,size=orderedShowDeps.size();i<size;i++) {
+                ActionOrProperty showDep = orderedShowDeps.get(i);
+                result.append("\n\t").append(i+1).append(". ").append(showDep);
 
-        String result = findEventDependency(property1, property2, desiredType);
-        if(property1 instanceof Property && property2 instanceof Property)
-            result += findCalcDependency((Property)property1, (Property)property2);
+                for(int j=i;j<size;j++) {
+                    ActionOrProperty depProp = orderedShowDeps.get(j);
+                    ImList<Link> depPath = recShowDeps.get(depProp).get(showDep);
+                    if(depPath != null) {
+                        // outputing the property and the path
+                        result.append("\n\t\t <- ").append(depProp);
 
-        return result;
-    }
+                        ImList<Link> cyclePath;
+                        String cycleName;
+                        if(j > i) {
+                            outputPath(result, "\t\t\t","PATH", depPath, true, false, value -> null);
+                            cyclePath = recShowDeps.get(showDep).get(depProp);
+                            cycleName = "REVERSE PATH";
+                        } else {
+                            cyclePath = depPath;
+                            cycleName = "CYCLE PATH";
+                        }
 
-    private static String findEventDependency(ActionOrProperty<?> property1, ActionOrProperty<?> property2, LinkType desiredType) {
-        String result = "";
+                        if(cyclePath != null) {
+                            ImList<Link> fCyclePath = cyclePath;
+                            List<Link> removedLinks = new ArrayList<>();
+                            outputPath(result, "\t\t\t", cycleName, cyclePath, true, false, index -> {
+                                Link link = fCyclePath.get(index);
+                                if(removedLinkCycles.containsKey(link)) {
+                                    removedLinks.add(link);
+                                    return "REMOVED " + removedLinks.size();
+                                }
+                                return null;
+                            });
 
-        Stack<Link> forward = new Stack<>();
-        if (findDependency(property1, property2, new HSet<>(), forward, desiredType))
-            result += outDependency("FORWARD (" + forward.size() + ")", property1, forward) + '\n';
-
-        Stack<Link> backward = new Stack<>();
-        if (findDependency(property2, property1, new HSet<>(), backward, desiredType))
-            result += outDependency("BACKWARD (" + backward.size() + ")", property2, backward) + '\n';
-
-        if (result.isEmpty())
-            result += "NO DEPENDENCY " + property1 + " " + property2 + '\n';
-        
-        return result;
-    }
-
-    public static String findCalcDependency(Property<?> property1, Property<?> property2) {
-        String result = "";
-
-        Stack<Property> forward = new Stack<>();
-        if (findCalcDependency(property1, property2, new HSet<>(), forward))
-            result += outCalcDependency("FORWARD CALC (" + forward.size() + ")", property1, forward) + '\n';
-
-        Stack<Property> backward = new Stack<>();
-        if (findCalcDependency(property2, property1, new HSet<>(), backward))
-            result += outCalcDependency("BACKWARD CALC (" + backward.size() + ")", property2, backward) + '\n';
-
-        if (result.isEmpty())
-            result += "NO CALC DEPENDENCY " + property1 + " " + property2 + '\n';
-        return result;
-    }
-
-    public void showDependencies() {
-        String show = "";
-
-        boolean found = false; // оптимизация, так как showDep не так часто используется
-
-        for (ActionOrProperty property : getOrderActionOrProperties())
-            if (property.showDep != null) {
-                if(!found) {
-                    fillActionChangeProps();
-                    found = true;
+                            result.append("\n\t\t\tREMOVED CYCLES:");
+                            for (int k = 0; k < removedLinks.size(); k++) {
+                                Link removedLink = removedLinks.get(k);
+                                ImList<Link> removedLinkCycle = ListFact.fromJavaList(removedLinkCycles.get(removedLink));
+                                outputPath(result, "\t\t\t\t", "REMOVED CYCLE " + (k + 1), removedLinkCycle, true, true, index -> {
+                                    if(removedLinkCycle.get(index).equals(removedLink))
+                                        return "REMOVED";
+                                    return null;
+                                });
+                            }
+//                            we don't need such complex mechanism so far, we'll just show the removed links
+//                            outputRemovedLinkCycle(result, removedLinkCycles, depPath, cyclePath);
+                        }
+                    }
                 }
-                show += findDependency(property, property.showDep, LinkType.USEDACTION);
             }
-        if (!show.isEmpty()) {
-            logger.debug("Dependencies: " + show);
-        }
+            rResult.set(result.toString());
+        });
 
-        if(found)
-            dropActionChangeProps();
+        return rResult.result;
+    }
+
+    public ImMap<ActionOrProperty, ImList<Link>> buildShowDeps(ActionOrProperty<?> property, ImSet<ActionOrProperty> showDeps) {
+        ImMap<ActionOrProperty, ImList<Link>> result = MapFact.EMPTY();
+        for(int i=LinkType.order.length-1;i>=0;i--) {
+            LinkType maxLinkType = LinkType.order[i];
+            ImMap<ActionOrProperty, ImList<Link>> maxResult = buildShowDeps(property, showDeps, maxLinkType);
+            if(maxResult.isEmpty())
+                break;
+            result = result.override(maxResult);
+        }
+        return result;
+    }
+    public ImMap<ActionOrProperty, ImList<Link>> buildShowDeps(ActionOrProperty<?> property, ImSet<ActionOrProperty> showDeps, LinkType maxLinkType) {
+
+        List<ActionOrProperty> queue = new ArrayList<>();
+        List<ImList<Link>> pathes = new ArrayList<>();
+        MAddSet<ActionOrProperty> nodes = SetFact.mAddSet();
+
+        MExclMap<ActionOrProperty, ImList<Link>> mResult = MapFact.mExclMap();
+
+        int q = -1;
+        ImList<Link> currentPath = ListFact.EMPTY();
+        while(true) {
+            for (Link link : property.getSortedLinks(true))
+                if(link.type.getNum() <= maxLinkType.getNum()) {
+                    ActionOrProperty linkProp = link.to;
+                    if(showDeps.contains(linkProp)) {
+                        if(mResult.get(linkProp) == null)
+                            mResult.exclAdd(linkProp, currentPath.addList(link));
+                    } else {
+                        if (!nodes.add(linkProp)) {
+                            queue.add(linkProp);
+                            pathes.add(currentPath.addList(link));
+                        }
+                    }
+                }
+
+            q++;
+            if(q >= queue.size())
+                break;
+
+            property = queue.get(q);
+            currentPath = pathes.get(q);
+        }
+        return mResult.immutable();
     }
 
     @IdentityLazy
     public Graph<Action> getRecalculateFollowsGraph() {
         return BaseUtils.immutableCast(getPropertyGraph().filterGraph(element -> element instanceof Action && ((Action) element).hasResolve()));
+    }
+
+    @IdentityLazy
+    public ImSet<Action> getRecalculateFollows() {
+        return BaseUtils.immutableCast(getPropertyList(ApplyFilter.NO).getSet().filterFn(property -> property instanceof Action && ((Action) property).hasResolve()));
     }
 
     @IdentityLazy
@@ -1318,7 +1363,7 @@ public abstract class BusinessLogics extends LifecycleAdapter implements Initial
     public Graph<AggregateProperty> getRecalculateAggregateStoredGraph(DataSession session) throws SQLException, SQLHandledException {
         QueryBuilder<String, Object> query = new QueryBuilder<>(SetFact.singleton("key"));
 
-        Expr expr = reflectionLM.disableAggregationsTableColumnSID.getExpr(query.getMapExprs().singleValue());
+        Expr expr = reflectionLM.disableMaterializationsTableColumnSID.getExpr(query.getMapExprs().singleValue());
         query.and(expr.getWhere());
         ImSet<String> skipProperties = query.execute(session).keys().mapSetValues(value -> (String)value.singleValue());
 
@@ -1333,20 +1378,16 @@ public abstract class BusinessLogics extends LifecycleAdapter implements Initial
 
     @IdentityStrongLazy // глобальное очень сложное вычисление
     public Pair<ImOrderSet<ActionOrProperty>, Graph<ActionOrProperty>> getPropertyListWithGraph(ApplyFilter filter) {
-        return calcPropertyListWithGraph(filter, null);
+        return calcPropertyListWithGraph(filter, null, null);
     }
-    public void printPropertyList(String path) throws IOException {
-        StringDebugInfoWriter debugInfo = new StringDebugInfoWriter();
-        calcPropertyListWithGraph(ApplyFilter.NO, debugInfo);
-        try (PrintWriter out = new PrintWriter(path)) {
-            out.println(debugInfo.getString());
-        }
-    }
+
     public boolean propertyListInitialized;
-    public Pair<ImOrderSet<ActionOrProperty>, Graph<ActionOrProperty>> calcPropertyListWithGraph(ApplyFilter filter, DebugInfoWriter debugInfoWriter) {
+    // should be synchronized because of actionChangeProps / links, but it is already synchronized with the IdentityStrongLazy
+    public Pair<ImOrderSet<ActionOrProperty>, Graph<ActionOrProperty>> calcPropertyListWithGraph(ApplyFilter filter, DebugInfoWriter debugInfoWriter, BiConsumer<ImOrderSet<ActionOrProperty>, HMap<Link, List<Link>>> debugConsumer) {
+        assert ImplementTable.updatedStats;
         assert propertyListInitialized;
 
-        fillActionChangeProps();
+        fillActionChangeProps(filter);
 
         // сначала бежим по Action'ам с cancel'ами
         HSet<ActionOrProperty> cancelActions = new HSet<>();
@@ -1360,9 +1401,11 @@ public abstract class BusinessLogics extends LifecycleAdapter implements Initial
             }
         boolean events = filter != ApplyFilter.ONLY_DATA;
 
+        HMap<Link, List<Link>> removedLinkCycles = debugConsumer != null ? new HMap<>(MapFact.exclusive()) : null;
+
         MOrderExclSet<ActionOrProperty> mCancelResult = SetFact.mOrderExclSet();
         HSet<Link> firstRemoved = new HSet<>();
-        HSet<ActionOrProperty> proceeded = buildList(cancelActions, new HSet<>(), firstRemoved, mCancelResult, events, DebugInfoWriter.pushPrefix(debugInfoWriter, "CANCELABLE"));
+        HSet<ActionOrProperty> proceeded = buildList(cancelActions, new HSet<>(), firstRemoved, removedLinkCycles, mCancelResult, events, DebugInfoWriter.pushPrefix(debugInfoWriter, "CANCELABLE"));
         ImOrderSet<ActionOrProperty> cancelResult = mCancelResult.immutableOrder();
 
         // потом бежим по всем остальным, за исключением proceeded
@@ -1370,7 +1413,7 @@ public abstract class BusinessLogics extends LifecycleAdapter implements Initial
         HSet<ActionOrProperty> removed = new HSet<>();
         removed.addAll(rest.remove(proceeded));
         HSet<Link> secondRemoved = new HSet<>();
-        buildList(removed, proceeded, secondRemoved, mRestResult, events, DebugInfoWriter.pushPrefix(debugInfoWriter, "REST")); // потом этот cast уберем
+        buildList(removed, proceeded, secondRemoved, removedLinkCycles, mRestResult, events, DebugInfoWriter.pushPrefix(debugInfoWriter, "REST")); // потом этот cast уберем
         ImOrderSet<ActionOrProperty> restResult = mRestResult.immutableOrder();
 
         // затем по всем кроме proceeded на прошлом шаге
@@ -1382,10 +1425,13 @@ public abstract class BusinessLogics extends LifecycleAdapter implements Initial
             graph = buildGraph(result, firstRemoved.addExcl(secondRemoved));
         }
 
+        if(debugConsumer != null)
+            debugConsumer.accept(result, removedLinkCycles);
+
         for(ActionOrProperty property : result)
             property.dropLinks();
 
-        dropActionChangeProps();
+        dropActionChangeProps(filter);
 
         return new Pair<>(result, graph);
     }
@@ -1422,7 +1468,7 @@ public abstract class BusinessLogics extends LifecycleAdapter implements Initial
         List<AggregateProperty> result = new ArrayList<>();
         for (Property property : getStoredProperties())
             if (property instanceof AggregateProperty) {
-                boolean recalculate = ignoreCheck || reflectionLM.disableAggregationsTableColumn.read(session, reflectionLM.tableColumnSID.readClasses(session, new DataObject(property.getDBName()))) == null;
+                boolean recalculate = ignoreCheck || reflectionLM.disableMaterializationsTableColumn.read(session, reflectionLM.tableColumnSID.readClasses(session, new DataObject(property.getDBName()))) == null;
                 if(recalculate)
                     result.add((AggregateProperty) property);
             }
@@ -1443,7 +1489,7 @@ public abstract class BusinessLogics extends LifecycleAdapter implements Initial
 
     @IdentityLazy
     public ImOrderSet<Property> getStoredProperties() {
-        return BaseUtils.immutableCast(getPropertyList().filterOrder(property -> property instanceof Property && ((Property) property).isStored()));
+        return BaseUtils.immutableCast(getOrderProperties().filterOrder(property -> property instanceof Property && ((Property) property).isStored()));
     }
 
     public ImSet<CustomClass> getCustomClasses() {
@@ -1454,9 +1500,54 @@ public abstract class BusinessLogics extends LifecycleAdapter implements Initial
         return BaseUtils.immutableCast(getCustomClasses().filterFn(property -> property instanceof ConcreteCustomClass));
     }
 
+    public ImMap<OldProperty, SessionEnvEvent> calcSessionEventOldDepends(FunctionSet<? extends Property> properties, ImOrderMap<Action, SessionEnvEvent> sessionEvents) {
+        MMap<OldProperty, SessionEnvEvent> mResult = MapFact.mMap(SessionEnvEvent.mergeSessionEnv());
+        for (int i = 0, size = sessionEvents.size(); i < size; i++) {
+            Action<?> action = sessionEvents.getKey(i);
+            SessionEnvEvent sessionEnv = sessionEvents.getValue(i);
+
+            for(OldProperty old : action.getSessionEventOldDepends())
+                if(Property.depends(old.property, (FunctionSet<Property>) properties))
+                    mResult.add(old, sessionEnv);
+        }
+        return mResult.immutable();
+    }
+
     @IdentityLazy
-    public ImOrderMap<Action, SessionEnvEvent> getSessionEvents() {
-        ImOrderSet<ActionOrProperty> list = getPropertyList();
+    public ImMap<OldProperty, SessionEnvEvent> getCacheSessionEventOldDepends(ImSet<Property> properties) {
+        return calcSessionEventOldDepends(properties, getAllSessionEvents());
+    }
+
+    public ImMap<OldProperty, SessionEnvEvent> getSessionEventOldDepends(FunctionSet<? extends Property> properties) {
+        ImOrderMap<Action, SessionEnvEvent> sessionEvents = getAllSessionEvents();
+        if(properties instanceof ImSet && ((ImSet<Property>) properties).size() < (double) sessionEvents.size() * Settings.get().getCacheNextEventActionRatio())
+            return getCacheSessionEventOldDepends((ImSet<Property>) properties);
+        return calcSessionEventOldDepends(properties, sessionEvents);
+    }
+
+    private NextSession calcNextSessionEvent(int i, ImSet<Property> sessionEventChangedOld, ImOrderMap<Action, SessionEnvEvent> sessionEvents) {
+        for(int size=sessionEvents.size();i<size;i++) {
+            Action<?> action = sessionEvents.getKey(i);
+            if(sessionEventChangedOld.intersect(action.getSessionEventOldDepends()))
+                return new NextSession(action, sessionEvents.getValue(i), i, new StatusMessage("event", action, i, size));
+        }
+        return null;
+    }
+
+    @IdentityLazy
+    private NextSession getCachedNextSessionEvent(int i, ImSet<Property> sessionEventChangedOld) {
+        return calcNextSessionEvent(i, sessionEventChangedOld, getAllSessionEvents());
+    }
+
+    public NextSession getNextSessionEvent(int i, ImSet<Property> sessionEventChangedOld, ImOrderMap<Action, SessionEnvEvent> sessionEvents) {
+        if(sessionEventChangedOld.size() < (double) sessionEvents.size() * Settings.get().getCacheNextEventActionRatio())
+            return getCachedNextSessionEvent(i, sessionEventChangedOld);
+        return calcNextSessionEvent(i, sessionEventChangedOld, sessionEvents);
+    }
+
+    @IdentityLazy
+    public ImOrderMap<Action, SessionEnvEvent> getAllSessionEvents() {
+        ImOrderSet<ActionOrProperty> list = getPropertyList(ApplyFilter.SESSION);
         MOrderExclMap<Action, SessionEnvEvent> mResult = MapFact.mOrderExclMapMax(list.size());
         SessionEnvEvent sessionEnv;
         for (ActionOrProperty property : list)
@@ -1465,14 +1556,38 @@ public abstract class BusinessLogics extends LifecycleAdapter implements Initial
         return mResult.immutableOrder();
     }
 
+    // определяет для stored свойства зависимые от него stored свойства, а также свойства которым необходимо хранить изменения с начала транзакции (constraints и derived'ы)
+    public ImOrderSet<ApplySingleEvent> getSingleApplyDependFrom(ApplyCalcEvent event, DataSession session, boolean includeCorrelations) {
+        Pair<ImMap<ApplyCalcEvent, ImOrderMap<ApplySingleEvent, SessionEnvEvent>>, ImMap<ApplyUpdatePrevEvent, Integer>> orderMapSingleApplyDepends = getOrderMapSingleApplyDepends(session.applyFilter, includeCorrelations);
+
+        ImOrderMap<ApplySingleEvent, SessionEnvEvent> depends = orderMapSingleApplyDepends.first.get(event);
+        ImMap<ApplyUpdatePrevEvent, Integer> lastUsedEvents = orderMapSingleApplyDepends.second;
+
+        if(!Settings.get().isRemoveClassesFallback()) {
+            depends = depends.filterOrder(element -> {
+                if(element instanceof ApplyUpdatePrevEvent) {
+                    return lastUsedEvents.get((ApplyUpdatePrevEvent)element) >= session.executingApplyEvent;
+                }
+                return true;
+            });
+
+        }
+        return depends.filterOrderValues(sessionEnv -> sessionEnv.contains(session));
+    }
+
     @IdentityLazy
     public ImSet<Property> getDataChangeEvents() {
-        ImOrderSet<ActionOrProperty> propertyList = getPropertyList();
-        MSet<Property> mResult = SetFact.mSetMax(propertyList.size());
-        for (int i=0,size=propertyList.size();i<size;i++) {
+        ImSet<DataProperty> result = getDataChangeEvents(getOrderActionOrProperties()); // in theory all data properties with event should be in this method
+        assert result.remove(getDataChangeEvents(getPropertyList(ApplyFilter.NO))).filterFn(element -> !(element instanceof SessionDataProperty)).isEmpty();
+        return result.mapSetValues(property -> property.event.getWhere());
+    }
+
+    private static ImSet<DataProperty> getDataChangeEvents(ImOrderSet<ActionOrProperty> propertyList) {
+        MSet<DataProperty> mResult = SetFact.mSetMax(propertyList.size());
+        for (int i = 0, size = propertyList.size(); i<size; i++) {
             ActionOrProperty property = propertyList.get(i);
             if (property instanceof DataProperty && ((DataProperty) property).event != null)
-                mResult.add((((DataProperty) property).event).getWhere());
+                mResult.add((DataProperty) property);
         }
         return mResult.immutable();
     }
@@ -1480,7 +1595,7 @@ public abstract class BusinessLogics extends LifecycleAdapter implements Initial
     @IdentityLazy
     public ImOrderMap<ApplyGlobalEvent, SessionEnvEvent> getApplyEvents(ApplyFilter filter) {
         // здесь нужно вернуть список stored или тех кто
-        ImOrderSet<ActionOrProperty> list = getPropertyListWithGraph(filter).first;
+        ImOrderSet<ActionOrProperty> list = getPropertyList(filter);
         MOrderExclMap<ApplyGlobalEvent, SessionEnvEvent> mResult = MapFact.mOrderExclMapMax(list.size());
         for (ActionOrProperty property : list) {
             ApplyGlobalEvent applyEvent = property.getApplyEvent();
@@ -1490,14 +1605,15 @@ public abstract class BusinessLogics extends LifecycleAdapter implements Initial
         return mResult.immutableOrder();
     }
 
-    public static class Next {
-        public final ApplyGlobalEvent event;
+    // optimization similar to Next
+    public static class NextSession {
+        public final Action action;
         public final SessionEnvEvent sessionEnv;
         public final int index;
         public final StatusMessage statusMessage;
 
-        public Next(ApplyGlobalEvent event, SessionEnvEvent sessionEnv, int index, StatusMessage statusMessage) {
-            this.event = event;
+        public NextSession(Action action, SessionEnvEvent sessionEnv, int index, StatusMessage statusMessage) {
+            this.action = action;
             this.sessionEnv = sessionEnv;
             this.index = index;
             this.statusMessage = statusMessage;
@@ -1564,7 +1680,7 @@ public abstract class BusinessLogics extends LifecycleAdapter implements Initial
     }
 
     @IdentityLazy
-    private ImMap<ApplyCalcEvent, ImOrderMap<ApplySingleEvent, SessionEnvEvent>> getOrderMapSingleApplyDepends(ApplyFilter increment, boolean includeCorrelations) {
+    private Pair<ImMap<ApplyCalcEvent, ImOrderMap<ApplySingleEvent, SessionEnvEvent>>, ImMap<ApplyUpdatePrevEvent, Integer>> getOrderMapSingleApplyDepends(ApplyFilter increment, boolean includeCorrelations) {
         assert Settings.get().isEnableApplySingleStored();
 
         ImOrderMap<ApplyGlobalEvent, SessionEnvEvent> applyEvents = getApplyEvents(increment);
@@ -1572,11 +1688,19 @@ public abstract class BusinessLogics extends LifecycleAdapter implements Initial
         // нам нужны будут сами persistent свойства + prev'ы у action'ов
         boolean canBeOutOfDepends = increment != ApplyFilter.NO;
         MExclMap<ApplyCalcEvent, MOrderMap<ApplySingleEvent, SessionEnvEvent>> mMapDepends = MapFact.mExclMap();
-        MAddMap<OldProperty, SessionEnvEvent> singleAppliedOld = MapFact.mAddMap(SessionEnvEvent.mergeSessionEnv());
+        MAddMap<ApplyUpdatePrevEvent, SessionEnvEvent> singleAppliedOld = MapFact.mAddMap(SessionEnvEvent.mergeSessionEnv());
+        MMap<ApplyUpdatePrevEvent, Integer> mLastUsed = MapFact.mMap(MapFact.override());
         for(int i = 0, size = applyEvents.size(); i<size; i++) {
             ApplyGlobalEvent applyEvent = applyEvents.getKey(i);
             SessionEnvEvent sessionEnv = applyEvents.getValue(i);
-            singleAppliedOld.addAll(applyEvent.getEventOldDepends().toMap(sessionEnv));
+
+            ImSet<OldProperty> oldDepends = applyEvent.getEventOldDepends();
+            for(OldProperty oldDepend : oldDepends) {
+                ApplyUpdatePrevEvent event = new ApplyUpdatePrevEvent(oldDepend);
+
+                singleAppliedOld.add(event, sessionEnv);
+                mLastUsed.add(event, i);
+            }
             
             if(applyEvent instanceof ApplyCalcEvent) { // сначала классы и stored обрабатываем
                 mMapDepends.exclAdd((ApplyCalcEvent) applyEvent, MapFact.mOrderMap(SessionEnvEvent.mergeSessionEnv()));
@@ -1587,32 +1711,48 @@ public abstract class BusinessLogics extends LifecycleAdapter implements Initial
             }
         }
         for (int i=0,size= singleAppliedOld.size();i<size;i++) { // old'ы по идее не важно в каком порядке будут (главное что stored до)
-            OldProperty<?> old = singleAppliedOld.getKey(i);
+            ApplyUpdatePrevEvent event = singleAppliedOld.getKey(i);
             SessionEnvEvent sessionEnv = singleAppliedOld.getValue(i);
 
-            ApplyUpdatePrevEvent event = new ApplyUpdatePrevEvent(old);
-            fillSingleApplyDependFrom(old.property, event, sessionEnv, mMapDepends, canBeOutOfDepends);
+            Property<?> oldProperty = event.property.property;
+            fillSingleApplyDependFrom(oldProperty, event, sessionEnv, mMapDepends, canBeOutOfDepends);
             
             if(includeCorrelations)
-                for(Correlation<?> corProp : old.property.getCorrelations(ClassType.materializeChangePolicy))
+                for(Correlation<?> corProp : oldProperty.getCorrelations(ClassType.materializeChangePolicy))
                     fillSingleApplyDependFrom(corProp.getProperty(), event, sessionEnv, mMapDepends, true);
         }
 
-        return mMapDepends.immutable().mapValues(MOrderMap::immutableOrder);
+        return new Pair<>(mMapDepends.immutable().mapValues(MOrderMap::immutableOrder), mLastUsed.immutable());
     }
 
-    // определяет для stored свойства зависимые от него stored свойства, а также свойства которым необходимо хранить изменения с начала транзакции (constraints и derived'ы)
-    public ImOrderSet<ApplySingleEvent> getSingleApplyDependFrom(ApplyCalcEvent event, DataSession session, boolean includeCorrelations) {
-        return session.filterOrderEnv(getOrderMapSingleApplyDepends(session.applyFilter, includeCorrelations).get(event));
+    // optimization similar to NextSession
+    public static class Next {
+        public final ApplyGlobalEvent event;
+        public final SessionEnvEvent sessionEnv;
+        public final int index;
+        public final StatusMessage statusMessage;
+
+        public Next(ApplyGlobalEvent event, SessionEnvEvent sessionEnv, int index, StatusMessage statusMessage) {
+            this.event = event;
+            this.sessionEnv = sessionEnv;
+            this.index = index;
+            this.statusMessage = statusMessage;
+        }
     }
 
     @IdentityLazy
-    public ImOrderSet<Property> getCheckConstrainedProperties() {
-        return BaseUtils.immutableCast(getPropertyList().filterOrder(property -> property instanceof Property && ((Property) property).checkChange != Property.CheckType.CHECK_NO));
+    public ImSet<Property> getCheckConstrainedProperties() {
+        ImSet<Property> result = getCheckConstrainedProperties(getOrderActionOrProperties()); // in theory all data properties with event should be in this method (because is used only for propertyExpression properties)
+//        assert result.equals(getCheckConstrainedProperties(getPropertyList(ApplyFilter.NO))); // can be broken in CONSRAINT LOCAL
+        return result;
     }
 
-    public ImOrderSet<Property> getCheckConstrainedProperties(Property<?> changingProp) {
-        return BaseUtils.immutableCast(getCheckConstrainedProperties().filterOrder(property -> property.checkChange == Property.CheckType.CHECK_ALL ||
+    private static ImSet<Property> getCheckConstrainedProperties(ImOrderSet<ActionOrProperty> propertyList) {
+        return BaseUtils.immutableCast(propertyList.getSet().filterFn(property -> property instanceof Property && ((Property) property).checkChange != Property.CheckType.CHECK_NO));
+    }
+
+    public ImSet<Property> getCheckConstrainedProperties(Property<?> changingProp) {
+        return BaseUtils.immutableCast(getCheckConstrainedProperties().filterFn(property -> property.checkChange == Property.CheckType.CHECK_ALL ||
                 property.checkChange == Property.CheckType.CHECK_SOME && property.checkProperties.contains(changingProp)));
     }
 
@@ -1644,23 +1784,21 @@ public abstract class BusinessLogics extends LifecycleAdapter implements Initial
     public String recalculateFollows(SessionCreator creator, boolean isolatedTransaction, final ExecutionStack stack) throws SQLException, SQLHandledException {
         final List<String> messageList = new ArrayList<>();
         final long maxRecalculateTime = Settings.get().getMaxRecalculateTime();
-        for (ActionOrProperty property : getPropertyList())
-            if (property instanceof Action) {
-                final Action<?> action = (Action) property;
-                if (action.hasResolve()) {
-                    long start = System.currentTimeMillis();
-                    try {
-                        DBManager.runData(creator, isolatedTransaction, session -> ((DataSession) session).resolve(action, stack));
-                    } catch (ApplyCanceledException e) { // suppress'им так как понятная ошибка
-                        serviceLogger.info(e.getMessage());
-                    }
-                    long time = System.currentTimeMillis() - start;
-                    String message = String.format("Recalculate Follows: %s, %sms", property.getSID(), time);
-                    serviceLogger.info(message);
-                    if (time > maxRecalculateTime)
-                        messageList.add(message);
-                }
+        ImSet<Action> actions = getRecalculateFollows();
+        for (int i = 0; i < actions.size(); i++) {
+            final Action<?> action = actions.get(i);
+            long start = System.currentTimeMillis();
+            try {
+                DBManager.runData(creator, isolatedTransaction, session -> ((DataSession) session).resolve(action, stack));
+            } catch (ApplyCanceledException e) { // suppress'им так как понятная ошибка
+                serviceLogger.info(e.getMessage());
             }
+            long time = System.currentTimeMillis() - start;
+            String message = String.format("Recalculate Follows %s of %s: %s, %sms", i + 1, actions.size(), action.getSID(), time);
+            serviceLogger.info(message);
+            if (time > maxRecalculateTime)
+                messageList.add(message);
+        }
         return formatMessageList(messageList);
     }
 
@@ -1684,57 +1822,70 @@ public abstract class BusinessLogics extends LifecycleAdapter implements Initial
         return lp;
     }
 
+    @IdentityLazy
     public LAP<?,?> findPropertyElseAction(String canonicalName) {
         LAP<?,?> property = findProperty(canonicalName);
         if(property == null)
             property = findAction(canonicalName);
         return property;
     }
-    
+
+    @IdentityLazy
     public LP<?> findProperty(String canonicalName) {
-        return BusinessLogicsResolvingUtils.findPropertyByCanonicalName(this, canonicalName, new ModuleEqualLPFinder(false));
+        return BusinessLogicsResolvingUtils.findPropertyByCanonicalName(this, canonicalName);
     }
-    
+
+    @IdentityLazy
     public LA<?> findAction(String canonicalName) {
-        return BusinessLogicsResolvingUtils.findPropertyByCanonicalName(this, canonicalName, new ModuleEqualLAFinder());
+        return BusinessLogicsResolvingUtils.findActionByCanonicalName(this, canonicalName);
     }
-    
+
+    @IdentityLazy
     public LA<?> findActionByCompoundName(String compoundName) {
         return BusinessLogicsResolvingUtils.findLAPByCompoundName(this, compoundName, new ModuleLAFinder());
     }
-    
+
+    @IdentityLazy
     public LP<?> findPropertyByCompoundName(String compoundName) {
         return BusinessLogicsResolvingUtils.findLAPByCompoundName(this, compoundName, new ModuleLPFinder());
     }
 
+    @IdentityLazy
     public CustomClass findClassByCompoundName(String compoundName) {
         return findElementByCompoundName(this, compoundName, null, new ModuleClassFinder());
     }
 
+    @IdentityLazy
     public CustomClass findClass(String canonicalName) {
         return findElementByCanonicalName(this, canonicalName, null, new ModuleClassFinder());
     }
 
+    @IdentityLazy
     public Group findGroup(String canonicalName) {
         return findElementByCanonicalName(this, canonicalName, null, new ModuleGroupFinder());
     }
 
+    @IdentityLazy
     public ImplementTable findTable(String canonicalName) {
         return findElementByCanonicalName(this, canonicalName, null, new ModuleTableFinder());
     }
 
+    @IdentityLazy
     public AbstractWindow findWindow(String canonicalName) {
         return findElementByCanonicalName(this, canonicalName, null, new ModuleWindowFinder());
     }
 
+    @IdentityLazy
     public NavigatorElement findNavigatorElement(String canonicalName) {
         return findElementByCanonicalName(this, canonicalName, null, new ModuleNavigatorElementFinder());
     }
 
+    @IdentityLazy
     public FormEntity findForm(String canonicalName) {
         return findElementByCanonicalName(this, canonicalName, null, new ModuleFormFinder());
     }
 
+    @IdentityLazy
     public MetaCodeFragment findMetaCodeFragment(String canonicalName, int paramCnt) {
         return findElementByCanonicalName(this, canonicalName, paramCnt, new ModuleMetaCodeFragmentFinder());
     }
@@ -1781,6 +1932,15 @@ public abstract class BusinessLogics extends LifecycleAdapter implements Initial
         for(LogicsModule logicsModule : modules.all()) {
             for(NavigatorElement entry : logicsModule.getNavigatorElements())
                 mResult.exclAdd(entry);            
+        }
+        return mResult.immutable();
+    }
+
+    public ImSet<AbstractWindow> getWindows() {
+        MExclSet<AbstractWindow> mResult = SetFact.mExclSet();
+        for(LogicsModule logicsModule : modules.all()) {
+            for(AbstractWindow entry : logicsModule.getWindows())
+                mResult.exclAdd(entry);
         }
         return mResult.immutable();
     }
@@ -1833,8 +1993,8 @@ public abstract class BusinessLogics extends LifecycleAdapter implements Initial
             SQLSession.updateThreadAllocatedBytesMap();
             Map<Long, Thread> threadMap = ThreadUtils.getThreadMap();
 
-            ConcurrentHashMap<Long, HashMap<CacheType, Long>> hitStats = MapFact.getGlobalConcurrentHashMap(CacheStats.getCacheHitStats());
-            ConcurrentHashMap<Long, HashMap<CacheType, Long>> missedStats = MapFact.getGlobalConcurrentHashMap(CacheStats.getCacheMissedStats());
+            HashMap<Long, HashMap<CacheType, Long>> hitStats = new HashMap<>(CacheStats.getCacheHitStats());
+            HashMap<Long, HashMap<CacheType, Long>> missedStats = new HashMap<>(CacheStats.getCacheMissedStats());
             CacheStats.resetStats();
 
             long totalHit = 0;
@@ -1892,7 +2052,7 @@ public abstract class BusinessLogics extends LifecycleAdapter implements Initial
                         sumMap(exceededMissedMap, userMissedMap);
 
                         Thread thread = threadMap.get(id);
-                        LogInfo logInfo = thread == null ? null : ThreadLocalContext.logInfoMap.get(thread);
+                        LogInfo logInfo = thread == null ? null : ThreadLocalContext.getLogInfo(thread);
                         String computer = logInfo == null ? null : logInfo.hostnameComputer;
                         String user = logInfo == null ? null : logInfo.userName;
                         String userRoles = logInfo == null ? null : logInfo.userRoles;
@@ -1919,9 +2079,9 @@ public abstract class BusinessLogics extends LifecycleAdapter implements Initial
             
             if (logTotal) {
                 allocatedBytesLogger.info(String.format("Exceeded: sum: %s, \t\t\tmissed-hit: All: %s-%s, %s",
-                        humanReadableByteCount(bytesSum), exceededMisses, exceededMissesHits, getStringMap(exceededHitMap, exceededMissedMap)));
+                        humanReadableByteCount(bytesSum), exceededMisses, exceededMissesHits, CacheStats.getAbsoluteString(exceededHitMap, exceededMissedMap)));
                 allocatedBytesLogger.info(String.format("Total: sum: %s, elapsed %sms, missed-hit: All: %s-%s, %s",
-                        humanReadableByteCount(totalBytesSum), System.currentTimeMillis() - time, totalMissed, totalHit, getStringMap(totalHitMap, totalMissedMap)));
+                        humanReadableByteCount(totalBytesSum), System.currentTimeMillis() - time, totalMissed, totalHit, CacheStats.getAbsoluteString(totalHitMap, totalMissedMap)));
             }
         }
     }
@@ -1930,7 +2090,7 @@ public abstract class BusinessLogics extends LifecycleAdapter implements Initial
         boolean system = ThreadLocalContext.activeMap.get(threadMap.get(id)) == null || !ThreadLocalContext.activeMap.get(threadMap.get(id));
         if (!system) {
             Thread thread = threadMap.get(id);
-            LogInfo logInfo = thread == null ? null : ThreadLocalContext.logInfoMap.get(thread);
+            LogInfo logInfo = thread == null ? null : ThreadLocalContext.getLogInfo(thread);
             system = logInfo == null || logInfo.allowExcessAllocatedBytes;
         }
         return system;
@@ -1972,28 +2132,20 @@ public abstract class BusinessLogics extends LifecycleAdapter implements Initial
         return String.format("%.1f %sB", bytes / Math.pow(unit, exp), pre);
     }
 
-    private String getStringMap(HashMap<CacheType, Long> hitStats, HashMap<CacheType, Long> missedStats) {
-        String result = "";
-        for (int i = 0; i < CacheType.values().length; i++) {
-            CacheType type = CacheType.values()[i];
-            result += type + ": " + nullToZero(missedStats.get(type)) + "-" + nullToZero(hitStats.get(type));
-            if (i < CacheType.values().length - 1) {
-                result += "; ";
-            }
-        }
-        return result;
-    }
-
     private void sumMap(HashMap<CacheType, Long> target, HashMap<CacheType, Long> source) {
         for (CacheType type : CacheType.values()) {
             target.put(type, nullToZero(target.get(type)) + nullToZero(source.get(type)));
         }
     }
 
-    public List<Scheduler.SchedulerTask> getSystemTasks(Scheduler scheduler) {
+    public List<Scheduler.SchedulerTask> getSystemTasks(Scheduler scheduler, boolean isServer) {
         List<Scheduler.SchedulerTask> result = new ArrayList<>();
-        result.add(getChangeCurrentDateTask(scheduler));
-        result.add(getChangeDataCurrentDateTimeTask(scheduler));
+        if(isServer) {
+            result.add(getChangeCurrentDateTask(scheduler));
+            result.add(getChangeDataCurrentDateTimeTask(scheduler));
+        }
+        result.add(getFlushAsyncValuesCachesTask(scheduler));
+        result.add(resetResourcesCacheTasks(scheduler));
 
         if(!SystemProperties.inDevMode) { // чтобы не мешать при включенных breakPoint'ах
             result.add(getOpenFormCountUpdateTask(scheduler));
@@ -2004,8 +2156,9 @@ public abstract class BusinessLogics extends LifecycleAdapter implements Initial
             result.add(getFlushPendingTransactionCleanersTask(scheduler));
             result.add(getRestartConnectionsTask(scheduler));
             result.add(getUpdateSavePointsInfoTask(scheduler));
-            result.addAll(resetCustomReportsCacheTasks(scheduler));
             result.add(getProcessDumpTask(scheduler));
+        } else {
+            result.add(getSynchronizeSourceTask(scheduler));
         }
         return result;
     }
@@ -2023,7 +2176,7 @@ public abstract class BusinessLogics extends LifecycleAdapter implements Initial
                 LocalDate newDate = LocalDate.now();
                 if (currentDate == null || !currentDate.equals(newDate)) {
                     logger.info(String.format("ChangeCurrentDate started: from %s to %s", currentDate, newDate));
-                    timeLM.currentDate.change(getWriteDate(newDate), session);
+                    timeLM.currentDate.change(newDate, session);
                     session.applyException(this, stack);
                     logger.info("ChangeCurrentDate finished");
                 }
@@ -2081,7 +2234,11 @@ public abstract class BusinessLogics extends LifecycleAdapter implements Initial
     private Scheduler.SchedulerTask getFlushPendingTransactionCleanersTask(Scheduler scheduler) {
         return scheduler.createSystemTask(stack -> DataSession.flushPendingTransactionCleaners(), false, Settings.get().getFlushPendingTransactionCleanersThreshold(), false, "Flush Pending Transaction Cleaners");
     }
-    
+
+    private Scheduler.SchedulerTask getFlushAsyncValuesCachesTask(Scheduler scheduler) {
+        return scheduler.createSystemTask(stack -> getDbManager().flushChanges(), false, Settings.get().getFlushAsyncValuesCaches(), false, "Flush async values caches");
+    }
+
     private Scheduler.SchedulerTask getRestartConnectionsTask(Scheduler scheduler) {
         final Result<Double> prevStart = new Result<>(0.0);
         return scheduler.createSystemTask(stack -> SQLSession.restartConnections(prevStart), false, Settings.get().getPeriodRestartConnections(), false, "Connection restart");
@@ -2101,31 +2258,25 @@ public abstract class BusinessLogics extends LifecycleAdapter implements Initial
         }, false, Settings.get().getPeriodProcessDump(), false, "Process Dump");
     }
 
+    private Scheduler.SchedulerTask getSynchronizeSourceTask(Scheduler scheduler) {
+        SynchronizeSourcesWatcher sourcesWatcher = new SynchronizeSourcesWatcher();
+        return scheduler.createSystemTask(stack -> sourcesWatcher.watch("lsf", ""),
+                true, null, false, "Synchronizing resources from sources to build. Only for debug");
+    }
+
     private Scheduler.SchedulerTask getAllocatedBytesUpdateTask(Scheduler scheduler) {
         return scheduler.createSystemTask(stack -> updateThreadAllocatedBytesMap(), false, Settings.get().getThreadAllocatedMemoryPeriod() / 2, false, "Allocated Bytes");
     }
 
-    private List<Scheduler.SchedulerTask> resetCustomReportsCacheTasks(Scheduler scheduler) {
-        List<Scheduler.SchedulerTask> tasks = new ArrayList<>();
-        for (String element : ResourceUtils.getClassPathElements()) {
-            if (!isRedundantString(element)) {
-                if(!element.endsWith("*")) {
-                    final Path path = Paths.get(BaseUtils.removeTrailingSlash(element + "/" + FormReportManager.reportsDir));
-//                logger.info("Reset reports cache: processing path : " + path);
-                    if (Files.isDirectory(path)) {
-//                    logger.info("Reset reports cache: path is directory: " + path);
-                        tasks.add(scheduler.createSystemTask(stack -> {
-                            logger.info("Reset reports cache: run scheduler task for " + path);
-                            ResourceUtils.watchPathForChange(path, () -> {
-                                logger.info("Reset reports cache: directory changed: " + path + " - reset cache");
-                                customReports = null;
-                            }, Pattern.compile(".*\\.jrxml"));
-                        }, true, null, false, "Custom Reports"));
-                    }
-                }
-            }
-        }
-        return tasks;
+    private Scheduler.SchedulerTask resetResourcesCacheTasks(Scheduler scheduler) {
+        ClearCacheWatcher clearCacheWatcher = new ClearCacheWatcher();
+        clearCacheWatcher.walkAndRegisterDirectories(Arrays.stream(ResourceUtils.getClassPathElements())
+                .filter(element -> !isRedundantString(element) && !element.endsWith("*"))
+                .map(element -> Paths.get(element + "/"))
+                .filter(Files::isDirectory)
+                .collect(Collectors.toList()));
+
+        return scheduler.createSystemTask(stack -> clearCacheWatcher.watch(), true, null, false, "Reset resources cache");
     }
 
     private class AllocatedInfo {
@@ -2159,7 +2310,7 @@ public abstract class BusinessLogics extends LifecycleAdapter implements Initial
             if (user != null) {
                 userMessage += String.format(", Comp. %s, User %s, Roles %s", computer == null ? "unknown" : computer, user, userRoles);
             }
-            userMessage += String.format(", missed-hit: All: %s-%s, %s", userMissed, userHit, getStringMap(userHitMap, userMissedMap));
+            userMessage += String.format(", missed-hit: All: %s-%s, %s", userMissed, userHit, CacheStats.getAbsoluteString(userHitMap, userMissedMap));
 
             return userMessage;
         }

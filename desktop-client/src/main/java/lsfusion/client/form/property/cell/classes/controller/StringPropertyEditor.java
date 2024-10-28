@@ -1,6 +1,7 @@
 package lsfusion.client.form.property.cell.classes.controller;
 
 import lsfusion.client.form.property.ClientPropertyDraw;
+import lsfusion.client.form.property.table.view.AsyncChangeInterface;
 
 import javax.swing.text.AttributeSet;
 import javax.swing.text.BadLocationException;
@@ -17,10 +18,11 @@ public class StringPropertyEditor extends TextFieldPropertyEditor {
     private final boolean matchRegexp;
     private final boolean isVarString;
 
-    private String currentError = null;
-
     public StringPropertyEditor(ClientPropertyDraw property, Object value, final int length, boolean isVarString, boolean matchRegexp) {
-        super(property);
+        this(property, null, value, length, isVarString, matchRegexp);
+    }
+    public StringPropertyEditor(ClientPropertyDraw property, AsyncChangeInterface asyncChange, Object value, final int length, boolean isVarString, boolean matchRegexp) {
+        super(property, asyncChange, value);
         this.isVarString = isVarString;
         this.matchRegexp = matchRegexp;
         this.property = property;
@@ -32,6 +34,9 @@ public class StringPropertyEditor extends TextFieldPropertyEditor {
                 if ((getLength() + str.length()) > length) { // если длина больше trim'им, потому как иначе из-за selectAll курсор будет вправо уплывать
                     str = str.substring(0, length - getLength());
                 }
+                
+                str = modifyInsertString(asyncChange, str);
+                
                 super.insertString(offset, str, attr);
             }
         });
@@ -47,6 +52,11 @@ public class StringPropertyEditor extends TextFieldPropertyEditor {
             text = rtrim(text);
         }
         return text.isEmpty() ? null : text;
+    }
+
+    @Override
+    protected boolean disableSuggest() {
+        return false;
     }
 
     @Override
@@ -66,14 +76,12 @@ public class StringPropertyEditor extends TextFieldPropertyEditor {
     }
 
     @Override
-    public void cancelCellEditing() { }
+    public void cancelCellEditing() {
+        super.cancelCellEditing();
+    }
 
     private void showErrorTooltip() {
-        currentError = property.regexpMessage == null
-                       ? getString("form.editor.incorrect.value")
-                       : property.regexpMessage;
-
-        setToolTipText(currentError);
+        setToolTipText(property.regexpMessage == null ? getString("form.editor.incorrect.value") : property.regexpMessage);
 
         //имитируем ctrl+F1 http://qaru.site/questions/368838/force-a-java-tooltip-to-appear
         dispatchEvent(new KeyEvent(this, KeyEvent.KEY_PRESSED,

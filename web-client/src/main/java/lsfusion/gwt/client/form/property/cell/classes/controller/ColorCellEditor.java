@@ -1,73 +1,36 @@
 package lsfusion.gwt.client.form.property.cell.classes.controller;
 
 import com.google.gwt.dom.client.Element;
-import com.google.gwt.event.dom.client.ClickEvent;
-import com.google.gwt.event.dom.client.ClickHandler;
-import com.google.gwt.user.client.Event;
-import com.google.gwt.user.client.ui.Button;
-import com.google.gwt.user.client.ui.FlowPanel;
-import com.google.gwt.user.client.ui.HasAlignment;
-import com.google.gwt.user.client.ui.Widget;
-import lsfusion.gwt.client.ClientMessages;
-import lsfusion.gwt.client.base.view.ResizableVerticalPanel;
+import lsfusion.gwt.client.base.view.EventHandler;
 import lsfusion.gwt.client.form.property.GPropertyDraw;
+import lsfusion.gwt.client.form.property.PValue;
 import lsfusion.gwt.client.form.property.cell.classes.ColorDTO;
 import lsfusion.gwt.client.form.property.cell.controller.EditManager;
-import net.auroris.ColorPicker.client.ColorPicker;
+import lsfusion.gwt.client.form.property.cell.view.RenderContext;
 
-public class ColorCellEditor extends PopupBasedCellEditor {
-    private static final ClientMessages messages = ClientMessages.Instance.get();
+import java.text.ParseException;
 
-    private ColorPicker colorPicker;
+public class ColorCellEditor extends TextBasedCellEditor {
 
     public ColorCellEditor(EditManager editManager, GPropertyDraw property) {
         super(editManager, property);
     }
 
     @Override
-    protected Widget createPopupComponent() {
-        colorPicker = new ColorPicker();
-
-        Button btnOk = new Button(messages.ok());
-        btnOk.addClickHandler(event -> commit());
-
-        Button btnCancel = new Button(messages.cancel());
-        btnCancel.addClickHandler(event -> onCancel());
-
-        Button btnReset = new Button(messages.reset());
-        btnReset.addClickHandler(event -> reset());
-
-        FlowPanel bottomPane = new FlowPanel();
-        bottomPane.add(btnOk);
-        bottomPane.add(btnCancel);
-        bottomPane.add(btnReset);
-
-        ResizableVerticalPanel mainPane = new ResizableVerticalPanel();
-        mainPane.add(colorPicker);
-        mainPane.add(bottomPane);
-        mainPane.setCellHorizontalAlignment(bottomPane, HasAlignment.ALIGN_RIGHT);
-
-        return mainPane;
-    }
-
-    public void commit() {
-        commitEditing(new ColorDTO(colorPicker.getHexColor()));
-    }
-
-    public void reset() {
-        commitEditing((ColorDTO) null);
+    protected String tryFormatInputText(PValue value) {
+        return value == null ? "" : PValue.getColorStringValue(value);
     }
 
     @Override
-    public void startEditing(Event editEvent, Element parent, Object oldValue) {
-        if (oldValue instanceof ColorDTO) {
-            try {
-                colorPicker.setHex(((ColorDTO)oldValue).value);
-            } catch (Exception e) {
-                throw new IllegalStateException("can't convert string value to color");
-            }
-        }
+    public void start(EventHandler handler, Element parent, RenderContext renderContext, boolean notFocusable, PValue oldValue) {
+        super.start(handler, parent, renderContext, notFocusable, oldValue);
 
-        super.startEditing(editEvent, parent, oldValue);
+        if(started)
+            inputElement.click();
+    }
+
+    @Override
+    protected PValue tryParseInputText(String inputText, boolean onCommit) throws ParseException {
+        return inputText != null ? PValue.getPValue(new ColorDTO(inputText.substring(1))) : null;
     }
 }

@@ -1,45 +1,57 @@
 package lsfusion.http.controller;
 
 import com.google.common.base.Throwables;
+import lsfusion.base.BaseUtils;
 import lsfusion.base.ExceptionUtils;
 import lsfusion.base.Pair;
+import lsfusion.base.col.ListFact;
+import lsfusion.gwt.client.base.GwtSharedUtils;
+import lsfusion.http.provider.logics.LogicsProvider;
 import lsfusion.interop.base.exception.AuthenticationException;
 import lsfusion.interop.base.exception.RemoteInternalException;
 import lsfusion.interop.base.exception.RemoteMessageException;
-import lsfusion.interop.session.ExternalUtils;
-import lsfusion.interop.logics.LogicsRunnable;
 import lsfusion.interop.logics.LogicsSessionObject;
-import org.apache.http.Header;
-import org.apache.http.HttpEntity;
-import org.apache.http.entity.StringEntity;
+import lsfusion.interop.session.ExternalHttpUtils;
+import lsfusion.interop.session.ExternalUtils;
+import org.apache.hc.core5.http.HttpEntity;
 import org.springframework.web.HttpRequestHandler;
 
-import javax.servlet.http.Cookie;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
-import java.nio.charset.Charset;
+import java.rmi.NoSuchObjectException;
 import java.rmi.RemoteException;
+import java.util.ArrayList;
+import java.util.List;
+
+import static lsfusion.base.BaseUtils.nvl;
 
 public abstract class ExternalRequestHandler extends LogicsRequestHandler implements HttpRequestHandler {
 
+    public ExternalRequestHandler(LogicsProvider logicsProvider) {
+        super(logicsProvider);
+    }
+
     protected abstract void handleRequest(LogicsSessionObject sessionObject, HttpServletRequest request, HttpServletResponse response) throws Exception;
 
-    private void handleRequestException(LogicsSessionObject sessionObject, HttpServletRequest request, HttpServletResponse response) throws RemoteException {
+    private void handleRequestException(LogicsSessionObject sessionObject, HttpServletRequest request, HttpServletResponse response, boolean retry) throws RemoteException {
         try {
             handleRequest(sessionObject, request, response);
         } catch (Exception e) {
             if(e instanceof AuthenticationException) {
                 response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
             } else {
-                response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
-                response.setContentType("text/html; charset=utf-8");
+                response.setStatus(nvl(e instanceof RemoteInternalException ? ((RemoteInternalException) e).status : null, HttpServletResponse.SC_INTERNAL_SERVER_ERROR));
+                response.setContentType(ExternalUtils.getHtmlContentType(ExternalUtils.javaCharset).toString());
 
-                String errString = getErrorMessage(e);
-                try { // in theory here can be changed exception (despite of the fact that remote call is wrapped into RemoteExceptionAspect)
-                    response.getWriter().print(errString);
-                } catch (IOException e1) {
-                    throw Throwables.propagate(e1);
+                //we know that there will be a re-request, so we do not write in response - we can call getWriter() only once
+                if(!(e instanceof NoSuchObjectException) || retry) {
+                    String errString = getErrorMessage(e);
+                    try { // in theory here can be changed exception (despite of the fact that remote call is wrapped into RemoteExceptionAspect)
+                        response.getWriter().print(errString);
+                    } catch (IOException e1) {
+                        throw Throwables.propagate(e1);
+                    }
                 }
 
                 if (e instanceof RemoteException)  // rethrow RemoteException to invalidate LogicsSessionObject in LogicsProvider
@@ -59,30 +71,38 @@ public abstract class ExternalRequestHandler extends LogicsRequestHandler implem
     @Override
     public void handleRequest(final HttpServletRequest request, final HttpServletResponse response) throws IOException {
         try {
-            runRequest(request, new LogicsRunnable<Object>() {
-                @Override
-                public Object run(LogicsSessionObject sessionObject) throws RemoteException {
-                    handleRequestException(sessionObject, request, response);
-                    return null;
-                }
+            runRequest(request, (sessionObject, retry) -> {
+                handleRequestException(sessionObject, request, response, retry);
+                return null;
             });
         } catch (RemoteException e) { // will suppress that error, because we rethrowed it when handling request (see above)
         }
     }
 
-    protected void sendResponse(HttpServletResponse response, String message, Charset charset) throws IOException {
-        sendResponse(response, new ExternalUtils.ExternalResponse(new StringEntity(message, charset), null, null, null, null, null));
+    // copy of ExternalHTTPServer.sendResponse
+    protected void sendResponse(HttpServletResponse response, HttpServletRequest request, ExternalUtils.ExternalResponse responseHttpEntity) throws IOException {
+        if(responseHttpEntity instanceof ExternalUtils.ResultExternalResponse)
+            sendResponse(response, (ExternalUtils.ResultExternalResponse) responseHttpEntity);
+        else if(responseHttpEntity instanceof ExternalUtils.RedirectExternalResponse) {
+            ExternalUtils.RedirectExternalResponse redirect = (ExternalUtils.RedirectExternalResponse) responseHttpEntity;
+            response.sendRedirect(MainController.getDirectUrl(redirect.url, REDIRECT_PARAMS, redirect.notification != null ? GwtSharedUtils.NOTIFICATION_PARAM + "=" + redirect.notification : null, request));
+        } else {
+            response.setContentType("text/html");
+            response.getWriter().print(((ExternalUtils.HtmlExternalResponse) responseHttpEntity).html);
+        }
     }
 
-    // copy of ExternalHTTPServer.sendResponse
-    protected void sendResponse(HttpServletResponse response, ExternalUtils.ExternalResponse responseHttpEntity) throws IOException {
+    private static final List<String> REDIRECT_PARAMS = BaseUtils.addList(GwtSharedUtils.NOTIFICATION_PARAM, ExternalUtils.PARAMS);
+
+    protected void sendResponse(HttpServletResponse response, ExternalUtils.ResultExternalResponse responseHttpEntity) throws IOException {
         HttpEntity responseEntity = responseHttpEntity.response;
-        Header contentType = responseEntity.getContentType();
+        String contentType = responseEntity.getContentType();
         String contentDisposition = responseHttpEntity.contentDisposition;
         String[] headerNames = responseHttpEntity.headerNames;
         String[] headerValues = responseHttpEntity.headerValues;
         String[] cookieNames = responseHttpEntity.cookieNames;
         String[] cookieValues = responseHttpEntity.cookieValues;
+        int statusHttp = responseHttpEntity.statusHttp;
 
         boolean hasContentType = false; 
         boolean hasContentDisposition = false;
@@ -100,15 +120,15 @@ public abstract class ExternalRequestHandler extends LogicsRequestHandler implem
         }
 
         if(cookieNames != null) {
-            for (int i = 0; i < cookieNames.length; i++) {
-                response.addCookie(new Cookie(cookieNames[i], cookieValues[i]));
-            }
+            for (int i = 0; i < cookieNames.length; i++)
+                response.addCookie(ExternalHttpUtils.parseCookie(cookieNames[i], cookieValues[i]));
         }
 
         if(contentType != null && !hasContentType)
-            response.setContentType(contentType.getValue());
+            response.setContentType(contentType);
         if(contentDisposition != null && !hasContentDisposition)
             response.addHeader("Content-Disposition", contentDisposition);
+        response.setStatus(statusHttp);
         responseEntity.writeTo(response.getOutputStream());
     }
 }

@@ -34,7 +34,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.function.Function;
 
-public class ConcatenateType extends AbstractType<Object[]> {
+public class ConcatenateType extends AbstractType<Object[]> implements DBType {
 
     private Type[] types;
     private boolean[] desc;
@@ -69,7 +69,12 @@ public class ConcatenateType extends AbstractType<Object[]> {
         return types.length;
     }
 
-    public String getDB(SQLSyntax syntax, TypeEnvironment typeEnv) {
+    @Override
+    public DBType getDBType() {
+        return this;
+    }
+
+    public String getDBString(SQLSyntax syntax, TypeEnvironment typeEnv) {
         typeEnv.addNeedType(this);
         return syntax.getConcTypeName(this);
     }
@@ -210,6 +215,7 @@ public class ConcatenateType extends AbstractType<Object[]> {
         throw new RuntimeException("not supported");
     }
 
+    @Override
     public void fillReportDrawField(ReportDrawField reportField) {
         throw new RuntimeException("not supported");
     }
@@ -307,11 +313,6 @@ public class ConcatenateType extends AbstractType<Object[]> {
 
     public Object[] parseString(String s) {
         throw new RuntimeException("Parsing values from string is not supported");
-    }
-
-    @Override
-    public String formatString(Object[] value) {
-        throw new RuntimeException("Format ConcatenateType is not supported");
     }
 
     public void serialize(DataOutputStream outStream) throws IOException {

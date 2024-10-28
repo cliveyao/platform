@@ -1,85 +1,81 @@
 package lsfusion.gwt.client.form.property.table.view;
 
 import com.google.gwt.dom.client.Element;
-import com.google.gwt.dom.client.TableCellElement;
-import lsfusion.gwt.client.base.view.EventHandler;
+import com.google.gwt.user.client.Event;
+import lsfusion.gwt.client.base.FocusUtils;
+import lsfusion.gwt.client.base.view.grid.Column;
 import lsfusion.gwt.client.base.view.grid.DataGrid;
-import lsfusion.gwt.client.base.view.grid.GridStyle;
 import lsfusion.gwt.client.base.view.grid.cell.Cell;
+import lsfusion.gwt.client.form.controller.FormsController;
 import lsfusion.gwt.client.form.controller.GFormController;
 import lsfusion.gwt.client.form.design.GFont;
 import lsfusion.gwt.client.form.event.GBindingMode;
+import lsfusion.gwt.client.form.event.GMouseStroke;
 import lsfusion.gwt.client.form.object.GGroupObject;
 import lsfusion.gwt.client.form.object.GGroupObjectValue;
+import lsfusion.gwt.client.form.object.table.TableContainer;
 import lsfusion.gwt.client.form.object.table.view.GGridPropertyTable;
 import lsfusion.gwt.client.form.object.table.view.GridDataRecord;
 import lsfusion.gwt.client.form.property.GPropertyDraw;
+import lsfusion.gwt.client.form.property.PValue;
+import lsfusion.gwt.client.form.property.cell.GEditBindingMap;
 import lsfusion.gwt.client.form.property.cell.controller.ExecuteEditContext;
-import lsfusion.gwt.client.form.property.cell.view.CellRenderer;
 import lsfusion.gwt.client.form.property.cell.view.RenderContext;
+import lsfusion.gwt.client.form.property.cell.view.RendererType;
 import lsfusion.gwt.client.form.property.cell.view.UpdateContext;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.function.Consumer;
 
-public abstract class GPropertyTable<T extends GridDataRecord> extends DataGrid<T> implements RenderContext, UpdateContext {
+public abstract class GPropertyTable<T extends GridDataRecord> extends DataGrid<T> {
 
     protected final GFormController form;
     protected final GGroupObject groupObject;
 
-    public GPropertyTable(GFormController iform, GGroupObject iGroupObject, GridStyle style, boolean noHeaders, boolean noFooters, boolean noScrollers) {
-        super(style, noHeaders, noFooters, noScrollers);
+    public GPropertyTable(GFormController iform, GGroupObject groupObject, TableContainer tableContainer, boolean noHeaders, boolean noFooters) {
+        super(tableContainer, noHeaders, noFooters);
 
         this.form = iform;
-        this.groupObject = iGroupObject;
+        this.groupObject = groupObject;
 
         //  Have the enter key work the same as the tab key
-        if(groupObject != null) {
-            form.addEnterBindings(GBindingMode.ONLY, ((GGridPropertyTable) GPropertyTable.this)::selectNextCellInColumn, groupObject);
-        }
+        form.addEnterBindings(GBindingMode.ONLY, ((GGridPropertyTable) GPropertyTable.this)::selectNextCellInColumn, this.groupObject);
     }
 
-    public abstract boolean isReadOnly(Cell cell);
+    public abstract Boolean isReadOnly(Cell cell);
 
     public abstract GPropertyDraw getSelectedProperty();
     public abstract GGroupObjectValue getSelectedColumnKey();
 
-    @Override
-    protected void onSelectedChanged(TableCellElement td, int row, int column, boolean selected) {
-        GPropertyDraw property = getProperty(row, column);
-        if(property != null) {
-            if(selected)
-                CellRenderer.renderEditSelected(td, property);
-            else
-                CellRenderer.clearEditSelected(td, property);
-        }
-    }
-
-    public abstract GPropertyDraw getProperty(int row, int column);
     public abstract GPropertyDraw getProperty(Cell cell);
+    public abstract GGridPropertyTable<T>.GridPropertyColumn getGridColumn(int column);
 
     @Override
-    public boolean isChangeOnSingleClick(Cell cell, boolean rowChanged) {
+    public boolean isChangeOnSingleClick(Cell cell, Event event, boolean rowChanged, Column column) {
         GPropertyDraw property = getProperty(cell);
         if(property != null && property.changeOnSingleClick != null)
             return property.changeOnSingleClick;
-        return super.isChangeOnSingleClick(cell, rowChanged) || (!rowChanged && GFormController.isLinkEditMode() && property != null && property.hasEditObjectAction);
+        return super.isChangeOnSingleClick(cell, event, rowChanged, column) ||
+                (!rowChanged && FormsController.isLinkMode() && property != null && property.hasEditObjectAction) ||
+                (GMouseStroke.isChangeEvent(event) && GEditBindingMap.getToolbarAction(event) != null);
     }
 
     public abstract GGroupObjectValue getColumnKey(Cell editCell);
 
-    public abstract void setValueAt(Cell cell, Object value);
+    public abstract GGroupObjectValue getRowKey(Cell editCell);
 
-    public abstract Object getValueAt(Cell cell);
+    public abstract void setValueAt(Cell cell, PValue value);
 
-    public abstract void pasteData(List<List<String>> table);
+    public abstract void setLoadingAt(Cell cell);
+
+    public abstract void pasteData(Cell cell, Element renderElement, List<List<String>> table);
 
     @Override
-    protected int getRowByKey(Object key) {
+    protected int findRowByKey(Object key, int expandingIndex) {
         ArrayList<T> rows = getRows();
         for (int i = 0; i < rows.size(); i++) {
-            if(rows.get(i).getKey().equals(key))
+            T row = rows.get(i);
+            if(row.getKey().equals(key) && row.getExpandingIndex() == expandingIndex)
                 return i;
         }
         return -1;
@@ -91,130 +87,112 @@ public abstract class GPropertyTable<T extends GridDataRecord> extends DataGrid<
 //        CopyPasteUtils.setEmptySelection(getSelectedElement());
 //    }
 
-    public void onEditEvent(EventHandler handler, boolean isBinding, Cell editCell, Element editCellParent) {
-        form.executePropertyEventAction(handler, isBinding,
-                new ExecuteEditContext() {
-                    @Override
-                    public RenderContext getRenderContext() {
-                        return GPropertyTable.this;
-                    }
+    protected abstract RenderContext getRenderContext(Cell cell, Element renderElement, GPropertyDraw property, GGridPropertyTable<T>.GridPropertyColumn column);
 
-                    @Override
-                    public UpdateContext getUpdateContext() {
-                        return GPropertyTable.this;
-                    }
+    protected abstract UpdateContext getUpdateContext(Cell cell, Element renderElement, GPropertyDraw property, GGridPropertyTable<T>.GridPropertyColumn column);
 
-                    @Override
-                    public GPropertyDraw getProperty() {
-                        return GPropertyTable.this.getProperty(editCell);
-                    }
+    public ExecuteEditContext getEditContext(Cell editCell, Element editRenderElement) {
+        final GPropertyDraw property = GPropertyTable.this.getProperty(editCell);
+        GGridPropertyTable<T>.GridPropertyColumn gridColumn = getGridColumn(editCell.getColumnIndex());
+        RenderContext renderContext = getRenderContext(editCell, editRenderElement, property, gridColumn);
+        UpdateContext updateContext = getUpdateContext(editCell, editRenderElement, property, gridColumn);
+        return new ExecuteEditContext() {
+            @Override
+            public RenderContext getRenderContext() {
+                return renderContext;
+            }
 
-                    @Override
-                    public Element getRenderElement() {
-                        return editCellParent;
-                    }
+            @Override
+            public UpdateContext getUpdateContext() {
+                return updateContext;
+            }
 
-                    @Override
-                    public Object getValue() {
-                        return getValueAt(editCell);
-                    }
+            @Override
+            public GPropertyDraw getProperty() {
+                return property;
+            }
 
-                    @Override
-                    public void setValue(Object value) {
-                        setValueAt(editCell, value);
-                    }
+            @Override
+            public Element getEditElement() {
+                return editRenderElement;
+            }
 
-                    @Override
-                    public GGroupObjectValue getColumnKey() {
-                        return GPropertyTable.this.getColumnKey(editCell);
-                    }
+            @Override
+            public void setValue(PValue value) {
+                setValueAt(editCell, value);
+            }
 
-                    @Override
-                    public boolean isReadOnly() {
-                        return GPropertyTable.this.isReadOnly(editCell);
-                    }
+            @Override
+            public void setLoading() {
+                setLoadingAt(editCell);
+            }
 
-                    @Override
-                    public Element getFocusElement() {
-                        return GPropertyTable.this.getTableDataFocusElement();
-                    }
+            @Override
+            public GGroupObjectValue getColumnKey() {
+                return GPropertyTable.this.getColumnKey(editCell);
+            }
 
-                    @Override
-                    public boolean isFocusable() {
-                        return GPropertyTable.this.isFocusable(editCell);
-                    }
+            @Override
+            public GGroupObjectValue getRowKey() {
+                return GPropertyTable.this.getRowKey(editCell);
+            }
 
-                    @Override
-                    public void trySetFocus() {
-                        if(changeSelectedColumn(editCell.getColumnIndex()))
-                            getFocusElement().focus();
-                    }
+            @Override
+            public Boolean isReadOnly() {
+                return GPropertyTable.this.isReadOnly(editCell);
+            }
 
-                    @Override
-                    public boolean isSetLastBlurred() {
-                        return true;
-                    }
+            @Override
+            public Element getFocusElement() {
+                return GPropertyTable.this.getTableDataFocusElement();
+            }
 
-                    @Override
-                    public Object forceSetFocus() {
-                        int selectedColumn = getSelectedColumn();
-                        setSelectedColumn(editCell.getColumnIndex());
-                        return selectedColumn;
-                    }
+            @Override
+            public boolean isFocusable() {
+                return GPropertyTable.this.isFocusable(editCell);
+            }
 
-                    @Override
-                    public void restoreSetFocus(Object forceSetFocus) {
-                        setSelectedColumn((Integer)forceSetFocus);
-                    }
-                }
-        );
-    }
+            @Override
+            public void focus(FocusUtils.Reason reason) {
+                GPropertyTable.this.focusColumn(editCell.getColumnIndex(), reason);
+            }
 
-    @Override
-    public Integer getStaticHeight() {
-        return tableBuilder.getCellHeight();
-    }
+            @Override
+            public boolean isSetLastBlurred() {
+                return true;
+            }
 
-    @Override
-    public boolean isAlwaysSelected() {
-        return false;
-    }
+            @Override
+            public Object forceSetFocus() {
+                int selectedColumn = getSelectedColumn();
+                setSelectedColumn(editCell.getColumnIndex());
+                return selectedColumn;
+            }
 
-    @Override
-    public boolean globalCaptionIsDrawn() {
-        return true;
-    }
+            @Override
+            public void restoreSetFocus(Object forceSetFocus) {
+                setSelectedColumn((Integer) forceSetFocus);
+            }
 
-    @Override
-    public boolean isStaticHeight() {
-        return true;
-    }
+            @Override
+            public void startEditing() {
+            }
 
-    @Override
-    public Consumer<Object> getCustomRendererValueChangeConsumer() {
-        return null;
-    }
+            @Override
+            public void stopEditing() {
+            }
 
-    @Override
-    public boolean isPropertyReadOnly() {
-        return false;
+            @Override
+            public RendererType getRendererType() {
+                return RendererType.GRID;
+            }
+        };
     }
 
     public abstract GFont getFont();
 
-    protected void setCellHeight(int cellHeight) {
-        tableBuilder.setCellHeight(cellHeight);
-    }
-
     @Override
-    public boolean changeSelectedColumn(int column) {
-        form.checkCommitEditing();
-        return super.changeSelectedColumn(column);
-    }
-
-    @Override
-    public void changeSelectedRow(int row) {
-        form.checkCommitEditing();
-        super.changeSelectedRow(row);
+    protected String getGridInfo() {
+        return form.form.sID + " " + groupObject.sID;
     }
 }

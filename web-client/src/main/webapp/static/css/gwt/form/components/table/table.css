@@ -1,0 +1,25 @@
+/* it's better to do not use table to avoid breaking layout in other bootstrap components*/
+.lsf-table.table {
+    table-layout: fixed; /* we want predictable (not dependant from the content) manual column sizes  */
+    width: 100%; /* it's odd but without this table-layout is switched to auto */
+    height: fit-content; /* it's even more odd - without this height : 100% in tds won't work */
+}
+
+/* ----- GGridPropertyTable ----- */
+.dataGridWidget {
+    /*border: 1px solid var(--component-border-color);*/
+    /*border-radius: var(--table-border-radius);*/
+
+    /*background: var(--component-background-color);*/
+    /*cursor: default;*/
+    /*overflow: hidden; !* important for "removing outer grid borders", since they are removed with margin -1 overflow should be hidden *!*/
+}
+
+.data-grid-row {
+}
+.data-grid-cell {
+    /*padding: 0;*/
+
+    /* ??? */
+    /*overflow: hidden;*/
+}

@@ -281,7 +281,7 @@ The process of creating an information system is completed.
 
 ```lsf
 MODULE HockeyStats;
-// logic description: https://documentation.lsfusion.org/pages/viewpage.action?pageId=2228240
+
 REQUIRE System, Utils;
 
 CLASS Team 'Team';
@@ -383,20 +383,5 @@ FORM MainFormSingle 'Score table'
 
 NAVIGATOR {
     NEW MainForm FIRST;
-}
-
-CLASS Event;
-date = DATA DATE (Event);
-date(Event e) <- currentDate() WHEN SET(e IS Event);
-title = DATA STRING (Event);
-title(Event e) <- 'Event' + e WHEN SET(e IS Event);
-
-FORM calendar
-    OBJECTS e=Event CUSTOM 'calendar'
-    PROPERTIES (e) date, title, NEW, EDIT, DELETE
-;
-
-NAVIGATOR {
-    NEW calendar;
 }
 ```

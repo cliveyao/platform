@@ -4,17 +4,24 @@ import lsfusion.base.identity.IdentityObject;
 import lsfusion.client.base.SwingUtils;
 import lsfusion.client.form.controller.remote.serialization.ClientIdentitySerializable;
 import lsfusion.client.form.controller.remote.serialization.ClientSerializationPool;
+import lsfusion.interop.form.event.KeyInputEvent;
+import lsfusion.interop.form.event.MouseInputEvent;
 
-import javax.swing.*;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 
+import static lsfusion.client.base.SwingUtils.getEventCaption;
+
 public class ClientRegularFilter extends IdentityObject implements ClientIdentitySerializable {
 
     public String caption = "";
-    public KeyStroke key;
+    public KeyInputEvent keyInputEvent;
+    public Integer keyPriority;
     public boolean showKey;
+    public MouseInputEvent mouseInputEvent;
+    public Integer mousePriority;
+    public boolean showMouse;
 
     public ClientRegularFilter() {
     }
@@ -24,12 +31,9 @@ public class ClientRegularFilter extends IdentityObject implements ClientIdentit
     }
 
     public String getFullCaption() {
-
-        String fullCaption = caption;
-        if (showKey && key != null) {
-            fullCaption += " (" + SwingUtils.getKeyStrokeCaption(key) + ")";
-        }
-        return fullCaption;
+        String eventCaption = getEventCaption(showKey && keyInputEvent != null ? SwingUtils.getKeyStrokeCaption(keyInputEvent.keyStroke) : null,
+                showMouse && mouseInputEvent != null ? mouseInputEvent.mouseEvent : null);
+        return caption + (eventCaption != null ? " (" + eventCaption + ")" : "");
     }
 
     @Override
@@ -43,7 +47,11 @@ public class ClientRegularFilter extends IdentityObject implements ClientIdentit
     public void customDeserialize(ClientSerializationPool pool, DataInputStream inStream) throws IOException {
         caption = pool.readString(inStream);
 
-        key = pool.readObject(inStream);
+        keyInputEvent = pool.readObject(inStream);
+        keyPriority = pool.readInt(inStream);
         showKey = inStream.readBoolean();
+        mouseInputEvent = pool.readObject(inStream);
+        mousePriority = pool.readInt(inStream);
+        showMouse = inStream.readBoolean();
     }
 }

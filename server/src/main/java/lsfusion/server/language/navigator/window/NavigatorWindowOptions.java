@@ -1,11 +1,12 @@
 package lsfusion.server.language.navigator.window;
 
 import lsfusion.interop.base.view.FlexAlignment;
+import lsfusion.server.language.ScriptingLogicsModule;
+import lsfusion.server.logics.property.Property;
 
 public class NavigatorWindowOptions {
 
     private Boolean drawTitle;
-    private Boolean drawRoot;
     private Boolean drawScrollBars;
 
     private Orientation orientation;
@@ -25,14 +26,6 @@ public class NavigatorWindowOptions {
 
     public void setDrawTitle(Boolean drawTitle) {
         this.drawTitle = drawTitle;
-    }
-
-    public Boolean getDrawRoot() {
-        return drawRoot;
-    }
-
-    public void setDrawRoot(Boolean drawRoot) {
-        this.drawRoot = drawRoot;
     }
 
     public Boolean getDrawScrollBars() {
@@ -99,11 +92,13 @@ public class NavigatorWindowOptions {
         this.textHAlign = textHAlign;
     }
 
+    public ScriptingLogicsModule.LPWithParams elementClassProperty;
+    public String elementClass;
+
     @Override
     public String toString() {
         return "NavigatorWindowOptions{" +
                "drawTitle=" + drawTitle +
-               ", drawRoot=" + drawRoot +
                ", drawScrollBars=" + drawScrollBars +
                ", orientation=" + orientation +
                ", borderPosition=" + borderPosition +

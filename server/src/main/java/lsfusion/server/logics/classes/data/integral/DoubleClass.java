@@ -50,7 +50,7 @@ public class DoubleClass extends IntegralClass<Double> {
         return obj > 0.0;
     }
 
-    public String getDB(SQLSyntax syntax, TypeEnvironment typeEnv) {
+    public String getDBString(SQLSyntax syntax, TypeEnvironment typeEnv) {
         return syntax.getDoubleType();
     }
     public String getDotNetType(SQLSyntax syntax, TypeEnvironment typeEnv) {
@@ -107,7 +107,7 @@ public class DoubleClass extends IntegralClass<Double> {
 
     @Override
     public OverJDBField formatDBF(String fieldName) throws JDBFException {
-        return new OverJDBField(fieldName, 'F', 13, 3);
+        return OverJDBField.createField(fieldName, 'F', 13, 3);
     }
 
     @Override

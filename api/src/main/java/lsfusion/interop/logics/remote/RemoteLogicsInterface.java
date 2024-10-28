@@ -1,9 +1,9 @@
 package lsfusion.interop.logics.remote;
 
-import lsfusion.interop.action.ReportPath;
 import lsfusion.interop.base.remote.PendingRemoteInterface;
-import lsfusion.interop.connection.authentication.Authentication;
 import lsfusion.interop.connection.AuthenticationToken;
+import lsfusion.interop.connection.ConnectionInfo;
+import lsfusion.interop.connection.authentication.Authentication;
 import lsfusion.interop.navigator.NavigatorInfo;
 import lsfusion.interop.navigator.remote.RemoteNavigatorInterface;
 import lsfusion.interop.session.ExternalRequest;
@@ -30,8 +30,8 @@ public interface RemoteLogicsInterface extends PendingRemoteInterface {
 
     // RESTful interfaces
     // external requests (interface is similar to RemoteSessionInterface but with token)
-    ExternalResponse exec(AuthenticationToken token, SessionInfo sessionInfo, String action, ExternalRequest request) throws RemoteException;
-    ExternalResponse eval(AuthenticationToken token, SessionInfo sessionInfo, boolean action, Object paramScript, ExternalRequest request) throws RemoteException;
+    ExternalResponse exec(AuthenticationToken token, ConnectionInfo connectionInfo, String action, ExternalRequest request) throws RemoteException;
+    ExternalResponse eval(AuthenticationToken token, ConnectionInfo connectionInfo, boolean action, ExternalRequest.Param paramScript, ExternalRequest request) throws RemoteException;
 
     // separate methods, because used really often (and don't need authentication)
     long generateID() throws RemoteException;
@@ -39,5 +39,7 @@ public interface RemoteLogicsInterface extends PendingRemoteInterface {
     void sendPingInfo(String computerName, Map<Long, List<Long>> pingInfoMap) throws RemoteException;
     byte[] findClass(String name) throws RemoteException;
 
-    List<ReportPath> saveAndGetCustomReportPathList(String formSID, boolean recreate) throws RemoteException;
+    List<String> saveAndGetCustomReportPathList(String formSID, boolean recreate) throws RemoteException;
+
+    void registerClient(RemoteClientInterface client) throws RemoteException;
 }

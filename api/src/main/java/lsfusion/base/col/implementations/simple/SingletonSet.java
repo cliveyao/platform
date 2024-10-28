@@ -9,6 +9,7 @@ import lsfusion.base.col.interfaces.immutable.*;
 import lsfusion.base.col.interfaces.mutable.*;
 import lsfusion.base.col.interfaces.mutable.mapvalue.*;
 import lsfusion.base.lambda.set.FunctionSet;
+import lsfusion.base.lambda.set.SFunctionSet;
 
 import java.util.*;
 import java.util.function.Function;
@@ -59,8 +60,8 @@ public class SingletonSet<K> implements ImSet<K>, ImList<K>, ImOrderSet<K> {
         return false;
     }
 
-    public int hashCode() {
-        return key.hashCode();
+    public int hashCode() { // should match ACol hashCode
+        return key.hashCode() * 31;
     }
 
     private class SingleIterator implements Iterator<K> {
@@ -320,6 +321,11 @@ public class SingletonSet<K> implements ImSet<K>, ImList<K>, ImOrderSet<K> {
         return MapFact.<K, M>singleton(key, getter.apply(0, key));
     }
 
+    @Override
+    public <M> ImOrderMap<K, M> mapOrderIntValues(IntFunction<M> getter) {
+        return MapFact.<K, M>singletonOrder(key, getter.apply(0));
+    }
+
     public <M> ImMap<K, M> mapOrderValues(IntFunction<M> getter) {
         return MapFact.<K, M>singleton(key, getter.apply(0));
     }
@@ -359,6 +365,11 @@ public class SingletonSet<K> implements ImSet<K>, ImList<K>, ImOrderSet<K> {
         return -1;
     }
 
+    @Override
+    public boolean containsNull() {
+        return this.key == null;
+    }
+
     public ImRevMap<Integer, K> toIndexedMap() {
         return MapFact.singletonRev(0, key);
     }
@@ -390,6 +401,12 @@ public class SingletonSet<K> implements ImSet<K>, ImList<K>, ImOrderSet<K> {
         return ListFact.EMPTY();
     }
 
+    @Override
+    public ImList<K> replace(int i, K element) {
+        assert i == 0;
+        return ListFact.singleton(element);
+    }
+
     public <V> ImList<V> mapList(ImMap<? extends K, ? extends V> imMap) {
         return ListFact.singleton(((ImMap<K, V>)imMap).get(key));
     }
@@ -406,10 +423,6 @@ public class SingletonSet<K> implements ImSet<K>, ImList<K>, ImOrderSet<K> {
 
     public <M> ImList<M> mapItListValues(Function<K, M> getter) {
         return ListFact.singleton(getter.apply(key));
-    }
-
-    public <M> ImList<M> mapListValues(IntFunction<M> getter) {
-        return ListFact.singleton(getter.apply(0));
     }
 
     public <M> ImList<M> mapListValues(IntObjectFunction<K, M> getter) {
@@ -532,6 +545,15 @@ public class SingletonSet<K> implements ImSet<K>, ImList<K>, ImOrderSet<K> {
         if(filter.contains(key))
             return this;
         return SetFact.EMPTY();
+    }
+
+    public boolean containsFn(FunctionSet<K> filter) {
+        return filter.contains(key);
+    }
+
+    @Override
+    public boolean containsFn(SFunctionSet<K> filter) {
+        return ImSet.super.containsFn(filter);
     }
 
     @Override

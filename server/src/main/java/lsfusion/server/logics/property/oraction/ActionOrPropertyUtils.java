@@ -71,17 +71,18 @@ public class ActionOrPropertyUtils {
         return classes;
     }
 
-    public static Object[] getParams(LAP prop) {
-        Object[] params  = new Object[prop.listInterfaces.size()];
+    public static Integer[] getParams(LAP prop) {
+        Integer[] params  = new Integer[prop.listInterfaces.size()];
         for(int i=0;i<prop.listInterfaces.size();i++)
             params[i] = (i+1);
         return params;
     }
 
-    public static Integer[] getIntParams(LAP prop) {
+    public static Integer[] getIntParams(LAP prop, int from, int to) {
         Integer[] params  = new Integer[prop.listInterfaces.size()];
-        for(int i=0;i<prop.listInterfaces.size();i++)
-            params[i] = (i+1);
+        for(int i=0;i<prop.listInterfaces.size();i++) {
+            params[i] = (from == i + 1 ? to : i + 1);
+        }
         return params;
     }
 
@@ -165,20 +166,12 @@ public class ActionOrPropertyUtils {
                 return Compare.LESS_EQUALS;
             case "!=":
                 return Compare.NOT_EQUALS;
-            case "START_WITH":
-                return Compare.START_WITH;
-            case "CONTAINS":
+            case "=*":
                 return Compare.CONTAINS;
-            case "ENDS_WITH":
-                return Compare.ENDS_WITH;
-            case "LIKE":
-                return Compare.LIKE;
-            case "MATCH":
+            case "=@":
                 return Compare.MATCH;
-            case "INARRAY":
-                return Compare.INARRAY;
             default:
-                return null;
+                throw new UnsupportedOperationException();
         }
     }
 

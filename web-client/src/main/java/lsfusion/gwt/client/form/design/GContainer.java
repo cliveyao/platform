@@ -1,5 +1,10 @@
 package lsfusion.gwt.client.form.design;
 
+import lsfusion.gwt.client.ClientMessages;
+import lsfusion.gwt.client.base.BaseImage;
+import lsfusion.gwt.client.base.GwtSharedUtils;
+import lsfusion.gwt.client.base.jsni.HasNativeSID;
+import lsfusion.gwt.client.base.size.GSize;
 import lsfusion.gwt.client.base.jsni.NativeHashMap;
 import lsfusion.gwt.client.base.view.GFlexAlignment;
 import lsfusion.gwt.client.form.controller.GFormController;
@@ -8,56 +13,101 @@ import lsfusion.gwt.client.form.object.table.grid.GGrid;
 import lsfusion.gwt.client.form.object.table.tree.GTreeGroup;
 import lsfusion.gwt.client.form.property.GPropertyDraw;
 import lsfusion.gwt.client.form.property.GPropertyReader;
+import lsfusion.gwt.client.form.property.PValue;
+import lsfusion.gwt.client.view.MainFrame;
 
 import java.util.ArrayList;
 import java.util.List;
 
-import static lsfusion.gwt.client.form.design.GContainerType.*;
+import static lsfusion.gwt.client.base.GwtClientUtils.createTooltipHorizontalSeparator;
 
-public class GContainer extends GComponent {
+public class GContainer extends GComponent implements HasNativeSID {
     public String caption;
+    public String name;
+    public BaseImage image;
+
+    public String captionClass;
+    public String valueClass;
+
+    public String nativeSID;
+
+    @Override
+    public String getNativeSID() {
+        return nativeSID;
+    }
+
+    public boolean collapsible;
+
+    public boolean popup;
+
+    public boolean border;
+
+    public boolean hasBorder() {
+        if(!MainFrame.useBootstrap || MainFrame.mobile)
+            return false;
+        return border;
+    }
 
     public boolean main;
 
-    public GContainerType type;
+    public boolean horizontal;
+    public boolean tabbed;
+
+    public String path;
+    public String creationPath;
+
     public GFlexAlignment childrenAlignment;
 
-    public int columns;
+    public boolean grid;
+    public boolean wrap;
+    public Boolean alignCaptions;
+
+    public Boolean resizeOverflow;
+
+    public int lines;
+    public Integer lineSize;
+    public Integer captionLineSize;
+    public boolean lineShrink;
+    public String customDesign = null;
 
     public ArrayList<GComponent> children = new ArrayList<>();
 
     @Override
     public String toString() {
         return "GContainer" +
-                "[" + sID + "]" +
-                "[" + type + "]{" +
-                "caption='" + caption + '\'' +
-                ", alignment=" + getAlignment() +
+                "[" + sID + "] " +
+                getContainerType() + ", " +
+                "caption='" + caption + "', " +
+                "alignment=" + getAlignment() +
                 '}';
     }
 
-    public GFlexAlignment getFlexJustify() {
+    public void removeFromChildren(GComponent component) {
+        component.container = null;
+        children.remove(component);
+    }
+
+    public void add(GComponent component) {
+        if (component.container != null) {
+            component.container.removeFromChildren(component);
+        }
+        children.add(component);
+        component.container = this;
+    }
+
+    public GFlexAlignment getFlexAlignment() {
         return childrenAlignment;
     }
 
-    public boolean isTabbed() {
-        return type == TABBED_PANE;
-    }
-
     public int getFlexCount() {
+        if(tabbed)
+            return 0;
+
         int count = 0;
         for(GComponent child : children)
-            if(child.getFlex() > 0)
+            if(child.isFlex())
                 count++;
         return count;
-    }
-
-    public boolean isSplit() {
-        return type == HORIZONTAL_SPLIT_PANE || type == VERTICAL_SPLIT_PANE;
-    }
-
-    public boolean isScroll() {
-        return type == SCROLL;
     }
 
     public List<GGrid> getAllGrids() {
@@ -107,55 +157,224 @@ public class GContainer extends GComponent {
         return null;
     }
 
-    public boolean isSplitVertical() {
-        return type == VERTICAL_SPLIT_PANE;
+    public GComponent findComponentByID(int id) {
+        if (id == this.ID) return this;
+        for (GComponent comp : children) {
+            if (comp instanceof GContainer) {
+                GComponent result = ((GContainer) comp).findComponentByID(id);
+                if (result != null) return result;
+            } else {
+                if (id == comp.ID) return comp;
+            }
+        }
+        return null;
     }
 
-    public boolean isSplitHorizontal() {
-        return type == HORIZONTAL_SPLIT_PANE;
+    public String getContainerType() {
+        return "horizontal=" + horizontal + ", tabbed=" + tabbed;
+    }
+
+    public boolean isSingleElement() {
+        return children.size() == 1;
     }
 
     public boolean isVertical() {
-        return isLinearVertical() || isSplitVertical();
+        // in wrapped grid it makes sense to "reverse" the direction (it is more obvious)
+        return horizontal == (grid && isWrap());
     }
 
-    public boolean isHorizontal() {
-        return isLinearHorizontal() || isSplitHorizontal();
+    public Boolean isResizeOverflow() {
+        return resizeOverflow;
+    }
+    public boolean isWrap() {
+        // we cannot wrap grid with aligned captions (since there is no way to stick caption and value together)
+        if(grid && isAlignCaptions())
+            return false;
+
+        // grid auto-fit (used for wrap) doesn't support min-content / auto / ...
+        if(grid && lineSize == null)
+            return false;
+
+        return wrap;
     }
 
-    public boolean isLinearVertical() {
-        return type == CONTAINERV;
+    public boolean isGrid() {
+        return grid;
+    }
+    public boolean isAlignCaptions() {
+        // children count in filters container changes in runtime, so this should go before check on children.size()
+        if (alignCaptions != null) {
+            return alignCaptions;
+        }
+
+        // align caption has a higher priority than wrap
+        if(horizontal) // later maybe it makes sense to support align captions for horizontal containers, but with no-wrap it doesn't make much sense
+            return false;
+        if(children.size() <= lines) // if there are fewer components than lines, there is no point in creating grids (however later it makes sense to avoid creating grids for specific lines)
+            return false;
+
+        boolean otherAligned = false;
+        // only simple property draws
+        for(GComponent child : children) {
+            if(child.isAlignCaption()) {
+                if(otherAligned)
+                    return true;
+                else
+                    otherAligned = true;
+            }
+        }
+
+        return false;
+    }
+    
+    public GSize getLineSize() {
+        return GSize.getContainerNSize(lineSize);
     }
 
-    public boolean isLinearHorizontal() {
-        return type == CONTAINERH;
+    public GSize getCaptionLineSize() {
+        return GSize.getContainerNSize(captionLineSize);
     }
 
-    public boolean isLinear() {
-        return isLinearVertical() || isLinearHorizontal();
+    public boolean isLineShrink() {
+        return lineShrink;
     }
 
-    public boolean isColumns() {
-        return type == COLUMNS;
+    public String getCustomDesign() {
+        return customDesign;
+    }
+
+    public void setCustomDesign(String customDesign) {
+        this.customDesign = customDesign;
+    }
+
+    public boolean isCustomDesign() {
+        return customDesign != null;
     }
 
     private class GCaptionReader implements GPropertyReader {
 
         public GCaptionReader() {
-            sID = "_CONTAINER_" + "CAPTION" + "_" + GContainer.this.sID;
         }
 
         @Override
-        public void update(GFormController controller, NativeHashMap<GGroupObjectValue, Object> values, boolean updateKeys) {
+        public void update(GFormController controller, NativeHashMap<GGroupObjectValue, PValue> values, boolean updateKeys) {
             assert values.firstKey().isEmpty();
-            Object value = values.firstValue();
-            controller.setContainerCaption(GContainer.this, value != null ? value.toString() : null);
+            controller.setContainerCaption(GContainer.this, PValue.getCaptionStringValue(values.firstValue()));
+        }
+
+        private String sID;
+        @Override
+        public String getNativeSID() {
+            if(sID == null) {
+                sID = "_CONTAINER_" + "CAPTION" +  "_" + GContainer.this.sID;
+            }
+            return sID;
+        }
+    }
+    public final GPropertyReader captionReader = new GCaptionReader();
+
+    private class GImageReader implements GPropertyReader {
+
+        public GImageReader() {
+        }
+
+        @Override
+        public void update(GFormController controller, NativeHashMap<GGroupObjectValue, PValue> values, boolean updateKeys) {
+            assert values.firstKey().isEmpty();
+            controller.setContainerImage(GContainer.this, PValue.getImageValue(values.firstValue()));
+        }
+
+        private String sID;
+        @Override
+        public String getNativeSID() {
+            if(sID == null) {
+                sID = "_CONTAINER_" + "IMAGE" +  "_" + GContainer.this.sID;
+            }
+            return sID;
+        }
+    }
+    public final GPropertyReader imageReader = new GImageReader();
+
+    private class GCaptionClassReader implements GPropertyReader {
+        private String sID;
+
+        public GCaptionClassReader() {
+        }
+
+        @Override
+        public void update(GFormController controller, NativeHashMap<GGroupObjectValue, PValue> values, boolean updateKeys) {
+            controller.getFormLayout().setCaptionClass(GContainer.this, PValue.getClassStringValue(values.get(GGroupObjectValue.EMPTY)));
         }
 
         @Override
         public String getNativeSID() {
+            if(sID == null) {
+                sID = "_COMPONENT_" + "CAPTIONCLASS" + "_" + GContainer.this.sID;
+            }
             return sID;
         }
-    };
-    public final GPropertyReader captionReader = new GCaptionReader();
+    }
+    public final GPropertyReader captionClassReader = new GCaptionClassReader();
+    private class GValueClassReader implements GPropertyReader {
+        private String sID;
+
+        public GValueClassReader() {
+        }
+
+        @Override
+        public void update(GFormController controller, NativeHashMap<GGroupObjectValue, PValue> values, boolean updateKeys) {
+            controller.getFormLayout().setValueClass(GContainer.this, PValue.getClassStringValue(values.get(GGroupObjectValue.EMPTY)));
+        }
+
+        @Override
+        public String getNativeSID() {
+            if(sID == null) {
+                sID = "_CONTAINER_" + "VALUECLASS" + "_" + GContainer.this.sID;
+            }
+            return sID;
+        }
+    }
+    public final GPropertyReader valueClassReader = new GValueClassReader();
+
+    private class GCustomDesignReader implements GPropertyReader {
+        private String sID;
+
+        public GCustomDesignReader() {
+        }
+
+        @Override
+        public void update(GFormController controller, NativeHashMap<GGroupObjectValue, PValue> values, boolean updateKeys) {
+            assert values.firstKey().isEmpty();
+            controller.setContainerCustomDesign(GContainer.this, PValue.getCustomStringValue(values.firstValue()));
+        }
+
+        @Override
+        public String getNativeSID() {
+            if(sID == null) {
+                sID = "_CONTAINER_" + "CUSTOM_DESIGN" + "_" + GContainer.this.sID;
+            }
+            return sID;
+        }
+    }
+    public final GPropertyReader customDesignReader = new GCustomDesignReader();
+
+    public String getPath() {
+        return path;
+    }
+
+    public String getCreationPath() {
+        return creationPath;
+    }
+
+    public String getTooltip() {
+        return MainFrame.showDetailedInfo ?
+                GwtSharedUtils.stringFormat("<html><body>" +
+                        "<b>%s</b><br/>" +
+                        createTooltipHorizontalSeparator() +
+                        (sID != null ? "<b>sID:</b> %s<br/>" : "") +
+                        (getCreationPath() == null ? "" : (
+                        "<b>" + ClientMessages.Instance.get().tooltipPath() + ":</b> %s<a class='lsf-tooltip-path'></a> &ensp; <a class='lsf-tooltip-help'></a>")) +
+                        "</body></html>", caption, sID, getCreationPath()) :
+                GwtSharedUtils.stringFormat("<html><body><b>%s</b></body></html>", caption);
+    }
 }

@@ -9,7 +9,9 @@ import lsfusion.client.ClientResourceBundle;
 import lsfusion.client.form.controller.remote.serialization.ClientIdentitySerializable;
 import lsfusion.client.form.controller.remote.serialization.ClientSerializationPool;
 import lsfusion.client.form.design.ClientComponent;
+import lsfusion.client.form.design.ClientContainer;
 import lsfusion.client.form.filter.user.ClientFilter;
+import lsfusion.client.form.filter.user.ClientFilterControls;
 import lsfusion.client.form.object.table.ClientToolbar;
 import lsfusion.client.form.object.table.controller.TableController;
 import lsfusion.client.form.object.table.grid.ClientGrid;
@@ -29,6 +31,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+import static java.lang.Math.pow;
+import static java.lang.Math.round;
+
 public class ClientGroupObject extends IdentityObject implements ClientIdentitySerializable, AbstractGroupObject<ClientComponent, String> {
 
     public ClientTreeGroup parent;
@@ -41,6 +46,7 @@ public class ClientGroupObject extends IdentityObject implements ClientIdentityS
     public boolean isCalendarDateTime;
     public boolean isCalendarPeriod;
 
+    public boolean hasHeaders;
     public boolean hasFooters;
 
     public ClassViewType viewType;
@@ -51,15 +57,42 @@ public class ClientGroupObject extends IdentityObject implements ClientIdentityS
 
     public boolean asyncInit;
 
+    public ClientContainer filtersContainer;
+    public ClientFilterControls filterControls;
+    public List<ClientFilter> filters = new ArrayList<>();
     public ClientGrid grid;
     public ClientToolbar toolbar;
-    public ClientFilter filter;
     public ClientCalculations calculations;
 
     public List<ClientObject> objects = new ArrayList<>();
 
     public RowBackgroundReader rowBackgroundReader = new RowBackgroundReader();
     public RowForegroundReader rowForegroundReader = new RowForegroundReader();
+    public CustomOptionsReader customOptionsReader = new CustomOptionsReader();
+
+    // transient
+    public int columnSumWidth;
+    public int columnCount;
+    public int rowMaxHeight;
+
+    public int getWidth(int lines) {
+        int columnCount = this.columnCount;
+        if(lines == -1)
+            lines = Math.min(columnCount <= 3 ? columnCount : (int) round(3 + pow(columnCount - 6, 0.7)), 6);
+
+        return columnCount > 0 ? lines * columnSumWidth / columnCount : 0;
+    }
+
+    public final static int BORDER_VERT_SIZE = 1;
+
+    public int getHeight(int lines, int headerHeight) {
+        if(lines == -1)
+            lines = 5;
+
+        return (lines * (rowMaxHeight + BORDER_VERT_SIZE)) +
+                + 3 * BORDER_VERT_SIZE // borders around grid + header border
+                + (headerHeight >= 0 ? headerHeight : ClientGrid.DEFAULT_HEADER_HEIGHT);
+    }
 
     public boolean mayHaveChildren() {
         return isRecursive || (parent != null && parent.groups.indexOf(this) != parent.groups.size() - 1);
@@ -109,8 +142,13 @@ public class ClientGroupObject extends IdentityObject implements ClientIdentityS
     }
 
     @Override
-    public ClientComponent getUserFilter() {
-        return filter;
+    public ClientContainer getFiltersContainer() {
+        return filtersContainer;
+    }
+
+    @Override
+    public ClientFilterControls getFilterControls() {
+        return filterControls;
     }
 
     @Override
@@ -122,7 +160,9 @@ public class ClientGroupObject extends IdentityObject implements ClientIdentityS
         pool.serializeCollection(outStream, objects);
         pool.serializeObject(outStream, grid);
         pool.serializeObject(outStream, toolbar);
-        pool.serializeObject(outStream, filter);
+        pool.serializeObject(outStream,filtersContainer);
+        pool.serializeObject(outStream, filterControls);
+        pool.serializeCollection(outStream, filters);
         pool.serializeObject(outStream, calculations);
         outStream.writeBoolean(needVerticalScroll);
     }
@@ -142,7 +182,9 @@ public class ClientGroupObject extends IdentityObject implements ClientIdentityS
 
         grid = pool.deserializeObject(inStream);
         toolbar = pool.deserializeObject(inStream);
-        filter = pool.deserializeObject(inStream);
+        filtersContainer = pool.deserializeObject(inStream);
+        filterControls = pool.deserializeObject(inStream);
+        pool.deserializeCollection(filters, inStream);
         calculations = pool.deserializeObject(inStream);
 
         isRecursive = inStream.readBoolean();
@@ -151,6 +193,7 @@ public class ClientGroupObject extends IdentityObject implements ClientIdentityS
         isCalendarDateTime = inStream.readBoolean();
         isCalendarPeriod= inStream.readBoolean();
 
+        hasHeaders = inStream.readBoolean();
         hasFooters = inStream.readBoolean();
 
         Integer ps = pool.readInt(inStream);
@@ -239,6 +282,24 @@ public class ClientGroupObject extends IdentityObject implements ClientIdentityS
 
         public byte getType() {
             return PropertyReadType.ROW_FOREGROUND;
+        }
+    }
+
+    public class CustomOptionsReader implements ClientPropertyReader {
+        public ClientGroupObject getGroupObject() {
+            return ClientGroupObject.this;
+        }
+
+        public void update(Map<ClientGroupObjectValue, Object> readKeys, boolean updateKeys, TableController controller) {
+            //do nothing in desktop
+        }
+
+        public int getID() {
+            return ClientGroupObject.this.getID();
+        }
+
+        public byte getType() {
+            return PropertyReadType.CUSTOM_OPTIONS;
         }
     }
 }

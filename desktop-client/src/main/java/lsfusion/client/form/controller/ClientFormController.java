@@ -9,14 +9,14 @@ import lsfusion.base.col.heavy.OrderedMap;
 import lsfusion.base.file.RawFileData;
 import lsfusion.base.identity.DefaultIDGenerator;
 import lsfusion.base.identity.IDGenerator;
+import lsfusion.base.lambda.AsyncCallback;
 import lsfusion.base.lambda.EProvider;
-import lsfusion.base.lambda.ERunnable;
 import lsfusion.client.base.SwingUtils;
 import lsfusion.client.base.TableManager;
 import lsfusion.client.base.view.ClientImages;
 import lsfusion.client.base.view.ItemAdapter;
 import lsfusion.client.base.view.SwingDefaults;
-import lsfusion.client.classes.ClientActionClass;
+import lsfusion.client.classes.data.ClientLogicalClass;
 import lsfusion.client.controller.MainController;
 import lsfusion.client.controller.dispatch.DispatcherListener;
 import lsfusion.client.controller.remote.AsyncListener;
@@ -28,25 +28,33 @@ import lsfusion.client.form.controller.dispatch.ClientFormActionDispatcher;
 import lsfusion.client.form.controller.remote.serialization.ClientSerializationPool;
 import lsfusion.client.form.design.ClientComponent;
 import lsfusion.client.form.design.ClientContainer;
-import lsfusion.client.form.design.view.ClientFormLayout;
-import lsfusion.client.form.design.view.JComponentPanel;
-import lsfusion.client.form.design.view.TabbedClientContainerView;
+import lsfusion.client.form.design.view.*;
+import lsfusion.client.form.design.view.flex.LinearClientContainerView;
+import lsfusion.client.form.design.view.widget.ComboBoxWidget;
+import lsfusion.client.form.design.view.widget.Widget;
 import lsfusion.client.form.filter.ClientRegularFilter;
 import lsfusion.client.form.filter.ClientRegularFilterGroup;
 import lsfusion.client.form.filter.ClientRegularFilterWrapper;
+import lsfusion.client.form.filter.user.ClientFilter;
 import lsfusion.client.form.filter.user.ClientPropertyFilter;
+import lsfusion.client.form.filter.user.controller.FilterController;
+import lsfusion.client.form.filter.user.view.FilterConditionView;
 import lsfusion.client.form.filter.view.SingleFilterBox;
+import lsfusion.client.form.object.ClientCustomObjectValue;
 import lsfusion.client.form.object.ClientGroupObject;
 import lsfusion.client.form.object.ClientGroupObjectValue;
 import lsfusion.client.form.object.ClientObject;
+import lsfusion.client.form.object.table.controller.AbstractTableController;
 import lsfusion.client.form.object.table.controller.TableController;
 import lsfusion.client.form.object.table.grid.controller.GridController;
 import lsfusion.client.form.object.table.grid.user.design.GridUserPreferences;
 import lsfusion.client.form.object.table.tree.ClientTreeGroup;
 import lsfusion.client.form.object.table.tree.controller.TreeGroupController;
 import lsfusion.client.form.property.ClientPropertyDraw;
-import lsfusion.client.form.property.async.ClientAsyncAddRemove;
-import lsfusion.client.form.property.async.ClientAsyncOpenForm;
+import lsfusion.client.form.property.async.*;
+import lsfusion.client.form.property.cell.ClientAsync;
+import lsfusion.client.form.property.cell.GetAsyncValuesProvider;
+import lsfusion.client.form.property.cell.controller.dispatch.EditPropertyDispatcher;
 import lsfusion.client.form.property.cell.controller.dispatch.SimpleChangePropertyDispatcher;
 import lsfusion.client.form.property.panel.view.PanelView;
 import lsfusion.client.form.view.ClientFormDockable;
@@ -55,11 +63,10 @@ import lsfusion.client.view.DockableMainFrame;
 import lsfusion.client.view.MainFrame;
 import lsfusion.interop.action.*;
 import lsfusion.interop.base.remote.RemoteRequestInterface;
+import lsfusion.interop.form.FormClientData;
 import lsfusion.interop.form.UpdateMode;
-import lsfusion.interop.form.event.BindingMode;
 import lsfusion.interop.form.event.InputEvent;
-import lsfusion.interop.form.event.KeyInputEvent;
-import lsfusion.interop.form.event.MouseInputEvent;
+import lsfusion.interop.form.event.*;
 import lsfusion.interop.form.object.table.grid.user.design.ColumnUserPreferences;
 import lsfusion.interop.form.object.table.grid.user.design.FormUserPreferences;
 import lsfusion.interop.form.object.table.grid.user.design.GroupObjectUserPreferences;
@@ -69,24 +76,27 @@ import lsfusion.interop.form.order.user.Order;
 import lsfusion.interop.form.print.FormPrintType;
 import lsfusion.interop.form.print.ReportGenerationData;
 import lsfusion.interop.form.print.ReportGenerator;
+import lsfusion.interop.form.property.Compare;
+import lsfusion.interop.form.property.EventSource;
 import lsfusion.interop.form.remote.RemoteFormInterface;
 
 import javax.swing.Timer;
 import javax.swing.*;
 import java.awt.*;
-import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
-import java.awt.event.ItemEvent;
-import java.awt.event.KeyEvent;
+import java.awt.event.*;
 import java.io.*;
 import java.rmi.RemoteException;
+import java.text.ParseException;
 import java.util.List;
 import java.util.*;
-import java.util.concurrent.*;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
-import static lsfusion.base.BaseUtils.serializeObject;
+import static lsfusion.base.BaseUtils.*;
 import static lsfusion.client.ClientResourceBundle.getString;
 
 public class ClientFormController implements AsyncListener {
@@ -123,6 +133,17 @@ public class ClientFormController implements AsyncListener {
         }
     };
 
+    private final GetAsyncValuesProvider getAsyncValuesProvider = new GetAsyncValuesProvider() {
+        @Override
+        public ClientAsync[] getAsyncValues(int propertyID, byte[] columnKey, String actionSID, String value, int asyncIndex) throws RemoteException {
+            return remoteForm == null ? null : ClientFormController.this.getAsyncValues(-1, 0, propertyID, columnKey, actionSID, value, asyncIndex, remoteForm);
+        }
+    };
+
+    private ClientAsync[] getAsyncValues(long requestIndex, long lastReceivedRequestIndex, int propertyID, byte[] columnKey, String actionSID, String value, int asyncIndex, RemoteFormInterface remoteForm) throws RemoteException {
+        return ClientAsync.deserialize(remoteForm.getAsyncValues(requestIndex, lastReceivedRequestIndex, propertyID, columnKey, actionSID, value, asyncIndex, 0), form);
+    }
+
     private final RmiQueue rmiQueue;
     private final SimpleChangePropertyDispatcher simpleDispatcher;
 
@@ -143,10 +164,10 @@ public class ClientFormController implements AsyncListener {
     private final Map<ClientGroupObject, GridController> controllers = new LinkedHashMap<>();
     private final Map<ClientTreeGroup, TreeGroupController> treeControllers = new LinkedHashMap<>();
 
-    private final Map<ClientGroupObject, List<JComponentPanel>> filterViews = new HashMap<>();
+    private final Map<ClientGroupObject, List<FlexPanel>> filterViews = new HashMap<>();
 
     private final boolean isDialog;
-    private final boolean isModal;
+    private final boolean isWindow;
 
     private final Map<ClientGroupObject, List<ClientPropertyFilter>> currentFilters = new HashMap<>();
 
@@ -156,6 +177,8 @@ public class ClientFormController implements AsyncListener {
     private final Map<ClientGroupObject, Long> pendingChangeCurrentObjectsRequests = Maps.newHashMap();
     private final Table<ClientPropertyDraw, ClientGroupObjectValue, PropertyChange> pendingChangePropertyRequests = HashBasedTable.create();
 
+    private boolean hasColumnGroupObjects;
+
     private Timer asyncTimer;
     private PanelView asyncView;
     private Icon asyncPrevIcon;
@@ -164,16 +187,20 @@ public class ClientFormController implements AsyncListener {
 
     private boolean selected = true;
 
-    private ScheduledExecutorService autoRefreshScheduler;
+    private List<ScheduledExecutorService> formSchedulers;
 
     private List<ClientComponent> firstTabsToActivate;
     private List<ClientPropertyDraw> firstPropsToActivate;
 
-    public ClientFormController(String icanonicalName, String iformSID, RemoteFormInterface iremoteForm, FormsController iformsController, ClientForm iform, byte[] firstChanges, ClientNavigator iclientNavigator, boolean iisModal, boolean iisDialog) {
-        formSID = iformSID + (iisModal ? "(modal)" : "") + "(" + System.identityHashCode(this) + ")";
-        canonicalName = icanonicalName;
+    private Set<Integer> inputGroupObjects;
+
+    public ClientFormController(RemoteFormInterface iremoteForm, FormsController iformsController, ClientForm iform, FormClientData clientData, ClientNavigator iclientNavigator, boolean iisModal, boolean iisDialog) {
+        formSID = clientData.formSID + (iisModal ? "(modal)" : "") + "(" + System.identityHashCode(this) + ")";
+        canonicalName = clientData.canonicalName;
+        inputGroupObjects = clientData.inputGroupObjects;
+
         isDialog = iisDialog;
-        isModal = iisModal;
+        isWindow = iisModal;
 
         ID = idGenerator.idShift();
 
@@ -187,7 +214,7 @@ public class ClientFormController implements AsyncListener {
             formsController = iformsController;
             form = iform;
 
-            rmiQueue = new RmiQueue(tableManager, serverMessageProvider, serverMessageListProvider, this);
+            rmiQueue = new RmiQueue(tableManager, serverMessageProvider, serverMessageListProvider, this, true);
 
             actionDispatcher = new ClientFormActionDispatcher(rmiQueue) {
                 @Override
@@ -204,26 +231,36 @@ public class ClientFormController implements AsyncListener {
 
             updateFormCaption();
 
-            initializeForm(firstChanges);
+            initializeForm(clientData);
         } catch (Exception e) {
             throw Throwables.propagate(e);
         }
     }
 
-    public static ClientForm deserializeClientForm(RemoteFormInterface remoteForm) {
-        try {
-            return new ClientSerializationPool().deserializeObject(new DataInputStream(new ByteArrayInputStream(remoteForm.getRichDesignByteArray())));
-        } catch (IOException e) {
-            throw Throwables.propagate(e);
+    public static ClientForm deserializeClientForm(RemoteFormInterface remoteForm, FormClientData clientData) throws IOException {
+        return new ClientSerializationPool().deserializeObject(new DataInputStream(new ByteArrayInputStream(clientData.richDesign)));
+    }
+
+    public void checkMouseEvent(MouseEvent e, boolean preview, ClientPropertyDraw property, Supplier<ClientGroupObject> groupObjectSupplier, boolean panel) {
+        boolean ignore = property != null && property.baseType instanceof ClientLogicalClass && !property.isReadOnly();
+        if (!ignore && !e.isConsumed()) {
+            boolean doubleChangeEvent = MouseStrokes.isDoubleChangeEvent(e);
+            if (MouseStrokes.isChangeEvent(e) || doubleChangeEvent) {
+                processBinding(new MouseInputEvent(e, doubleChangeEvent), preview, e, groupObjectSupplier, panel);
+            }
         }
+    }
+    public void checkKeyEvent(KeyStroke ks, KeyEvent e, boolean preview, ClientPropertyDraw property, Supplier<ClientGroupObject> groupObjectSupplier, boolean panel, int condition, boolean pressed) {
+        if(condition == JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT && pressed && !e.isConsumed())
+            processBinding(new KeyInputEvent(ks), preview, e, groupObjectSupplier, panel);
     }
 
     public boolean hasCanonicalName() {
         return canonicalName != null;
     }
 
-    public boolean isModal() {
-        return isModal;
+    public boolean isWindow() {
+        return isWindow;
     }
 
     public boolean isDialog() {
@@ -269,11 +306,15 @@ public class ClientFormController implements AsyncListener {
     // ------------------------------------------------------------------------------------ //
     // ----------------------------------- Инициализация ---------------------------------- //
     // ------------------------------------------------------------------------------------ //
-    private void initializeForm(byte[] firstChanges) throws Exception {
-        initializeControllers();
+    private void initializeForm(FormClientData clientData) throws Exception {
+
+        initializeParams(); // has to be done before initializeControllers (since adding component uses getSize)
+
+        initializeControllers(clientData);
 
         initializeDefaultOrders(); // now it doesn't matter, because NavigatorForm will be removed, and first changes will always be not null, but still
 
+        byte[] firstChanges = clientData.firstChanges;
         if(firstChanges != null) {
             applyFormChanges(-1, firstChanges, true);
         } else {
@@ -285,15 +326,31 @@ public class ClientFormController implements AsyncListener {
 
         initializeUserOrders();
 
-        initializeAutoRefresh();
+        initializeFormSchedulers();
     }
 
     public List<ClientPropertyDraw> getPropertyDraws() {
         return form.getPropertyDraws();
     }
-    
-    private void initializeControllers() throws IOException {
-        FormUserPreferences preferences = remoteForm.getUserPreferences();
+
+    private void initializeParams() {
+        hasColumnGroupObjects = false;
+        for (ClientPropertyDraw property : getPropertyDraws()) {
+            if (property.hasColumnGroupObjects()) {
+                hasColumnGroupObjects = true;
+            }
+
+            ClientGroupObject groupObject = property.groupObject;
+            if(groupObject != null && property.isList && !property.hide && groupObject.columnCount < 10) {
+                groupObject.columnSumWidth += property.getValueWidthWithPadding(formLayout);
+                groupObject.columnCount++;
+                groupObject.rowMaxHeight = Math.max(groupObject.rowMaxHeight, property.getValueHeightWithPadding(formLayout));
+            }
+        }
+    }
+
+    private void initializeControllers(FormClientData clientData) throws IOException {
+        FormUserPreferences preferences = clientData.userPreferences;
         
         for (ClientTreeGroup treeGroup : form.treeGroups) {
             initializeTreeController(treeGroup);
@@ -354,62 +411,51 @@ public class ClientFormController implements AsyncListener {
         }
     }
 
-    private void initializeAutoRefresh() {
-        if (form.autoRefresh > 0) {
-            autoRefreshScheduler = Executors.newScheduledThreadPool(1);
-            scheduleRefresh();
+    private void initializeFormSchedulers() {
+        formSchedulers = new ArrayList<>();
+        for(int i = 0; i < form.formSchedulers.size(); i++) {
+            FormScheduler formScheduler = form.formSchedulers.get(i);
+            ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
+            formSchedulers.add(scheduler);
+            scheduleFormScheduler(scheduler, formScheduler);
         }
     }
 
-    private void scheduleRefresh() {
+    private void scheduleFormScheduler(ScheduledExecutorService scheduler, FormScheduler formScheduler) {
         if (remoteForm != null) {
-            autoRefreshScheduler.schedule(new Runnable() {
-                @Override
-                public void run() {
-                    if (formLayout.isShowing()) {
-                        SwingUtils.invokeLater(new ERunnable() {
-                            @Override
-                            public void run() throws Exception {
-                                rmiQueue.asyncRequest(new ProcessServerResponseRmiRequest("autoRefresh.getRemoteChanges") {
-                                    @Override
-                                    protected ServerResponse doRequest(long requestIndex, long lastReceivedRequestIndex, RemoteFormInterface remoteForm) throws RemoteException {
-                                        return remoteForm.getRemoteChanges(requestIndex, lastReceivedRequestIndex, true, false);
-                                    }
-
-                                    @Override
-                                    protected void onResponse(long requestIndex, ServerResponse result) throws Exception {
-                                        super.onResponse(requestIndex, result);
-                                        scheduleRefresh();
-                                    }
-                                });
+            scheduler.schedule(() -> {
+                if (formLayout.isShowing()) {
+                    SwingUtils.invokeLater(() -> rmiQueue.adaptiveSyncRequest(new ProcessServerResponseRmiRequest("executeFormSchedulerAction") {
+                        @Override
+                        protected ServerResponse doRequest(long requestIndex, long lastReceivedRequestIndex, RemoteFormInterface remoteForm) throws RemoteException {
+                            if (formScheduler.fixed) {
+                                scheduleFormScheduler(scheduler, formScheduler);
                             }
-                        });
-                    } else {
-                        scheduleRefresh();
-                    }
+                            return remoteForm.executeEventAction(requestIndex, lastReceivedRequestIndex, formScheduler, null);
+                        }
+
+                        @Override
+                        protected void onResponse(long requestIndex, ServerResponse result) throws Exception {
+                            super.onResponse(requestIndex, result);
+                            if (!formScheduler.fixed) {
+                                scheduleFormScheduler(scheduler, formScheduler);
+                            }
+                        }
+                    }));
+                } else {
+                    scheduleFormScheduler(scheduler, formScheduler);
                 }
-            }, form.autoRefresh, TimeUnit.SECONDS);
+            }, formScheduler.period, TimeUnit.SECONDS);
         }
     }
 
     private void createMultipleFilterComponent(final ClientRegularFilterGroup filterGroup) {
-        final JComboBox comboBox = new JComboBox();
+        final ComboBoxWidget comboBox = new ComboBoxWidget();
         comboBox.addItem(new ClientRegularFilterWrapper(getString("form.all")));
         for (final ClientRegularFilter filter : filterGroup.filters) {
             comboBox.addItem(new ClientRegularFilterWrapper(filter));
-            if(filter.key != null) {
-                addBinding(new KeyInputEvent(filter.key), new Binding(filterGroup.groupObject, 0) {
-                    @Override
-                    public boolean pressed(KeyEvent ke) {
-                        comboBox.setSelectedItem(new ClientRegularFilterWrapper(filter));
-                        return true;
-                    }
-                    @Override
-                    public boolean showing() {
-                        return true;
-                    }
-                });
-            }
+            addBinding(filterGroup.groupObject, comboBox, filter, filter.keyInputEvent, filter.keyPriority);
+            addBinding(filterGroup.groupObject, comboBox, filter, filter.mouseInputEvent, filter.mousePriority);
         }
 
         if (filterGroup.defaultFilterIndex >= 0) {
@@ -437,6 +483,22 @@ public class ClientFormController implements AsyncListener {
         addFilterView(filterGroup, comboBox);
     }
 
+    private void addBinding(ClientGroupObject groupObject, ComboBoxWidget comboBox, ClientRegularFilter filter, InputEvent inputEvent, Integer priority) {
+        if(inputEvent != null) {
+            addBinding(inputEvent, new Binding(groupObject, nvl(priority, 0)) {
+                @Override
+                public boolean pressed(java.awt.event.InputEvent ke) {
+                    comboBox.setSelectedItem(new ClientRegularFilterWrapper(filter));
+                    return true;
+                }
+                @Override
+                public boolean showing() {
+                    return true;
+                }
+            });
+        }
+    }
+
     private void createSingleFilterComponent(final ClientRegularFilterGroup filterGroup, final ClientRegularFilter singleFilter) {
         final SingleFilterBox checkBox = new SingleFilterBox(filterGroup, singleFilter) {
             @Override
@@ -452,10 +514,15 @@ public class ClientFormController implements AsyncListener {
 
         addFilterView(filterGroup, checkBox);
 
-        if(singleFilter.key != null) {
-            addBinding(new KeyInputEvent(singleFilter.key), new Binding(filterGroup.groupObject, 0) {
+        addBinding(filterGroup.groupObject, checkBox, singleFilter.keyInputEvent, singleFilter.keyPriority);
+        addBinding(filterGroup.groupObject, checkBox, singleFilter.mouseInputEvent, singleFilter.mousePriority);
+    }
+
+    private void addBinding(ClientGroupObject groupObject, SingleFilterBox checkBox, InputEvent inputEvent, Integer priority) {
+        if(inputEvent != null) {
+            addBinding(inputEvent, new Binding(groupObject, nvl(priority, 0)) {
                 @Override
-                public boolean pressed(KeyEvent ke) {
+                public boolean pressed(java.awt.event.InputEvent ke) {
                     checkBox.setSelected(!checkBox.isSelected());
                     return true;
                 }
@@ -467,18 +534,32 @@ public class ClientFormController implements AsyncListener {
         }
     }
 
-    private void addFilterView(ClientRegularFilterGroup filterGroup, JComponent filterView) {
-        JComponentPanel filterPanel = new JComponentPanel();
+    public void setRegularFilterIndex(Integer filterGroup, Integer index) {
+        for (Map.Entry<ClientComponent, Widget> entry : formLayout.getBaseComponentViews().entrySet()) {
+            ClientComponent component = entry.getKey();
+            if (component instanceof ClientRegularFilterGroup && (filterGroup == null || filterGroup == component.getID())) {
+                Widget widget = ((FlexPanel) entry.getValue()).getWidget(0);
+                if (widget instanceof SingleFilterBox) { //single filter
+                    ((SingleFilterBox) widget).forceSelect(index > 0);
+                } else if (widget instanceof ComboBoxWidget) { //multiple filter
+                    ((ComboBoxWidget) widget).setSelectedIndex(index);
+                }
+            }
+        }
+    }
+
+    private void addFilterView(ClientRegularFilterGroup filterGroup, Widget filterView) {
+        FlexPanel filterPanel = new FlexPanel(false);
         filterPanel.setBorder(BorderFactory.createEmptyBorder(0, 2, 0 , 2));
-        filterPanel.add(filterView, BorderLayout.CENTER);
+        filterPanel.add(filterView);
         
-        formLayout.add(filterGroup, filterPanel);
+        formLayout.addBaseComponent(filterGroup, filterPanel);
 
         if (filterGroup.groupObject == null) {
             return;
         }
 
-        List<JComponentPanel> groupFilters = filterViews.get(filterGroup.groupObject);
+        List<FlexPanel> groupFilters = filterViews.get(filterGroup.groupObject);
         if (groupFilters == null) {
             groupFilters = new ArrayList<>();
             filterViews.put(filterGroup.groupObject, groupFilters);
@@ -487,10 +568,10 @@ public class ClientFormController implements AsyncListener {
     }
 
     public void setFiltersVisible(ClientGroupObject groupObject, boolean visible) {
-        List<JComponentPanel> groupFilters = filterViews.get(groupObject);
+        List<FlexPanel> groupFilters = filterViews.get(groupObject);
         if (groupFilters != null) {
-            for (JComponent filterView : groupFilters) {
-                filterView.setVisible(visible);
+            for (FlexPanel filterView : groupFilters) {
+                SwingUtils.setGridVisible(filterView, visible);
             }
         }
     }
@@ -538,8 +619,8 @@ public class ClientFormController implements AsyncListener {
         });
 
         for (ClientAction action : result.actions) {
-            if (action instanceof LogMessageClientAction) {
-                actionDispatcher.execute((LogMessageClientAction) action);
+            if (action instanceof MessageClientAction) {
+                actionDispatcher.execute((MessageClientAction) action);
                 failureCallback.run();
                 return;
             }
@@ -548,7 +629,7 @@ public class ClientFormController implements AsyncListener {
     }
     
     public void refreshUPHiddenProperties(final String groupObjectSID, final String[] sids) {
-        rmiQueue.asyncRequest(new ProcessServerResponseRmiRequest("refreshUPHiddenProperties") {
+        rmiQueue.adaptiveSyncRequest(new ProcessServerResponseRmiRequest("refreshUPHiddenProperties") {
             @Override
             protected ServerResponse doRequest(long requestIndex, long lastReceivedRequestIndex, RemoteFormInterface remoteForm) throws RemoteException {
                 return remoteForm.refreshUPHiddenProperties(requestIndex, lastReceivedRequestIndex, groupObjectSID, sids);   
@@ -557,6 +638,7 @@ public class ClientFormController implements AsyncListener {
     }
 
     public void commitOrCancelCurrentEditing() {
+        editAsyncUsePessimistic = false;
         tableManager.commitOrCancelCurrentEditing();
     }
 
@@ -628,10 +710,10 @@ public class ClientFormController implements AsyncListener {
         return form.getDefaultOrders(groupObject);
     }
 
-    private void processServerResponse(ServerResponse serverResponse) throws IOException {
+    private void processServerResponse(ServerResponse serverResponse, EditPropertyDispatcher editDispatcher) throws IOException {
         //ХАК: serverResponse == null теоретически может быть при реконнекте, когда RMI-поток убивается и remote-method возвращает null
         if (serverResponse != null) {
-            actionDispatcher.dispatchResponse(serverResponse);
+            (editDispatcher != null ? editDispatcher : actionDispatcher).dispatchServerResponse(serverResponse);
         }
     }
 
@@ -647,7 +729,7 @@ public class ClientFormController implements AsyncListener {
             }
         };
         if (async) {
-            rmiQueue.asyncRequest(request);
+            rmiQueue.adaptiveSyncRequest(request);
         } else {
             rmiQueue.syncRequest(request);
         }
@@ -658,9 +740,10 @@ public class ClientFormController implements AsyncListener {
             return;
         }
 
-        ClientFormChanges formChanges = new ClientFormChanges(new DataInputStream(new ByteArrayInputStream(bFormChanges)), form);
+        ClientFormChanges formChanges = new ClientFormChanges(bFormChanges, form);
 
-        currentGridObjects.putAll(formChanges.gridObjects);
+        if(hasColumnGroupObjects) // optimization
+            currentGridObjects.putAll(formChanges.gridObjects);
 
         modifyFormChangesWithModifyObjectAsyncs(requestIndex, formChanges);
 
@@ -676,15 +759,13 @@ public class ClientFormController implements AsyncListener {
             treeController.processFormChanges(formChanges, currentGridObjects);
         }
         
-        formLayout.preValidateMainContainer();
+        expandCollapseContainers(formChanges);
+        
+        formLayout.autoShowHideContainers();
         
         activateElements(formChanges, firstChanges);
 
-        SwingUtilities.invokeLater(new Runnable() {
-            public void run() {
-                formLayout.revalidate();
-            }
-        });
+        SwingUtilities.invokeLater(() -> formLayout.revalidate());
     }
     
     private void activateElements(ClientFormChanges formChanges, boolean firstChanges) {
@@ -694,6 +775,28 @@ public class ClientFormController implements AsyncListener {
         } else {
             activateTabs(formChanges.activateTabs);
             activateProperties(formChanges.activateProps);
+        }
+    }
+    
+    private void expandCollapseContainers(ClientFormChanges formChanges) {
+        for (ClientContainer container : formChanges.collapseContainers) {
+            setContainerExtCollapsed(container, true);
+        }
+        
+        for (ClientContainer container : formChanges.expandContainers) {
+            setContainerExtCollapsed(container, false);
+        }
+    }
+    
+    private void setContainerExtCollapsed(ClientContainer container, boolean collapsed) {
+        if (container.container != null) {
+            ClientContainerView parentContainerView = formLayout.getContainerView(container.container);
+            if (parentContainerView instanceof LinearClientContainerView) {
+                Widget childWidget = ((LinearClientContainerView) parentContainerView).getChildView(container);
+                if (childWidget instanceof CollapsiblePanel) {
+                    ((CollapsiblePanel) childWidget).setExtCollapsed(collapsed);
+                }
+            }
         }
     }
 
@@ -806,13 +909,18 @@ public class ClientFormController implements AsyncListener {
             }
         }
 
-        for (Map.Entry<Long, ModifyObject> e : pendingModifyObjectRequests.entrySet()) {
-            List<ClientGroupObjectValue> gridObjects = formChanges.gridObjects.get(e.getValue().object.groupObject);
-            if(gridObjects!=null) {
-                if(e.getValue().add)
-                    gridObjects.add(e.getValue().value);
-                else
-                    gridObjects.remove(e.getValue().value);
+        for (Iterator<Map.Entry<Long, ModifyObject>> iterator = pendingModifyObjectRequests.entrySet().iterator(); iterator.hasNext(); ) {
+            Map.Entry<Long, ModifyObject> cell = iterator.next();
+            ModifyObject modifyObject = cell.getValue();
+            List<ClientGroupObjectValue> gridObjects = formChanges.gridObjects.get(modifyObject.object.groupObject);
+            if (gridObjects != null) {
+                if (modifyObject.add) {
+                    gridObjects.add(modifyObject.value);
+                } else {
+                    if (!gridObjects.remove(modifyObject.value)) { //could be removed in previous formChange (for example, two async groupChanges)
+                        iterator.remove();
+                    }
+                }
             }
         }
 
@@ -850,7 +958,7 @@ public class ClientFormController implements AsyncListener {
 
     public void collapseGroupObject(final ClientGroupObject group, final ClientGroupObjectValue objectValue) {
         commitOrCancelCurrentEditing();
-        rmiQueue.asyncRequest(new ProcessServerResponseRmiRequest("collapseGroupObject") {
+        rmiQueue.adaptiveSyncRequest(new ProcessServerResponseRmiRequest("collapseGroupObject") {
             @Override
             protected ServerResponse doRequest(long requestIndex, long lastReceivedRequestIndex, RemoteFormInterface remoteForm) throws RemoteException {
                 return remoteForm.collapseGroupObject(requestIndex, lastReceivedRequestIndex, group.getID(), objectValue.serialize());
@@ -873,7 +981,7 @@ public class ClientFormController implements AsyncListener {
             return;
         }
 
-        rmiQueue.asyncRequest(new ProcessServerResponseRmiRequest("changeGroupObject") {
+        rmiQueue.adaptiveSyncRequest(new ProcessServerResponseRmiRequest("changeGroupObject") {
             @Override
             protected void onAsyncRequest(long requestIndex) {
 //                        System.out.println("!!Async changing group object with req#: " + requestIndex + " on " + objectValue);
@@ -887,23 +995,31 @@ public class ClientFormController implements AsyncListener {
         });
     }
 
-    private byte[] getFullCurrentKey(ClientGroupObjectValue columnKey) throws IOException {
-        final ClientGroupObjectValue fullCurrentKey = getFullCurrentKey();
-        fullCurrentKey.putAll(columnKey);
+    private byte[] getFullCurrentKey(ClientGroupObjectValue columnKey) {
+        List<ClientGroupObjectValue> values = new ArrayList<>();
+        for (GridController group : controllers.values())
+            values.add(group.getCurrentKey());
 
-        return fullCurrentKey.serialize();
+        for (TreeGroupController tree : treeControllers.values()) {
+            ClientGroupObjectValue currentPath = tree.getCurrentPath();
+            if (currentPath != null)
+                values.add(currentPath);
+        }
+
+        values.add(columnKey);
+
+        return new ClientGroupObjectValue(values.toArray(new ClientGroupObjectValue[0])).serialize();
     }
 
     public void changeProperty(final ClientPropertyDraw property, final ClientGroupObjectValue columnKey, String actionSID,
-                               final Object newValue, final Object oldValue) throws IOException {
+                               final Object newValue, Integer contextAction, final Object oldValue, EditPropertyDispatcher editDispatcher) throws IOException {
         assert !isEditing();
 
         commitOrCancelCurrentEditing();
 
-        final byte[] fullCurrentKey = getFullCurrentKey(columnKey); // чтобы не изменился
-        final byte[] newValueBytes = serializeObject(newValue);
+        final byte[] fullCurrentKey = getFullCurrentKey(columnKey);
 
-        rmiQueue.asyncRequest(new ProcessServerResponseRmiRequest("changeProperty") {
+        rmiQueue.adaptiveSyncRequest(new ProcessServerResponseRmiRequest("changeProperty", editDispatcher) {
             @Override
             protected void onAsyncRequest(long requestIndex) {
 //                System.out.println("!!Async changing property with req#: " + requestIndex);
@@ -914,7 +1030,7 @@ public class ClientFormController implements AsyncListener {
 
                 ClientGroupObjectValue propertyKey;
                 if (controller != null && property.isList) {
-                    ClientGroupObjectValue currentObject = controller.getCurrentObject();
+                    ClientGroupObjectValue currentObject = controller.getCurrentKey();
                     if(currentObject.isEmpty())
                         return;
                     propertyKey = new ClientGroupObjectValue(currentObject, columnKey);
@@ -928,54 +1044,48 @@ public class ClientFormController implements AsyncListener {
 
             @Override
             protected ServerResponse doRequest(long requestIndex, long lastReceivedRequestIndex, RemoteFormInterface remoteForm) throws RemoteException {
-                return changeProperty(remoteForm, requestIndex, lastReceivedRequestIndex, actionSID, property.getID(), fullCurrentKey, newValueBytes, null);
+                return executeEventAction(requestIndex, lastReceivedRequestIndex, remoteForm, property, fullCurrentKey, actionSID, new ClientPushAsyncInput(newValue, contextAction));
             }
 
             @Override
             protected void onResponse(long requestIndex, ServerResponse result) throws Exception {
                 SwingUtils.commitDelayedGroupObjectChange(property.getGroupObject());
-                processServerResponse(result);
+                super.onResponse(requestIndex, result);
             }
         });
     }
 
-    private ServerResponse changeProperty(RemoteFormInterface remoteForm, long requestIndex, long lastReceivedRequestIndex, String actionSID, int propertyID, byte[] fullCurrentKey, byte[] pushChange, Long pushAdd) throws RemoteException {
-        return remoteForm.changeProperties(requestIndex, lastReceivedRequestIndex, actionSID, new int[]{propertyID}, new byte[][]{fullCurrentKey}, new byte[][]{pushChange}, new Long[]{pushAdd});
-    }
-
-    public void asyncAddRemove(ClientPropertyDraw property, ClientGroupObjectValue columnKey, String actionSID, ClientAsyncAddRemove addRemove) throws IOException {
+    public void asyncAddRemove(ClientPropertyDraw property, EditPropertyDispatcher dispatcher, ClientGroupObjectValue columnKey, String actionSID, ClientAsyncAddRemove addRemove) throws IOException {
         commitOrCancelCurrentEditing();
 
-        final ClientObject object = addRemove.object;
+        final ClientObject object = form.getObject(addRemove.object);
         final boolean add = addRemove.add;
 
         final GridController controller = controllers.get(object.groupObject);
 
-        final long ID;
+        final ClientPushAsyncResult pushAsyncResult;
         final ClientGroupObjectValue value;
         if(add) {
+            long ID;
             try {
-                ID = rmiQueue.runRetryableRequest(new Callable<Long>() {
-                    public Long call() throws Exception {
-                        return MainController.generateID();
-                    }
-                });
+                ID = rmiQueue.runRetryableRequest(() -> MainController.generateID());
             } catch (Exception e) {
                 throw Throwables.propagate(e);
             }
-            value = new ClientGroupObjectValue(object, ID);
+            pushAsyncResult = new ClientPushAsyncAdd(ID);
+            value = new ClientGroupObjectValue(object, new ClientCustomObjectValue(ID, null));
         } else {
-            value = controller.getCurrentObject();
+            value = controller.getCurrentKey();
             if(value.isEmpty())
                 return;
-            ID = (Long) BaseUtils.singleValue(value);
+            pushAsyncResult = null;
         }
         
         final int position = controller.getCurrentRow();
 
         final byte[] fullCurrentKey = getFullCurrentKey(columnKey); // чтобы не изменился
 
-        rmiQueue.asyncRequest(new ProcessServerResponseRmiRequest("modifyObject") {
+        rmiQueue.adaptiveSyncRequest(new ProcessServerResponseRmiRequest("modifyObject", dispatcher) {
             @Override
             protected void onAsyncRequest(long requestIndex) {
                 controller.modifyGroupObject(value, add, -1); // сначала посылаем запрос, так как getFullCurrentKey может измениться
@@ -986,62 +1096,58 @@ public class ClientFormController implements AsyncListener {
 
             @Override
             protected ServerResponse doRequest(long requestIndex, long lastReceivedRequestIndex, RemoteFormInterface remoteForm) throws RemoteException {
-                return changeProperty(remoteForm, requestIndex, lastReceivedRequestIndex, actionSID, property.getID(), fullCurrentKey, null, add ? ID : null);
+                return executeEventAction(requestIndex, lastReceivedRequestIndex, remoteForm, property, fullCurrentKey,  actionSID, pushAsyncResult);
             }
         });
     }
 
     public ClientGroupObjectValue getFullCurrentKey() {
-        ClientGroupObjectValue fullKey = new ClientGroupObjectValue();
-
-        for (GridController group : controllers.values()) {
-            fullKey.putAll(group.getCurrentObject());
-        }
+        List<ClientGroupObjectValue> values = new ArrayList<>();
+        for (GridController group : controllers.values())
+            values.add(group.getCurrentKey());
 
         for (TreeGroupController tree : treeControllers.values()) {
             ClientGroupObjectValue currentPath = tree.getCurrentPath();
-            if (currentPath != null) {
-                fullKey.putAll(currentPath);
-            }
+            if (currentPath != null)
+                values.add(currentPath);
         }
 
-        return fullKey;
+        return new ClientGroupObjectValue(values.toArray(new ClientGroupObjectValue[0]));
     }
 
-    public void asyncOpenForm(ClientPropertyDraw property, ClientGroupObjectValue columnKey, String actionSID, ClientAsyncOpenForm asyncOpenForm) throws IOException {
-        if(!asyncOpenForm.isModal()) { //ignore async modal windows in desktop
-            ((DockableMainFrame) MainFrame.instance).asyncOpenForm(rmiQueue.getNextRmiRequestIndex(), asyncOpenForm);
-        }
-
+    public void asyncOpenForm(ClientPropertyDraw property, EditPropertyDispatcher dispatcher, ClientGroupObjectValue columnKey, String actionSID, ClientAsyncOpenForm asyncOpenForm) throws IOException {
         commitOrCancelCurrentEditing();
 
         final byte[] fullCurrentKey = getFullCurrentKey(columnKey);
 
-        rmiQueue.asyncRequest(new ProcessServerResponseRmiRequest("openForm") {
+        long requestIndex = rmiQueue.asyncRequest(new ProcessServerResponseRmiRequest("openForm", dispatcher) {
             @Override
             protected ServerResponse doRequest(long requestIndex, long lastReceivedRequestIndex, RemoteFormInterface remoteForm) throws RemoteException {
-                return remoteForm.executeEventAction(requestIndex, lastReceivedRequestIndex, property.getID(), fullCurrentKey, actionSID);
+                return executeEventAction(requestIndex, lastReceivedRequestIndex, remoteForm, property, fullCurrentKey, actionSID);
             }
             @Override
             protected void onResponse(long requestIndex, ServerResponse result) throws Exception {
                 super.onResponse(requestIndex, result);
-                //FormClientAction closes asyncForm, if there is no GFormAction in response,
-                //we should close this erroneous asyncForm
-                DockableRepository forms = ((DockableMainFrame) MainFrame.instance).getForms();
-                if (forms.hasAsyncForm(requestIndex)) {
-                    if (Arrays.stream(result.actions).noneMatch(a -> a instanceof FormClientAction)) {
-                        ClientFormDockable formContainer = forms.removeAsyncForm(requestIndex);
-                        formContainer.onClosing();
-                    }
-                }
                 if(formsController != null) {
                     formsController.setLastCompletedRequest(requestIndex);
                 }
             }
         });
+
+        ((DockableMainFrame) MainFrame.instance).asyncOpenForm(dispatcher.getAsyncFormController(requestIndex), asyncOpenForm);
     }
 
-    public ServerResponse executeEventAction(final ClientPropertyDraw property, final ClientGroupObjectValue columnKey, final String actionSID) throws IOException {
+    private ServerResponse executeEventAction(long requestIndex, long lastReceivedRequestIndex, RemoteFormInterface remoteForm, ClientPropertyDraw property, byte[] fullCurrentKey, String actionSID) throws RemoteException {
+        return executeEventAction(requestIndex, lastReceivedRequestIndex, remoteForm, property, fullCurrentKey, actionSID, null);
+    }
+    private ServerResponse executeEventAction(long requestIndex, long lastReceivedRequestIndex, RemoteFormInterface remoteForm, ClientPropertyDraw property, byte[] fullCurrentKey, String actionSID, ClientPushAsyncResult asyncResult) throws RemoteException {
+        return executeEventAction(requestIndex, lastReceivedRequestIndex, remoteForm, property, fullCurrentKey, actionSID, false, asyncResult);
+    }
+    private ServerResponse executeEventAction(long requestIndex, long lastReceivedRequestIndex, RemoteFormInterface remoteForm, ClientPropertyDraw property, byte[] fullCurrentKey, String actionSID, boolean isBinding, ClientPushAsyncResult asyncResult) throws RemoteException {
+        return remoteForm.executeEventAction(requestIndex, lastReceivedRequestIndex, actionSID, new int[]{property.getID()}, new byte[][]{fullCurrentKey}, new EventSource[] {isBinding ? EventSource.BINDING : EventSource.EDIT}, new byte[][]{asyncResult != null ? asyncResult.serialize() : null});
+    }
+
+    public ServerResponse executeEventAction(final ClientPropertyDraw property, final ClientGroupObjectValue columnKey, final String actionSID, boolean isBinding, ClientPushAsyncResult asyncResult) throws IOException {
         // При выполнение синхронных запросов, EDT блокируется. Если перед этим синхр. запросом был послан асинхронный, который возвращает DockedModal-FormAction,
         // то получается dead-lock: executeEventAction ждёт окончания предыдущего async-запроса и значит закрытия DockedModal формы,
         // а форма не может отработать, т.к. EDT заблокирован. Модальные диалоги отрабатывают нормально, т.к. Swing специально создаёт для них новую очередь событий.
@@ -1068,28 +1174,18 @@ public class ClientFormController implements AsyncListener {
                 rmiQueue.syncRequest(new RmiCheckNullFormRequest<ServerResponse>("executeEventAction - " + property.getLogName()) {
                     @Override
                     protected ServerResponse doRequest(long requestIndex, long lastReceivedRequestIndex, RemoteFormInterface remoteForm) throws RemoteException {
-                        return remoteForm.executeEventAction(requestIndex, lastReceivedRequestIndex, property.getID(), fullCurrentKey, actionSID);
+                        return executeEventAction(requestIndex, lastReceivedRequestIndex, remoteForm, property, fullCurrentKey, actionSID, isBinding, asyncResult);
                     }
 
                     @Override
                     protected void onResponseGetFailed(long requestIndex, Exception e) throws Exception {
-                        processServerResponse(new ServerResponse(requestIndex, new ClientAction[] {new ExceptionClientAction(e)}, isInServerInvocation(requestIndex)));
+                        processServerResponse(new ServerResponse(requestIndex, new ClientAction[] {new ExceptionClientAction(e)}, isInServerInvocation(requestIndex)), null);
                     }
 
                     @Override
                     protected void onResponse(long requestIndex, ServerResponse result) throws Exception {
 //                        if(remoteForm != null) // when there is hide in changeProperty and some button is clicked - breaks assertion in dispatchingEnded  
                         rmiQueue.postponeDispatchingEnded();
-
-                        //FormClientAction closes asyncForm, if there is no GFormAction in response,
-                        //we should close this erroneous asyncForm
-                        DockableRepository forms = ((DockableMainFrame) MainFrame.instance).getForms();
-                        if (forms.hasAsyncForm(requestIndex)) {
-                            if (Arrays.stream(result.actions).noneMatch(a -> a instanceof FormClientAction)) {
-                                ClientFormDockable formContainer = forms.removeAsyncForm(requestIndex);
-                                formContainer.onClosing();
-                            }
-                        }
                     }
                 });
         return result == null ? ServerResponse.EMPTY : result;
@@ -1114,7 +1210,7 @@ public class ClientFormController implements AsyncListener {
 
     public void gainedFocus() {
         try {
-            rmiQueue.asyncRequest(new ProcessServerResponseRmiRequest("gainedFocus") {
+            rmiQueue.adaptiveSyncRequest(new ProcessServerResponseRmiRequest("gainedFocus") {
                 @Override
                 protected ServerResponse doRequest(long requestIndex, long lastReceivedRequestIndex, RemoteFormInterface remoteForm) throws RemoteException {
                     return remoteForm.gainedFocus(requestIndex, lastReceivedRequestIndex);
@@ -1125,20 +1221,31 @@ public class ClientFormController implements AsyncListener {
         }
     }
 
-    public void setTabVisible(final ClientContainer container, final ClientComponent component) throws IOException {
-        rmiQueue.asyncRequest(new ProcessServerResponseRmiRequest("setTabVisible") {
+    public void setTabActive(final ClientContainer container, final ClientComponent component) {
+        rmiQueue.adaptiveSyncRequest(new ProcessServerResponseRmiRequest("setTabVisible") {
             @Override
             protected ServerResponse doRequest(long requestIndex, long lastReceivedRequestIndex, RemoteFormInterface remoteForm) throws RemoteException {
-                return remoteForm.setTabVisible(requestIndex, lastReceivedRequestIndex, container.getID(), component.getID());
+                return remoteForm.setTabActive(requestIndex, lastReceivedRequestIndex, container.getID(), component.getID());
             }
         });
     }
 
-    public void executeNotificationAction(final Integer idNotification) throws IOException {
-        rmiQueue.asyncRequest(new ProcessServerResponseRmiRequest("executeNotificationAction") {
+    public void setContainerCollapsed(ClientContainer container, boolean collapsed) {
+        rmiQueue.adaptiveSyncRequest(new ProcessServerResponseRmiRequest("setContainerCollapsed") {
             @Override
             protected ServerResponse doRequest(long requestIndex, long lastReceivedRequestIndex, RemoteFormInterface remoteForm) throws RemoteException {
-                return remoteForm.executeNotificationAction(requestIndex, lastReceivedRequestIndex, idNotification);
+                return remoteForm.setContainerCollapsed(requestIndex, lastReceivedRequestIndex, container.getID(), collapsed);
+            }
+        });
+
+        formLayout.updatePanels(); // we want to avoid blinking between setting visibility and getting response (and having updatePanels there)
+    }
+
+    public void executeNotificationAction(final Integer idNotification) throws IOException {
+        rmiQueue.adaptiveSyncRequest(new ProcessServerResponseRmiRequest("executeNotificationAction") {
+            @Override
+            protected ServerResponse doRequest(long requestIndex, long lastReceivedRequestIndex, RemoteFormInterface remoteForm) throws RemoteException {
+                return remoteForm.executeNotificationAction(requestIndex, lastReceivedRequestIndex, String.valueOf(idNotification));
             }
         });
     }
@@ -1146,17 +1253,21 @@ public class ClientFormController implements AsyncListener {
     public void pasteExternalTable(List<ClientPropertyDraw> propertyList, List<ClientGroupObjectValue> columnKeys, final List<List<String>> table) throws IOException {
         int propertyColumns = propertyList.size();
 
-        final List<List<byte[]>> values = new ArrayList<>();
+        List<List<byte[]>> values = new ArrayList<>();
+        List<ArrayList<String>> rawValues = new ArrayList<>();
         for (List<String> sRow : table) {
             List<byte[]> valueRow = new ArrayList<>();
+            ArrayList<String> rawValueRow = new ArrayList<>();
 
             for (int i = 0; i < propertyColumns; i++) {
                 ClientPropertyDraw property = propertyList.get(i);
                 String sCell = i < sRow.size() ? sRow.get(i) : null;
-                Object oCell = sCell == null ? null : property.parseChangeValueOrNull(sCell);
+                Object oCell = property.parsePaste(sCell);
                 valueRow.add(serializeObject(oCell));
+                rawValueRow.add(sCell);
             }
             values.add(valueRow);
+            rawValues.add(rawValueRow);
         }
 
         final List<Integer> propertyIdList = new ArrayList<>();
@@ -1167,10 +1278,10 @@ public class ClientFormController implements AsyncListener {
         for (ClientGroupObjectValue key : columnKeys) {
             serializedColumnKeys.add(key.serialize());
         }
-        rmiQueue.asyncRequest(new ProcessServerResponseRmiRequest("pasteExternalTable") {
+        rmiQueue.adaptiveSyncRequest(new ProcessServerResponseRmiRequest("pasteExternalTable") {
             @Override
             protected ServerResponse doRequest(long requestIndex, long lastReceivedRequestIndex, RemoteFormInterface remoteForm) throws RemoteException {
-                return remoteForm.pasteExternalTable(requestIndex, lastReceivedRequestIndex, propertyIdList, serializedColumnKeys, values);
+                return remoteForm.pasteExternalTable(requestIndex, lastReceivedRequestIndex, propertyIdList, serializedColumnKeys, values, rawValues);
             }
         });
     }
@@ -1182,6 +1293,7 @@ public class ClientFormController implements AsyncListener {
 
         final Map<Integer, List<byte[]>> mKeys = new HashMap<>();
         final Map<Integer, byte[]> mValues = new HashMap<>();
+        final Map<Integer, String> mRawValues = new HashMap<>();
 
         for (Map.Entry<ClientPropertyDraw, PasteData> keysEntry : paste.entrySet()) {
             ClientPropertyDraw property = keysEntry.getKey();
@@ -1192,17 +1304,19 @@ public class ClientFormController implements AsyncListener {
                 propMKeys.add(getFullCurrentKey(pasteData.keys.get(i)));
             }
 
-            mKeys.put(property.getID(), propMKeys);
-            mValues.put(property.getID(), serializeObject(pasteData.newValue));
+            int propertyID = property.getID();
+            mKeys.put(propertyID, propMKeys);
+            mValues.put(propertyID, serializeObject(pasteData.value));
+            mRawValues.put(propertyID, pasteData.rawValue);
         }
 
-        rmiQueue.asyncRequest(new ProcessServerResponseRmiRequest("pasteMulticellValue") {
+        rmiQueue.adaptiveSyncRequest(new ProcessServerResponseRmiRequest("pasteMulticellValue") {
             @Override
             protected void onAsyncRequest(long requestIndex) {
                 for (Map.Entry<ClientPropertyDraw, PasteData> e : paste.entrySet()) {
                     ClientPropertyDraw property = e.getKey();
                     PasteData pasteData = e.getValue();
-                    Object newValue = pasteData.newValue;
+                    Object newValue = pasteData.value;
                     boolean canUseNewValueForRendering = property.canUsePasteValueForRendering();
 
                     for (int i = 0; i < pasteData.keys.size(); ++i) {
@@ -1218,9 +1332,132 @@ public class ClientFormController implements AsyncListener {
 
             @Override
             protected ServerResponse doRequest(long requestIndex, long lastReceivedRequestIndex, RemoteFormInterface remoteForm) throws RemoteException {
-                return remoteForm.pasteMulticellValue(requestIndex, lastReceivedRequestIndex, mKeys, mValues);
+                return remoteForm.pasteMulticellValue(requestIndex, lastReceivedRequestIndex, mKeys, mValues, mRawValues);
             }
         });
+    }
+
+    private boolean editAsyncUsePessimistic; // optimimization
+    // shouldn't be zeroed when editing ends, since we assume that there is only one live input on the form
+    private int editAsyncIndex;
+    private int editLastReceivedAsyncIndex;
+    // we don't want to proceed results if "later" request results where proceeded
+    private AsyncCallback<ClientAsyncResult> checkLast(int editAsyncIndex, AsyncCallback<ClientAsyncResult> callback) {
+        return new AsyncCallback<ClientAsyncResult>() {
+            @Override
+            public void failure(Throwable t) {
+                if(editAsyncIndex >= editLastReceivedAsyncIndex) {
+                    editLastReceivedAsyncIndex = editAsyncIndex;
+                    callback.failure(t);
+                }
+            }
+
+            @Override
+            public void done(ClientAsyncResult result) {
+                if(editAsyncIndex >= editLastReceivedAsyncIndex) {
+                    editLastReceivedAsyncIndex = editAsyncIndex;
+                    if(!result.moreRequests && editAsyncIndex < editAsyncIndex - 1)
+                        result = new ClientAsyncResult(result.asyncs, result.needMoreSymbols, true);
+                    callback.done(result);
+                }
+            }
+        };
+    }
+
+    // synchronous call (with request indices, etc.)
+    private void getPessimisticValues(ClientPropertyDraw property, ClientGroupObjectValue columnKey, String value, String actionSID, AsyncCallback<ClientAsyncResult> callback) {
+        rmiQueue.asyncRequest(new RmiCheckNullFormRequest<ClientAsync[]>("getAsyncValues - " + property.getLogName()) {
+            @Override
+            protected ClientAsync[] doRequest(long requestIndex, long lastReceivedRequestIndex, RemoteFormInterface remoteForm) throws RemoteException {
+                return ClientFormController.this.getAsyncValues(requestIndex, lastReceivedRequestIndex, property.getID(), getFullCurrentKey(columnKey), actionSID, value, editAsyncIndex, remoteForm);
+            }
+
+            @Override
+            protected void onResponse(long requestIndex, ClientAsync[] result) throws Exception {
+                super.onResponse(requestIndex, result);
+                callback.done(convertAsyncResult(result));
+            }
+
+            @Override
+            protected void onResponseGetFailed(long requestIndex, Exception e) throws Exception {
+                super.onResponseGetFailed(requestIndex, e);
+                callback.failure(e);
+            }
+        }, true);
+    }
+
+    public static class ClientAsyncResult {
+        public final List<ClientAsync> asyncs;
+        public final boolean needMoreSymbols;
+        public final boolean moreRequests;
+
+        public ClientAsyncResult(List<ClientAsync> asyncs, boolean needMoreSymbols, boolean moreRequests) {
+            this.asyncs = asyncs;
+            this.needMoreSymbols = needMoreSymbols;
+            this.moreRequests = moreRequests;
+        }
+    }
+    public void getAsyncValues(ClientPropertyDraw property, ClientGroupObjectValue columnKey, String value, String actionSID, AsyncCallback<ClientAsyncResult> callback) {
+        AsyncCallback<ClientAsyncResult> fCallback = checkLast(editAsyncIndex++, callback);
+
+        new SwingWorker<ClientAsyncResult, Void>() {
+            @Override
+            protected ClientAsyncResult doInBackground() {
+                boolean runPessimistic;
+
+                if (!editAsyncUsePessimistic) {
+                    try {
+                        ClientAsync[] result = getAsyncValuesProvider.getAsyncValues(property.getID(), getFullCurrentKey(columnKey), actionSID, value, editAsyncIndex);
+                        if (result == null) { // optimistic request failed, running pessimistic one, with request indices, etc.
+                            editAsyncUsePessimistic = true;
+                            runPessimistic = true;
+                        } else {
+                            return convertAsyncResult(result);
+                        }
+
+                    } catch (RemoteException e) {
+                        throw Throwables.propagate(e);
+                    }
+                } else {
+                    runPessimistic = true;
+                }
+
+                return new ClientAsyncResult(Collections.emptyList(), false, runPessimistic);
+            }
+
+            @Override
+            protected void done() {
+                ClientAsyncResult result;
+                try {
+                    result = get();
+                } catch (Throwable t) {
+                    fCallback.failure(t);
+                    return;
+                }
+
+                fCallback.done(result);
+                if(result.moreRequests)
+                    getPessimisticValues(property, columnKey, value, actionSID, fCallback);
+            }
+        }.execute();
+    }
+
+    private static ClientAsyncResult convertAsyncResult(ClientAsync[] result) {
+        boolean needMoreSymbols = false;
+        boolean moreResults = false;
+        List<ClientAsync> values = Arrays.asList(result);
+        if (values.size() > 0) {
+            ClientAsync lastResult = values.get(values.size() - 1);
+            if (lastResult.equals(ClientAsync.RECHECK)) {
+                values = values.subList(0, values.size() - 1);
+
+                moreResults = true;
+            } else if (values.size() == 1 && (lastResult.equals(ClientAsync.CANCELED) || lastResult.equals(ClientAsync.NEEDMORE))) {// ignoring CANCELED results
+                needMoreSymbols = lastResult.equals(ClientAsync.NEEDMORE);
+                values = needMoreSymbols ? Collections.emptyList() : null;
+            }
+        }
+        return new ClientAsyncResult(values, needMoreSymbols, moreResults);
     }
 
     public void changePropertyOrder(final ClientPropertyDraw property, final Order modiType, final ClientGroupObjectValue columnKey) {
@@ -1233,11 +1470,26 @@ public class ClientFormController implements AsyncListener {
             }
         });
     }
+    
+    public void changePropertyOrders(int goID, LinkedHashMap<Integer, Boolean> orders) {
+        ClientGroupObject groupObject = form.getGroupObject(goID);
+        if (groupObject != null) {
+            LinkedHashMap<ClientPropertyDraw, Boolean> pOrders = new LinkedHashMap<>();
+            for (Integer propertyID : orders.keySet()) {
+                ClientPropertyDraw propertyDraw = form.getProperty(propertyID);
+                if (propertyDraw != null) {
+                    pOrders.put(propertyDraw, orders.get(propertyID));
+                }
+            }
+
+            controllers.get(groupObject).changeOrders(pOrders, false);
+        }
+    }
 
     public void setPropertyOrders(final ClientGroupObject groupObject, List<Integer> propertyList, List<byte[]> columnKeyList, List<Boolean> orderList) {
         commitOrCancelCurrentEditing();
 
-        rmiQueue.syncRequest(new ProcessServerResponseRmiRequest("setPropertyOrders - " + groupObject.getLogName()) {
+        rmiQueue.adaptiveSyncRequest(new ProcessServerResponseRmiRequest("setPropertyOrders - " + groupObject.getLogName()) {
             @Override
             protected ServerResponse doRequest(long requestIndex, long lastReceivedRequestIndex, RemoteFormInterface remoteForm) throws RemoteException {
                 return remoteForm.setPropertyOrders(requestIndex, lastReceivedRequestIndex, groupObject.getID(), propertyList, columnKeyList, orderList);
@@ -1247,7 +1499,7 @@ public class ClientFormController implements AsyncListener {
 
     public void changeFilter(ClientGroupObject groupObject, List<ClientPropertyFilter> conditions) throws IOException {
         currentFilters.put(groupObject, new ArrayList<>(conditions));
-        applyCurrentFilters();
+        applyCurrentFilters(Collections.singletonList(groupObject));
     }
 
     public void changeFilter(ClientTreeGroup treeGroup, List<ClientPropertyFilter> conditions) throws IOException {
@@ -1266,7 +1518,7 @@ public class ClientFormController implements AsyncListener {
             currentFilters.put(group, groupFilters);
         }
 
-        applyCurrentFilters();
+        applyCurrentFilters(treeGroup.groups);
     }
 
     public static byte[] serializeClientFilter(ClientPropertyFilter filter) throws IOException {
@@ -1276,25 +1528,54 @@ public class ClientFormController implements AsyncListener {
         return outStream.toByteArray();
     }
 
-    private void applyCurrentFilters() throws IOException {
-        commitOrCancelCurrentEditing();
-
-        final List<byte[]> filters = new ArrayList<>();
-
-        for (List<ClientPropertyFilter> groupFilters : currentFilters.values()) {
-            for (ClientPropertyFilter filter : groupFilters) {
-                if (!(filter.property.baseType instanceof ClientActionClass))
-                    filters.add(serializeClientFilter(filter));
+    private void applyCurrentFilters(Collection<ClientGroupObject> groups) throws IOException {
+        Map<Integer, byte[][]> filters = new LinkedHashMap<>(); 
+        for (ClientGroupObject group : groups) {
+            final List<byte[]> groupFilters = new ArrayList<>();
+            List<ClientPropertyFilter> gFilters = currentFilters.get(group);
+            for (ClientPropertyFilter filter : gFilters) {
+                if (!filter.property.isAction())
+                    groupFilters.add(serializeClientFilter(filter));
             }
+            filters.put(group.ID, groupFilters.toArray(new byte[groupFilters.size()][]));
         }
 
-        rmiQueue.syncRequest(new ProcessServerResponseRmiRequest("applyCurrentFilters") {
+        rmiQueue.adaptiveSyncRequest(new ProcessServerResponseRmiRequest("applyCurrentFilters") {
             @Override
             protected ServerResponse doRequest(long requestIndex, long lastReceivedRequestIndex, RemoteFormInterface remoteForm) throws RemoteException {
-                return remoteForm.setUserFilters(requestIndex, lastReceivedRequestIndex, filters.toArray(new byte[filters.size()][]));
+                return remoteForm.setUserFilters(requestIndex, lastReceivedRequestIndex, filters);
             }
         });
     }
+
+    public void changePropertyFilters(int goID, List<FilterClientAction.FilterItem> filters) {
+        ClientGroupObject groupObject = form.getGroupObject(goID);
+        if (groupObject != null) {
+            GridController gridController = controllers.get(groupObject);
+            List<ClientPropertyFilter> props = new ArrayList<>();
+            for (FilterClientAction.FilterItem filter : filters) {
+                ClientPropertyDraw propertyDraw = form.getProperty(filter.propertyId);
+                if (propertyDraw != null) {
+                    Compare compare = null;
+                    Object value = null;
+                    try {
+                        compare = Compare.deserialize(filter.compare);
+
+                        value = BaseUtils.deserializeObject(filter.value);
+                        if (value instanceof String) {
+                            try {
+                                value = propertyDraw.baseType.parseString((String) value);
+                            } catch (ParseException ignored) {
+                            }
+                        }
+                    } catch (IOException ignored) {}
+                    props.add(FilterController.createNewCondition(gridController, new ClientFilter(propertyDraw), ClientGroupObjectValue.EMPTY, value, filter.negation, compare, filter.junction));
+                }
+            }
+            
+            gridController.changeFilters(props);
+        }
+    }    
 
     // setRegularFilter is synchronous, that's why busy dialog filter can be set visible, which will lead to another itemStateChanged and setRegularFilter call (with nested sync exception)
     // so we just suppress that call
@@ -1308,7 +1589,7 @@ public class ClientFormController implements AsyncListener {
             return;
         threadSettingRegularFilter.set(true);
         try {
-            rmiQueue.syncRequest(new ProcessServerResponseRmiRequest("setRegularFilter - " + filterGroup.getLogName()) {
+            rmiQueue.adaptiveSyncRequest(new ProcessServerResponseRmiRequest("setRegularFilter - " + filterGroup.getLogName()) {
                 @Override
                 protected ServerResponse doRequest(long requestIndex, long lastReceivedRequestIndex, RemoteFormInterface remoteForm) throws RemoteException {
                     return remoteForm.setRegularFilter(requestIndex, lastReceivedRequestIndex, filterGroup.getID(), (filter == null) ? -1 : filter.getID());
@@ -1402,7 +1683,7 @@ public class ClientFormController implements AsyncListener {
     }
     
     public void saveGrouping(final FormGrouping grouping) {
-        rmiQueue.asyncRequest(new RmiVoidRequest("saveGrouping") {
+        rmiQueue.adaptiveSyncRequest(new RmiVoidRequest("saveGrouping") {
             @Override
             protected void doExecute(long requestIndex, long lastReceivedRequestIndex, RemoteFormInterface remoteForm) throws RemoteException {
                 remoteForm.saveGrouping(requestIndex, lastReceivedRequestIndex, grouping);
@@ -1411,21 +1692,10 @@ public class ClientFormController implements AsyncListener {
     }
 
     public void changePageSize(final ClientGroupObject groupObject, final Integer pageSize) throws IOException {
-        rmiQueue.asyncRequest(new ProcessServerResponseRmiRequest("changePageSize") {
+        rmiQueue.adaptiveSyncRequest(new ProcessServerResponseRmiRequest("changePageSize") {
             @Override
             protected ServerResponse doRequest(long requestIndex, long lastReceivedRequestIndex, RemoteFormInterface remoteForm) throws RemoteException {
                 return remoteForm.changePageSize(requestIndex, lastReceivedRequestIndex, groupObject.getID(), pageSize);
-            }
-        });
-    }
-
-    public void moveGroupObject(final ClientGroupObject parentGroup, final ClientGroupObjectValue parentKey, final ClientGroupObject childGroup, final ClientGroupObjectValue childKey, final int index) throws IOException {
-        commitOrCancelCurrentEditing();
-
-        rmiQueue.syncRequest(new ProcessServerResponseRmiRequest("moveGroupObject") {
-            @Override
-            protected ServerResponse doRequest(long requestIndex, long lastReceivedRequestIndex, RemoteFormInterface remoteForm) throws RemoteException {
-                return remoteForm.moveGroupObject(requestIndex, lastReceivedRequestIndex, parentGroup.getID(), parentKey.serialize(), childGroup.getID(), childKey.serialize(), index);
             }
         });
     }
@@ -1452,8 +1722,10 @@ public class ClientFormController implements AsyncListener {
     private static ExecutorService closeService = Executors.newCachedThreadPool();
 
     protected void onFormHidden() {
-        if (autoRefreshScheduler != null) {
-            autoRefreshScheduler.shutdown();
+        if(formSchedulers != null) {
+            for (ScheduledExecutorService formScheduler : formSchedulers) {
+                formScheduler.shutdown();
+            }
         }
         RemoteFormInterface closeRemoteForm = remoteForm;
         closeService.submit(() -> {
@@ -1483,7 +1755,7 @@ public class ClientFormController implements AsyncListener {
         }
     }
 
-    public void runEditReport(List<ReportPath> customReportPathList) {
+    public void runEditReport(List<String> customReportPathList) {
         try {
             MainController.editReportPathList(customReportPathList);
         } catch (Exception e) {
@@ -1506,7 +1778,7 @@ public class ClientFormController implements AsyncListener {
                         BaseUtils.openFile((RawFileData) reportData, "report", "csv");
                     } else {
                         //assert generationData instanceof ReportGenerationData
-                        ReportGenerator.exportAndOpen((ReportGenerationData) reportData, FormPrintType.XLSX, true, MainController.remoteLogics);
+                        ReportGenerator.exportAndOpen((ReportGenerationData) reportData, FormPrintType.XLSX, MainController.jasperReportsIgnorePageMargins, MainController.remoteLogics);
                     }
                 }
             }
@@ -1518,7 +1790,7 @@ public class ClientFormController implements AsyncListener {
         rmiQueue.syncRequest(new ProcessServerResponseRmiRequest("closePressed") {
             @Override
             protected ServerResponse doRequest(long requestIndex, long lastReceivedRequestIndex, RemoteFormInterface remoteForm) throws RemoteException {
-                return remoteForm.closedPressed(requestIndex, lastReceivedRequestIndex);
+                return remoteForm.executeEventAction(requestIndex, lastReceivedRequestIndex, new FormEventClose(false), null);
             }
         });
     }
@@ -1552,7 +1824,7 @@ public class ClientFormController implements AsyncListener {
     }
 
     public boolean canShowDockedModal() {
-        return !isModal && !rmiQueue.isSyncStarted();
+        return !isWindow && !rmiQueue.isSyncStarted();
     }
 
     public void block(boolean blockView) {
@@ -1587,12 +1859,10 @@ public class ClientFormController implements AsyncListener {
 
         // update captions (actually we could've set them directly to the containers, but tabbed pane physically adds / removes that views, so the check if there is a tab is required there)
         ClientFormLayout layout = getLayout();
-        if(clientContainer.isTab())
-            ((TabbedClientContainerView)layout.getContainerView(clientContainer.container)).updateTabCaption(clientContainer);
-        else if(clientContainer.main)
+        if(clientContainer.main)
             updateFormCaption();
         else
-            layout.getContainerView(clientContainer).updateCaption();
+            layout.getContainerView(clientContainer.container).updateCaption(clientContainer);
     }
 
     private abstract class RmiCheckNullFormRequest<T> extends RmiRequest<T> {
@@ -1628,12 +1898,20 @@ public class ClientFormController implements AsyncListener {
 
     private abstract class ProcessServerResponseRmiRequest extends RmiCheckNullFormRequest<ServerResponse> {
         protected ProcessServerResponseRmiRequest(String name) {
+            this(name, null);
+        }
+
+        private final EditPropertyDispatcher editDispatcher;
+
+        protected ProcessServerResponseRmiRequest(String name, EditPropertyDispatcher editDispatcher) {
             super(name);
+
+            this.editDispatcher = editDispatcher;
         }
 
         @Override
         protected void onResponse(long requestIndex, ServerResponse result) throws Exception {
-            processServerResponse(result);
+            processServerResponse(result, editDispatcher);
         }
     }
 
@@ -1667,13 +1945,15 @@ public class ClientFormController implements AsyncListener {
     }
 
     public final static class PasteData {
-        public final Object newValue;
+        public final Object value;
+        public final String rawValue;
 
         public final List<ClientGroupObjectValue> keys;
         public final List<Object> oldValues;
 
-        public PasteData(Object newValue, List<ClientGroupObjectValue> keys, List<Object> oldValues) {
-            this.newValue = newValue;
+        public PasteData(Object value, String rawValue, List<ClientGroupObjectValue> keys, List<Object> oldValues) {
+            this.value = value;
+            this.rawValue = rawValue;
             this.keys = keys;
             this.oldValues = oldValues;
         }
@@ -1685,6 +1965,7 @@ public class ClientFormController implements AsyncListener {
     public static abstract class Binding {
         public final ClientGroupObject groupObject;
         public int priority;
+        public BindingMode bindPreview;
         public BindingMode bindDialog;
         public BindingMode bindGroup;
         public BindingMode bindEditing;
@@ -1702,7 +1983,7 @@ public class ClientFormController implements AsyncListener {
             this.isSuitable = isSuitable;
         }
 
-        public abstract boolean pressed(KeyEvent ke);
+        public abstract boolean pressed(java.awt.event.InputEvent ke);
         public abstract boolean showing();
     }
 
@@ -1710,6 +1991,8 @@ public class ClientFormController implements AsyncListener {
         List<Binding> groupBindings = bindings.computeIfAbsent(ks, k1 -> new ArrayList<>());
         if(binding.priority == 0)
             binding.priority = groupBindings.size();
+        if(binding.bindPreview == null)
+            binding.bindPreview = ks.bindingModes != null ? ks.bindingModes.getOrDefault("preview", BindingMode.AUTO) : BindingMode.AUTO;
         if(binding.bindDialog == null)
             binding.bindDialog = ks.bindingModes != null ? ks.bindingModes.getOrDefault("dialog", BindingMode.AUTO) : BindingMode.AUTO;
         if(binding.bindGroup == null)
@@ -1724,6 +2007,7 @@ public class ClientFormController implements AsyncListener {
     }
 
     public void addKeySetBinding(Binding binding) {
+        binding.bindPreview = BindingMode.NO;
         binding.bindDialog = BindingMode.AUTO;
         binding.bindGroup = BindingMode.AUTO;
         binding.bindEditing = BindingMode.NO;
@@ -1747,26 +2031,44 @@ public class ClientFormController implements AsyncListener {
         }
     }
 
-    public boolean processBinding(InputEvent ks, KeyEvent ke, Supplier<ClientGroupObject> groupObjectSupplier, boolean panel) {
-        List<Binding> keyBinding = bindings.getOrDefault(ks, keySetBindings);
+    public boolean processBinding(InputEvent ks, boolean preview, java.awt.event.InputEvent ke, Supplier<ClientGroupObject> groupObjectSupplier, boolean panel) {
+        List<Binding> keyBinding = bindings.getOrDefault(ks, ks instanceof MouseInputEvent ? null : keySetBindings);
         if(keyBinding != null && !keyBinding.isEmpty()) { // optimization
-            if(ks instanceof MouseInputEvent) // not sure that it should be done only for mouse events, but it's been working like this for a long time
-                commitOrCancelCurrentEditing();
-
             TreeMap<Integer, Binding> orderedBindings = new TreeMap<>();
 
             // increasing priority for group object
             ClientGroupObject groupObject = groupObjectSupplier.get();
             for(Binding binding : keyBinding) // descending sorting by priority
-                if((binding.isSuitable == null || binding.isSuitable.apply(ke)) && bindDialog(binding) && bindGroup(groupObject, binding)
+                if((binding.isSuitable == null || binding.isSuitable.apply(ke)) && bindPreview(binding, preview) && bindDialog(binding) && bindGroup(groupObject, binding)
                         && bindEditing(binding, ke) && bindShowing(binding) && bindPanel(binding, panel))
                         orderedBindings.put(-(binding.priority + (equalGroup(groupObject, binding) ? 100 : 0)), binding);
 
-            for(Binding binding : orderedBindings.values())
-                if(binding.pressed(ke))
+            if(!orderedBindings.isEmpty())
+                commitOrCancelCurrentEditing();
+
+            for(Binding binding : orderedBindings.values()) {
+                if (binding.pressed(ke)) {
+                    ke.consume();
+
                     return true;
+                }
+            }
         }
         return false;
+    }
+
+    private boolean bindPreview(Binding binding, boolean preview) {
+        switch (binding.bindPreview) {
+            case AUTO:
+            case ONLY:
+                return preview;
+            case NO:
+                return !preview;
+            case ALL: // actually makes no since if previewed, than will be consumed so equivalent to only
+                return true;
+            default:
+                throw new UnsupportedOperationException("Unsupported bindingMode " + binding.bindDialog);
+        }
     }
 
     private boolean bindDialog(Binding binding) {
@@ -1799,25 +2101,20 @@ public class ClientFormController implements AsyncListener {
     }
 
     private Set<ClientGroupObject> getInputGroupObjects() {
-        try {
-            Set<ClientGroupObject> inputGroupObjects = new HashSet<>();
-            for(Integer inputGroupObject : remoteForm.getInputGroupObjects()) {
-                inputGroupObjects.add(form.getGroupObject(inputGroupObject));
-            }
-            return inputGroupObjects;
-        } catch (IOException e) {
-            throw Throwables.propagate(e);
-        }
+        Set<ClientGroupObject> inputGroupObjects = new HashSet<>();
+        for(Integer inputGroupObject : this.inputGroupObjects)
+            inputGroupObjects.add(form.getGroupObject(inputGroupObject));
+        return inputGroupObjects;
     }
 
     private boolean equalGroup(ClientGroupObject groupObject, Binding binding) {
         return Objects.equals(groupObject, binding.groupObject);
     }
 
-    private boolean bindEditing(Binding binding, KeyEvent ke) {
+    private boolean bindEditing(Binding binding, java.awt.event.InputEvent ke) {
         switch (binding.bindEditing) {
             case AUTO:
-                return ke == null || (!isEditing() || notTextCharEvent(ke));
+                return !isEditing() || !targetElementIsEditing(ke) || ke instanceof MouseEvent || (ke instanceof KeyEvent && notTextCharEvent((KeyEvent) ke));
             case ALL:
                 return true;
             case ONLY:
@@ -1826,6 +2123,10 @@ public class ClientFormController implements AsyncListener {
                 return !isEditing();
         }
         return true;
+    }
+
+    private boolean targetElementIsEditing(java.awt.event.InputEvent event) {
+        return getCurrentEditingTable().getEditorComponent().equals(event.getSource());
     }
 
     private static List<Character> textChars = Arrays.asList(new Character[]{KeyEvent.VK_DELETE, KeyEvent.VK_BACK_SPACE, KeyEvent.VK_ENTER,

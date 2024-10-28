@@ -6,11 +6,13 @@ The `MULTI` operator creates an [action](Actions.md) that implements [branching]
 
 ### Syntax
 
-    MULTI [exclusionType] action1, ..., actionN 
+```
+MULTI [exclusionType] action1, ..., actionN 
+```
 
 ### Description
 
-The `MULTI` operator creates an action that executes one of the actions passed to it depending on whether the selection conditions are met. The property selection condition is that the parameters match this action [signature](CLASS_operator.md). 
+The `MULTI` operator creates an action that executes one of the actions passed to it depending on whether the selection conditions are met. The property selection condition is that the parameters match this action [signature](ISCLASS_operator.md). 
 
 ### Parameters
 

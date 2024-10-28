@@ -1,36 +1,35 @@
 package lsfusion.server.logics.classes.data.file;
 
+import lsfusion.base.Result;
 import lsfusion.base.file.FileData;
+import lsfusion.base.file.RawFileData;
 import lsfusion.interop.classes.DataType;
 import lsfusion.server.data.sql.syntax.SQLSyntax;
 import lsfusion.server.data.type.Type;
 import lsfusion.server.data.type.exec.TypeEnvironment;
-import lsfusion.server.language.action.LA;
-import lsfusion.server.logics.BusinessLogics;
 import lsfusion.server.logics.classes.data.DataClass;
 import org.apache.commons.net.util.Base64;
 
+import java.nio.charset.Charset;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Collection;
 
-public class DynamicFormatFileClass extends FileClass<FileData> {
+public class DynamicFormatFileClass extends AbstractDynamicFormatFileClass<FileData> {
 
+    @Override
     protected String getFileSID() {
         return "FILE"; // для обратной совместимости такое название
     }
 
+    @Override
     public FileData getDefaultValue() {
         return FileData.EMPTY;
     }
 
     @Override
-    public LA getDefaultOpenAction(BusinessLogics BL) {
-        return BL.LM.openFile;
-    }
-
     public Class getReportJavaClass() {
         return FileData.class;
     }
@@ -55,42 +54,59 @@ public class DynamicFormatFileClass extends FileClass<FileData> {
         super(multiple, storeName);
     }
 
+    @Override
     public DataClass getCompatible(DataClass compClass, boolean or) {
         return compClass instanceof DynamicFormatFileClass ? this : null;
     }
 
+    @Override
     public byte getTypeID() {
         return DataType.DYNAMICFORMATFILE;
     }
 
     @Override
-    public String getCast(String value, SQLSyntax syntax, TypeEnvironment typeEnv, Type typeFrom) {
-        String extension = null;
-        if (typeFrom instanceof StaticFormatFileClass) {
-            extension = ((StaticFormatFileClass) typeFrom).getExtension();
-        }
-        if (extension != null) {
-            return "cast_to_custom_file(" + value + ", CAST('" + extension + "' AS VARCHAR))";
-        }
-        return super.getCast(value, syntax, typeEnv, typeFrom);
+    public String getCast(String value, SQLSyntax syntax, TypeEnvironment typeEnv, Type typeFrom, CastType castType) {
+        if (typeFrom instanceof NamedFileClass) {
+            return "cast_named_file_to_dynamic_file(" + value + ")";
+        } else if(typeFrom instanceof DynamicFormatFileClass)
+            return value;
+
+        Result<String> rExtension = new Result<>();
+        String castValue = StaticFormatFileClass.getCastToStatic(typeFrom, value, rExtension);
+        if(castValue != null)
+            return "cast_static_file_to_dynamic_file(" + value + ", '" + rExtension.result + "')";
+
+        return super.getCast(value, syntax, typeEnv, typeFrom, castType);
     }
 
     @Override
-    protected FileData parseHTTPNotNull(FileData b) {
+    protected FileData parseHTTPNotNull(FileData b, String charsetName) {
         return b;
     }
 
     @Override
-    protected FileData formatHTTPNotNull(FileData b) {
+    protected FileData formatHTTPNotNull(FileData b, Charset charset) {
         return b;
     }
 
+    @Override
+    public FileData writePropNotNull(RawFileData value, String extension, String charset) {
+        return new FileData(value, extension);
+    }
+
+    @Override
+    public RawFileData readPropNotNull(FileData value, String charset) {
+        return value.getRawFile();
+    }
+
+    @Override
     public FileData read(Object value) {
         if(value instanceof byte[])
             return new FileData((byte[]) value);
         return (FileData) value;
     }
 
+    @Override
     public FileData read(ResultSet set, SQLSyntax syntax, String name) throws SQLException {
         byte[] result = set.getBytes(name);
         if(result != null)
@@ -98,6 +114,7 @@ public class DynamicFormatFileClass extends FileClass<FileData> {
         return null;
     }
 
+    @Override
     public void writeParam(PreparedStatement statement, int num, Object value, SQLSyntax syntax) throws SQLException {
         statement.setBytes(num, value != null ? ((FileData) value).getBytes() : null);
     }
@@ -107,11 +124,18 @@ public class DynamicFormatFileClass extends FileClass<FileData> {
         return value.getLength();
     }
 
-    public FileData parseString(String s) {
-        return new FileData(Base64.decodeBase64(s));
+    @Override
+    protected FileData getValue(RawFileData data) {
+        return new FileData(data, "dat");
     }
 
-    public String formatString(FileData value) {
-        return value != null ? Base64.encodeBase64String(value.getBytes()) : null;
+    @Override
+    protected RawFileData getRawFileData(FileData value) {
+        return value.getRawFile();
+    }
+
+    @Override
+    public String getCastToStatic(String value) {
+        return "cast_dynamic_file_to_static_file(" + value + ")";
     }
 }

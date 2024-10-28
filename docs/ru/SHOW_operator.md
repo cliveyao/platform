@@ -6,24 +6,30 @@ title: 'Оператор SHOW'
 
 ### Синтаксис
 
-    SHOW name 
-    [OBJECTS objName1 = expr1 [NULL], ..., objNameN = exprN [NULL]]
-    [formActionOptions] 
+```
+SHOW name 
+[OBJECTS objName1 = expr1 [NULL], ..., objNameN = exprN [NULL]]
+[formActionOptions] 
+```
 
 При открытии формы выбора / редактирования синтаксис немного отличается:
 
-    SHOW classFormType className
-    = expr [NULL]
-    [formActionOptions] 
+```
+SHOW classFormType className
+= expr [NULL]
+[formActionOptions] 
+```
 
 `formActionOptions` - это опции этого действия. Они могут указываться друг за другом в произвольном порядке:
 
-    syncType
-    windowType
-    MANAGESESSION | NOMANAGESESSION
-    NEWSESSION | NESTEDSESSION
-    CANCEL | NOCANCEL
-    READONLY
+```
+syncType
+windowType
+MANAGESESSION | NOMANAGESESSION
+NEWSESSION | NESTEDSESSION
+CANCEL | NOCANCEL
+READONLY
+```
 
 ### Описание
 
@@ -76,7 +82,7 @@ title: 'Оператор SHOW'
 
 - `MANAGESESSION` | `NOMANAGESESSION`
 
-    Ключевые слова. Определяют, считается создаваемая форма [собственником сессии](Interactive_view.md) или нет (если считается, то в интерактивном режиме на форме будут показаны соответствующие кнопки управления сессией). По умолчанию, платформа пытается [самостоятельно](Interactive_view.md#sysactions) в зависимости от контекста определить какой режим использовать.
+    Ключевые слова. Определяют, считается создаваемая форма [собственником сессии](Interactive_view.md#owner) или нет (если считается, то в интерактивном режиме на форме будут показаны соответствующие кнопки управления сессией). По умолчанию, платформа пытается [самостоятельно](Interactive_view.md#sysactions) в зависимости от контекста определить какой режим использовать.
 
 - `CANCEL` | `NOCANCEL`
 

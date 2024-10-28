@@ -22,15 +22,15 @@ import lsfusion.server.data.where.Where;
 import lsfusion.server.data.where.WhereBuilder;
 import lsfusion.server.data.where.classes.ClassWhere;
 import lsfusion.server.language.ScriptParsingException;
-import lsfusion.server.logics.LogicsModule;
+import lsfusion.server.logics.BaseLogicsModule;
 import lsfusion.server.logics.action.implement.ActionMapImplement;
-import lsfusion.server.logics.action.session.change.DataChanges;
-import lsfusion.server.logics.action.session.change.PropertyChange;
-import lsfusion.server.logics.action.session.change.PropertyChanges;
-import lsfusion.server.logics.action.session.change.StructChanges;
+import lsfusion.server.logics.action.session.change.*;
 import lsfusion.server.logics.action.session.changed.OldProperty;
 import lsfusion.server.logics.classes.ValueClass;
 import lsfusion.server.logics.classes.user.set.ResolveClassSet;
+import lsfusion.server.logics.form.interactive.action.edit.FormSessionScope;
+import lsfusion.server.logics.form.interactive.action.input.InputPropertyValueList;
+import lsfusion.server.logics.form.interactive.action.input.InputValueList;
 import lsfusion.server.logics.property.*;
 import lsfusion.server.logics.property.cases.graph.Graph;
 import lsfusion.server.logics.property.classes.infer.*;
@@ -40,6 +40,7 @@ import lsfusion.server.logics.property.implement.PropertyMapImplement;
 import lsfusion.server.logics.property.oraction.PropertyInterface;
 import lsfusion.server.physics.admin.drilldown.form.CaseUnionDrillDownFormEntity;
 import lsfusion.server.physics.admin.drilldown.form.DrillDownFormEntity;
+import lsfusion.server.physics.admin.log.ServerLoggers;
 import lsfusion.server.physics.dev.i18n.LocalizedString;
 
 import java.util.Comparator;
@@ -104,10 +105,10 @@ public class CaseUnionProperty extends IncrementUnionProperty {
         return getCases().getCol().mapMergeSetValues(value -> value.implement);
     }
 
-    protected ImSet<Property> calculateUsedDataChanges(StructChanges propChanges) {
+    protected ImSet<Property> calculateUsedDataChanges(StructChanges propChanges, CalcDataType type) {
         MSet<Property> mPropValues = SetFact.mSet(); fillDepends(mPropValues, getProps());
         MSet<Property> mPropWheres = SetFact.mSet(); fillDepends(mPropWheres, getWheres());
-        return SetFact.add(propChanges.getUsedDataChanges(mPropValues.immutable()), propChanges.getUsedChanges(mPropValues.immutable()));
+        return SetFact.add(propChanges.getUsedDataChanges(type, mPropValues.immutable()), propChanges.getUsedChanges(mPropValues.immutable()));
     }
 
     public enum Type { CASE, MULTI, VALUE }
@@ -140,7 +141,7 @@ public class CaseUnionProperty extends IncrementUnionProperty {
     }
 
     @Override
-    protected boolean checkRecursions(ImSet<CaseUnionProperty> abstractPath, ImSet<Property> path, Set<Property> marks) {
+    public boolean checkRecursions(ImSet<CaseUnionProperty> abstractPath, ImSet<Property> path, Set<Property> marks) {
         if(abstractPath.contains(this)) { // found recursion
             if(path != null)
                 throw new ScriptParsingException("Property " + this + " is recursive. One of the pathes : " + path);
@@ -159,17 +160,17 @@ public class CaseUnionProperty extends IncrementUnionProperty {
         return false;
     }
 
-    protected DataChanges calculateDataChanges(PropertyChange<Interface> change, WhereBuilder changedWhere, PropertyChanges propChanges) {
+    protected DataChanges calculateDataChanges(PropertyChange<Interface> change, CalcDataType type, WhereBuilder changedWhere, PropertyChanges propChanges) {
         DataChanges result = DataChanges.EMPTY;
         for(CalcCase<Interface> operand : getCases()) {
             Where caseWhere;
             if(operand.isSimple()) {
                 WhereBuilder operandWhere = new WhereBuilder();
-                result = result.add(operand.implement.mapJoinDataChanges(change, GroupType.ASSERTSINGLE_CHANGE(), operandWhere, propChanges));
+                result = result.add(operand.implement.mapJoinDataChanges(change, type, GroupType.ASSERTSINGLE_CHANGE(), operandWhere, propChanges));
                 caseWhere = operandWhere.toWhere();
             } else {
                 caseWhere = operand.where.mapExpr(change.getMapExprs(), propChanges).getWhere();
-                result = result.add(operand.implement.mapJoinDataChanges(change.and(caseWhere), GroupType.ASSERTSINGLE_CHANGE(), null, propChanges));
+                result = result.add(operand.implement.mapJoinDataChanges(change.and(caseWhere), type, GroupType.ASSERTSINGLE_CHANGE(), null, propChanges));
             }
             if(changedWhere!=null) changedWhere.add(caseWhere);
 
@@ -179,22 +180,22 @@ public class CaseUnionProperty extends IncrementUnionProperty {
         return result;
     }
 
-    private boolean checkPrereadNull(CalcCase<Interface> cCase, ImMap<Interface, ? extends Expr> joinImplement, final CalcType calcType, final PropertyChanges propChanges) {
-       return JoinProperty.checkPrereadNull(joinImplement, true, SetFact.singleton(cCase.where), calcType, propChanges); // isExclusive ? SetFact.toSet(cCase.where, cCase.property) : SetFact.singleton(cCase.where)
-    }
-
     protected Expr calculateNewExpr(final ImMap<Interface, ? extends Expr> joinImplement, final CalcType calcType, final PropertyChanges propChanges, final WhereBuilder changedWhere) {
         ImList<CalcCase<Interface>> cases = getCases();
+        int size = cases.size();
+        MList<Pair<Expr, Expr>> mCaseExprs = ListFact.mListMax(size);
+        for(int i = 0; i < size; i++) {
+            CalcCase<Interface> value = cases.get(i);
 
-        // до непосредственно вычисления, для хинтов
-        ImList<Pair<Expr, Expr>> caseExprs = cases.mapListValues((Function<CalcCase<Interface>, Pair<Expr, Expr>>) value -> {
-            if(checkPrereadNull(value, joinImplement, calcType, propChanges))
-                return new Pair<>(Expr.NULL(), Expr.NULL());
-                
-            return new Pair<>(
-                    value.where.mapExpr(joinImplement, calcType, propChanges, changedWhere),
-                    value.implement.mapExpr(joinImplement, calcType, propChanges, changedWhere));
-        });
+            Expr whereExpr = value.where.mapExpr(joinImplement, calcType, propChanges, changedWhere);
+            if(!JoinProperty.checkPrereadNull(whereExpr)) {
+                mCaseExprs.add(new Pair<>(whereExpr, value.implement.mapExpr(joinImplement, calcType, propChanges, changedWhere)));
+
+                if(JoinProperty.checkPrereadTrue(whereExpr))
+                    break;
+            }
+        }
+        ImList<Pair<Expr, Expr>> caseExprs = mCaseExprs.immutableList();
 
         CaseExprInterface exprCases = Expr.newCases(isExclusive, caseExprs.size());
         for(Pair<Expr, Expr> caseExpr : caseExprs)
@@ -208,24 +209,38 @@ public class CaseUnionProperty extends IncrementUnionProperty {
         // Wi AND (OR(Cwi) OR CЕi) AND !OR(Wi-1) - Ei или вставлять прмежуточные (но у 1-го подхода - не надо отрезать сзади ничего, changed более релевантен)
         ImList<CalcCase<Interface>> cases = getCases();
 
-        // до непосредственно вычисления, для хинтов
-        ImList<Pair<Pair<Expr, Where>, Pair<Expr, Where>>> caseExprs = cases.mapListValues((Function<CalcCase<Interface>, Pair<Pair<Expr, Where>, Pair<Expr, Where>>>) propCase -> {
-            if(checkPrereadNull(propCase, joinImplement, CalcType.EXPR, propChanges))
-                return new Pair<>(new Pair<>(Expr.NULL(), Where.FALSE()), new Pair<>(Expr.NULL(), Where.FALSE()));
+        int casesSize = cases.size();
+        MList<Pair<Pair<Expr, Where>, Pair<Expr, Where>>> mCaseExprs = ListFact.mListMax(casesSize);
+        for(int i = 0; i < casesSize; i++) {
+            CalcCase<Interface> propCase = cases.get(i);
 
             WhereBuilder changedWhereCase = new WhereBuilder();
-            WhereBuilder changedExprCase = new WhereBuilder();
-            return new Pair<>(
-                    new Pair<>(propCase.where.mapExpr(joinImplement, propChanges, changedWhereCase), changedWhereCase.toWhere()),
-                    new Pair<>(propCase.implement.mapExpr(joinImplement, propChanges, changedExprCase), changedExprCase.toWhere()));
-        });
+            Expr whereExpr = propCase.where.mapExpr(joinImplement, propChanges, changedWhereCase);
 
-        int size=cases.size();
+            WhereBuilder changedImplementCase = new WhereBuilder();
+            Expr implementExpr;
+            if(JoinProperty.checkPrereadNull(whereExpr))
+                implementExpr = Expr.NULL();
+            else
+                implementExpr = propCase.implement.mapExpr(joinImplement, propChanges, changedImplementCase);
+
+            mCaseExprs.add(new Pair<>(
+                    new Pair<>(whereExpr, changedWhereCase.toWhere()),
+                    new Pair<>(implementExpr, changedImplementCase.toWhere())));
+
+            if(!isExclusive && JoinProperty.checkPrereadTrue(whereExpr)) { // if this changed to true we don't actually need the rest cases, not sure that !isExclusive check is needed
+                break;
+            }
+        };
+        ImList<Pair<Pair<Expr, Where>, Pair<Expr, Where>>> caseExprs = mCaseExprs.immutableList();
+
+        int size=caseExprs.size();
         CaseExprInterface exprCases = Expr.newCases(isExclusive, isExclusive ? size + 1 : size * 2);
 
         Where changedUpWheres = Where.FALSE(); // для не exclusive
         Where changedAllWhere = Where.FALSE(); // для exclusive
         Where nullWhere = Where.FALSE(); // для exclusive
+        PropertyChanges prevPropChanges = getPrevPropChanges(propChanges);
         for(int i=0;i<size;i++) {
             Pair<Pair<Expr, Where>, Pair<Expr, Where>> pCaseExpr = caseExprs.get(i);
             Where caseWhere = pCaseExpr.first.first.getWhere();
@@ -243,7 +258,7 @@ public class CaseUnionProperty extends IncrementUnionProperty {
 
             if(isExclusive) {
                 changedAllWhere = changedAllWhere.exclOr(changedCaseWhere); // фокус в том, что changedCaseWhere не особо нужен в nullWhere, но если его добавить только в changed, то prevExpr может не уйти
-                nullWhere = nullWhere.exclOr(changedWhereCase.and(cases.get(i).where.mapExpr(joinImplement).getWhere()));
+                nullWhere = nullWhere.exclOr(changedWhereCase.and(cases.get(i).where.mapExpr(joinImplement, prevPropChanges).getWhere()));
             } else {
                 exprCases.add(caseWhere, prevExpr);
                 if(changedWhere!=null) changedWhere.add(changedWhereCase.or(changedExprCase));
@@ -260,13 +275,13 @@ public class CaseUnionProperty extends IncrementUnionProperty {
 
     @Override
     @IdentityStrongLazy // STRONG пришлось поставить из-за использования в политике безопасности
-    public ActionMapImplement<?, Interface> getDefaultEventAction(String eventActionSID, ImList<Property> viewProperties) {
+    public ActionMapImplement<?, Interface> getDefaultEventAction(String eventActionSID, FormSessionScope defaultChangeEventScope, ImList<Property> viewProperties, String customChangeFunction) {
         // нужно создать List - if(where[classes]) {getEditAction(); return;}
         int lastNotNullAction = 0;
         ImList<CalcCase<Interface>> cases = getCases();
         MList<ActionCase<Interface>> mActionCases = ListFact.mList();
         for(CalcCase<Interface> propCase : cases) {
-            ActionMapImplement<?, Interface> eventAction = propCase.implement.mapEventAction(eventActionSID, viewProperties);
+            ActionMapImplement<?, Interface> eventAction = propCase.implement.mapEventAction(eventActionSID, defaultChangeEventScope, viewProperties, customChangeFunction);
             if(isExclusive) {
                 if(eventAction == null)
                     continue;                                
@@ -277,11 +292,11 @@ public class CaseUnionProperty extends IncrementUnionProperty {
                     lastNotNullAction = mActionCases.size() + 1;
             }
 
-            PropertyMapImplement<?, Interface> where;
+            PropertyInterfaceImplement<Interface> where;
             if(propCase.isSimple())
                 where = ((PropertyMapImplement<?, Interface>) propCase.implement).mapClassProperty();
             else
-                where = (PropertyMapImplement<?, Interface>) propCase.where;
+                where = propCase.where;
             mActionCases.add(new ActionCase<>(where, eventAction));
         }
         ImList<ActionCase<Interface>> actionCases = mActionCases.immutableList();
@@ -293,6 +308,81 @@ public class CaseUnionProperty extends IncrementUnionProperty {
             return null;
 
         return PropertyFact.createCaseAction(interfaces, isExclusive, actionCases);
+    }
+
+    @Override
+    @IdentityStrongLazy
+    public <I extends PropertyInterface, V extends PropertyInterface, W extends PropertyInterface> Select<Interface> getSelectProperty(ImList<Property> viewProperties, boolean forceSelect) {
+        Pair<Integer, Integer> resultStat = new Pair<>(0, 0);
+        boolean multi = false;
+        boolean html = false;
+        MList<InputPropertyValueList> mResultValues = ListFact.mList();
+        ImList<CalcCase<Interface>> cases = getCases();
+        boolean notNull = !cases.isEmpty();
+        MList<PropertyMapImplement<?, Interface>> mJsonWheres = ListFact.mList();
+        MList<SelectProperty<Interface>> mJsonProps = ListFact.mList();
+        for(CalcCase<Interface> propCase : cases) {
+            Select<Interface> joinProperty = propCase.implement.mapSelect(viewProperties, forceSelect);
+            if(joinProperty == null)
+                return null;
+
+            PropertyMapImplement<?, Interface> where;
+            if(propCase.isSimple())
+                where = ((PropertyMapImplement<?, Interface>) propCase.implement).mapClassProperty();
+            else
+                where = (PropertyMapImplement<?, Interface>) propCase.where;
+            mJsonWheres.add(where);
+            mJsonProps.add(joinProperty.property);
+
+            if(joinProperty.values == null) // unknown wheres
+                mResultValues = null;
+            else if(mResultValues != null)
+                mResultValues.addAll(joinProperty.values);
+            Pair<Integer, Integer> joinStat = joinProperty.stat;
+            if(resultStat.second < joinStat.second)
+                resultStat = joinStat;
+            multi = multi || joinProperty.multi;
+            html = html || joinProperty.html;
+            notNull = notNull && joinProperty.notNull;
+        }
+        ImList<PropertyMapImplement<?, Interface>> jsonWheres = mJsonWheres.immutableList();
+        ImList<SelectProperty<Interface>> jsonProps = mJsonProps.immutableList();
+        return new Select<>(filterSelected -> {
+            MList<CalcCase<Interface>> mJsonCases = ListFact.mList();
+            for(int i = 0, size = jsonProps.size(); i < size; i++) {
+                PropertyMapImplement<?, Interface> jsonProp = jsonProps.get(i).get(filterSelected);
+                if(jsonProp == null)
+                    return null;
+                mJsonCases.add(new CalcCase<>(jsonWheres.get(i), jsonProp));
+            }
+            return PropertyFact.createUnion(interfaces, isExclusive, mJsonCases.immutableList());
+        }, resultStat, mResultValues != null ? mResultValues.immutableList() : null, multi, html, notNull);
+    }
+
+    @Override
+    public boolean isNameValueUnique() {
+        for(CalcCase<Interface> propCase : getCases())
+            if(!propCase.implement.mapNameValueUnique())
+                return false;
+
+        return true;
+    }
+
+    @Override
+    @IdentityLazy
+    public boolean isDrawNotNull() {
+        if(super.isDrawNotNull())
+            return true;
+
+        ImList<CalcCase<Interface>> cases = getCases();
+        if(cases.isEmpty())
+            return false;
+
+        for(CalcCase<Interface> propCase : cases)
+            if(!propCase.implement.mapIsDrawNotNull())
+                return false;
+
+        return true;
     }
 
     @Override
@@ -317,10 +407,6 @@ public class CaseUnionProperty extends IncrementUnionProperty {
     
     private ClassWhere<Object> classValueWhere;
 
-    @Override
-    public boolean noOld() {
-        return isAbstract() || super.noOld();
-    }
     @Override
     public ImSet<OldProperty> getParseOldDepends() {
         if(isAbstract())
@@ -429,19 +515,21 @@ public class CaseUnionProperty extends IncrementUnionProperty {
         if(isAbstract())
             return new Inferred<>(classValueWhere.getCommonExClasses(interfaces)); // чтобы рекурсии не было
         
-        return op(getCases().mapListValues((Function<CalcCase<Interface>, Inferred<Interface>>) aCase -> aCase.where.mapInferInterfaceClasses(ExClassSet.notNull(commonValue), inferType).and(aCase.implement.mapInferInterfaceClasses(commonValue, inferType), inferType)), true, inferType);
+        return op(getCases().mapListValues(aCase -> aCase.where.mapInferInterfaceClasses(ExClassSet.notNull(commonValue), inferType).and(aCase.implement.mapInferInterfaceClasses(commonValue, inferType), inferType)), true, inferType);
     }
 
     @Override
     public boolean calcNeedInferredForValueClass(InferType inferType) {
         if(isAbstract())
             return false;
+
         return opNeedInferForValueClass(getProps(), inferType);
     }
 
     public ExClassSet calcInferValueClass(ImMap<Interface, ExClassSet> inferred, InferType inferType) {
         if(isAbstract())
             return classValueWhere.getCommonExClasses(SetFact.singleton("value")).singleValue();
+
         return opInferValueClasses(getProps(), inferred, true, inferType);
     }
 
@@ -491,9 +579,19 @@ public class CaseUnionProperty extends IncrementUnionProperty {
     }
 
     @Override
-    public DrillDownFormEntity createDrillDownForm(LogicsModule LM) {
+    public DrillDownFormEntity createDrillDownForm(BaseLogicsModule LM) {
         return new CaseUnionDrillDownFormEntity(LocalizedString.create("{logics.property.drilldown.form.case.union}"), this, LM
         );
+    }
+
+    @Override
+    public boolean hasNoGridReadOnly(ImSet<Interface> gridInterfaces) {
+        ImList<CalcCase<Interface>> cases = getCases();
+        for(CalcCase<Interface> propCase : cases)
+            if(propCase.implement.mapHasNoGridReadOnly(gridInterfaces))
+                return true;
+
+        return false;
     }
 
     @Override

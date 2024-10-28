@@ -1,15 +1,15 @@
 package lsfusion.server.logics.action.flow;
 
+import lsfusion.base.col.ListFact;
 import lsfusion.base.col.SetFact;
 import lsfusion.base.col.interfaces.immutable.*;
 import lsfusion.base.col.interfaces.mutable.MSet;
 import lsfusion.server.base.caches.IdentityInstanceLazy;
 import lsfusion.server.data.sql.exception.SQLHandledException;
-import lsfusion.server.data.type.Type;
 import lsfusion.server.logics.action.Action;
 import lsfusion.server.logics.action.controller.context.ExecutionContext;
 import lsfusion.server.logics.action.implement.ActionMapImplement;
-import lsfusion.server.logics.classes.user.CustomClass;
+import lsfusion.server.logics.form.interactive.action.async.map.AsyncMapEventExec;
 import lsfusion.server.logics.property.Property;
 import lsfusion.server.logics.property.PropertyFact;
 import lsfusion.server.logics.property.implement.PropertyInterfaceImplement;
@@ -27,20 +27,15 @@ public class IfAction extends KeepContextAction {
     private final ActionMapImplement<?, PropertyInterface> trueAction;
     private final ActionMapImplement<?, PropertyInterface> falseAction;
 
-    public <I extends PropertyInterface> IfAction(LocalizedString caption, boolean not, ImOrderSet<I> innerInterfaces, PropertyMapImplement<?, I> ifProp, ActionMapImplement<?, I> trueAction, ActionMapImplement<?, I> falseAction) {
+    public <I extends PropertyInterface> IfAction(LocalizedString caption, ImOrderSet<I> innerInterfaces, PropertyMapImplement<?, I> ifProp, ActionMapImplement<?, I> trueAction, ActionMapImplement<?, I> falseAction) {
         super(caption, innerInterfaces.size());
 
         ImRevMap<I, PropertyInterface> mapInterfaces = getMapInterfaces(innerInterfaces).reverse();
         this.ifProp = ifProp.map(mapInterfaces);
         ActionMapImplement<?, PropertyInterface> mapTrue = trueAction.map(mapInterfaces);
         ActionMapImplement<?, PropertyInterface> mapFalse = falseAction != null ? falseAction.map(mapInterfaces) : null;
-        if (!not) {
-            this.trueAction = mapTrue;
-            this.falseAction = mapFalse;
-        } else {
-            this.trueAction = mapFalse;
-            this.falseAction = mapTrue;
-        }
+        this.trueAction = mapTrue;
+        this.falseAction = mapFalse;
 
         finalizeInit();
     }
@@ -48,15 +43,12 @@ public class IfAction extends KeepContextAction {
     @IdentityInstanceLazy
     public PropertyMapImplement<?, PropertyInterface> calcWhereProperty() {
         return PropertyFact.createIfElseUProp(interfaces, ifProp,
-                trueAction != null ? trueAction.mapCalcWhereProperty() : null,
+                trueAction.mapCalcWhereProperty(),
                 falseAction !=null ? falseAction.mapCalcWhereProperty() : null);
     }
 
     public ImSet<Action> getDependActions() {
-        ImSet<Action> result = SetFact.EMPTY();
-        if (trueAction != null) {
-            result = result.merge(trueAction.action);
-        }
+        ImSet<Action> result = SetFact.singleton(trueAction.action);
         if (falseAction != null) {
             result = result.merge(falseAction.action);
         }
@@ -64,49 +56,24 @@ public class IfAction extends KeepContextAction {
     }
 
     @Override
-    public ImMap<Property, Boolean> aspectUsedExtProps() {
+    public ImMap<Property, Boolean> calculateUsedExtProps() {
         MSet<Property> used = SetFact.mSet();
         ifProp.mapFillDepends(used);
-        return used.immutable().toMap(false).merge(super.aspectUsedExtProps(), addValue);
+        return used.immutable().toMap(false).merge(super.calculateUsedExtProps(), addValue);
     }
 
     @Override
-    public Type getFlowSimpleRequestInputType(boolean optimistic, boolean inRequest) {
-        Type trueType = trueAction == null ? null : trueAction.action.getSimpleRequestInputType(optimistic, inRequest);
-        Type falseType = falseAction == null ? null : falseAction.action.getSimpleRequestInputType(optimistic, inRequest);
-
-        if (!optimistic) {
-            if (trueType == null) {
-                return null;
-            }
-            if (falseAction != null && falseType == null) {
-                return null;
-            }
-        }
-
-        return trueType == null
-               ? falseType
-               : falseType == null
-                 ? trueType
-                 : trueType.getCompatible(falseType);
-    }
-
-    @Override
-    public CustomClass getSimpleAdd() {
-        return null; // пока ничего не делаем, так как на клиенте придется, "отменять" изменения
-    }
-
-    @Override
-    public PropertyInterface getSimpleDelete() {
-        return super.getSimpleDelete(); // по аналогии с верхним
+    public AsyncMapEventExec<PropertyInterface> calculateAsyncEventExec(boolean optimistic, boolean recursive) {
+        ImList<ActionMapImplement<?, PropertyInterface>> list = ListFact.singleton(trueAction);
+        if(falseAction != null)
+            list = list.addList(falseAction);
+        return getBranchAsyncEventExec(list, optimistic, recursive, false, falseAction != null);
     }
 
     @Override
     public FlowResult aspectExecute(ExecutionContext<PropertyInterface> context) throws SQLException, SQLHandledException {
         if (readIf(context)) {
-            if (trueAction != null) {
-                return trueAction.execute(context);
-            }
+            return trueAction.execute(context);
         } else {
             if (falseAction != null) {
                 return falseAction.execute(context);
@@ -137,13 +104,11 @@ public class IfAction extends KeepContextAction {
 
     @Override
     protected ActionMapImplement<?, PropertyInterface> aspectReplace(ActionReplacer replacer) {
-        ActionMapImplement<?, PropertyInterface> replacedTrueAction = trueAction != null ? trueAction.mapReplaceExtend(replacer) : null;
+        ActionMapImplement<?, PropertyInterface> replacedTrueAction = trueAction.mapReplaceExtend(replacer);
         ActionMapImplement<?, PropertyInterface> replacedFalseAction = falseAction != null ? falseAction.mapReplaceExtend(replacer) : null;
         if(replacedTrueAction == null && replacedFalseAction == null)
             return null;
 
-        if(replacedTrueAction == null)
-            replacedTrueAction = trueAction;
         if(replacedFalseAction == null)
             replacedFalseAction = falseAction;
         return PropertyFact.createIfAction(interfaces, ifProp, replacedTrueAction, replacedFalseAction);

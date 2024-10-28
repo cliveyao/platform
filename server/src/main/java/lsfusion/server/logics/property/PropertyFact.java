@@ -1,18 +1,26 @@
 package lsfusion.server.logics.property;
 
 import lsfusion.base.BaseUtils;
+import lsfusion.base.Pair;
 import lsfusion.base.Result;
 import lsfusion.base.col.ListFact;
 import lsfusion.base.col.MapFact;
 import lsfusion.base.col.SetFact;
 import lsfusion.base.col.interfaces.immutable.*;
-import lsfusion.base.col.interfaces.mutable.MList;
-import lsfusion.base.col.interfaces.mutable.MSet;
+import lsfusion.base.col.interfaces.mutable.*;
+import lsfusion.base.col.interfaces.mutable.add.MAddExclMap;
+import lsfusion.base.col.interfaces.mutable.add.MAddMap;
+import lsfusion.base.col.interfaces.mutable.mapvalue.ImRevValueMap;
+import lsfusion.base.file.AppImage;
 import lsfusion.base.lambda.set.FunctionSet;
 import lsfusion.interop.form.property.Compare;
 import lsfusion.server.data.expr.formula.CustomFormulaSyntax;
+import lsfusion.server.data.expr.formula.FormulaUnionImpl;
 import lsfusion.server.data.expr.query.GroupType;
 import lsfusion.server.data.expr.query.PartitionType;
+import lsfusion.server.language.ScriptingLogicsModule;
+import lsfusion.server.language.property.LP;
+import lsfusion.server.logics.BusinessLogics;
 import lsfusion.server.logics.action.Action;
 import lsfusion.server.logics.action.change.AddObjectAction;
 import lsfusion.server.logics.action.change.ChangeClassAction;
@@ -29,6 +37,7 @@ import lsfusion.server.logics.classes.data.DataClass;
 import lsfusion.server.logics.classes.data.LogicalClass;
 import lsfusion.server.logics.classes.data.StringClass;
 import lsfusion.server.logics.classes.data.integral.DoubleClass;
+import lsfusion.server.logics.classes.data.integral.IntegerClass;
 import lsfusion.server.logics.classes.data.integral.LongClass;
 import lsfusion.server.logics.classes.data.integral.NumericClass;
 import lsfusion.server.logics.classes.user.BaseClass;
@@ -36,8 +45,10 @@ import lsfusion.server.logics.classes.user.ConcreteCustomClass;
 import lsfusion.server.logics.classes.user.CustomClass;
 import lsfusion.server.logics.classes.user.ObjectClass;
 import lsfusion.server.logics.classes.user.set.ResolveClassSet;
+import lsfusion.server.logics.form.interactive.action.async.map.AsyncMapChange;
+import lsfusion.server.logics.form.interactive.action.async.map.AsyncMapInput;
 import lsfusion.server.logics.form.interactive.action.change.CheckCanBeChangedAction;
-import lsfusion.server.logics.form.interactive.action.change.DefaultChangeAggAction;
+import lsfusion.server.logics.form.interactive.action.edit.FormSessionScope;
 import lsfusion.server.logics.form.interactive.action.input.PushRequestAction;
 import lsfusion.server.logics.form.interactive.action.input.RequestAction;
 import lsfusion.server.logics.property.cases.ActionCase;
@@ -52,16 +63,14 @@ import lsfusion.server.logics.property.implement.PropertyImplement;
 import lsfusion.server.logics.property.implement.PropertyInterfaceImplement;
 import lsfusion.server.logics.property.implement.PropertyMapImplement;
 import lsfusion.server.logics.property.implement.PropertyRevImplement;
-import lsfusion.server.logics.property.oraction.ActionOrProperty;
 import lsfusion.server.logics.property.oraction.PropertyInterface;
 import lsfusion.server.logics.property.set.*;
 import lsfusion.server.logics.property.value.NullValueProperty;
 import lsfusion.server.logics.property.value.ValueProperty;
 import lsfusion.server.physics.admin.Settings;
 import lsfusion.server.physics.dev.i18n.LocalizedString;
-import lsfusion.server.physics.dev.integration.internal.to.StringFormulaProperty;
 
-import java.util.List;
+import java.util.*;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.function.IntFunction;
@@ -136,23 +145,54 @@ public class PropertyFact {
 
     // фильтрует только используемые интерфейсы и создает Join свойство с mapping'ом на эти интерфейсы
     public static <L extends PropertyInterface, T extends PropertyInterface> PropertyMapImplement<?,T> createJoin(PropertyImplement<L, PropertyInterfaceImplement<T>> implement) {
-        // определяем какие интерфейсы использовали
         ImSet<T> usedInterfaces = getUsedInterfaces(implement.mapping.values());
 
-        // создаем свойство - перемаппим интерфейсы
-        ImRevMap<T,JoinProperty.Interface> joinMap = usedInterfaces.mapRevValues(JoinProperty.genInterface); // строим карту
+        ImRevMap<T,JoinProperty.Interface> joinMap = usedInterfaces.mapRevValues(JoinProperty.genInterface);
         ImRevMap<JoinProperty.Interface, T> revJoinMap = joinMap.reverse();
         JoinProperty<L> joinProperty = new JoinProperty<>(LocalizedString.NONAME, revJoinMap.keys().toOrderSet(),
                 new PropertyImplement<>(implement.property, mapImplements(implement.mapping, joinMap)));
         return new PropertyMapImplement<>(joinProperty, revJoinMap);
     }
 
+    // join when there are not all params are passed, and we have to create virtual ones
+    public static <L extends PropertyInterface, T extends PropertyInterface> Pair<Property<JoinProperty.Interface>, ImRevMap<JoinProperty.Interface, T>> createPartJoin(PropertyImplement<L, PropertyInterfaceImplement<T>> implement) {
+        ImSet<L> notUsedInterfaces = implement.property.interfaces.removeIncl(implement.mapping.keys());
+        ImSet<T> usedInterfaces = getUsedInterfaces(implement.mapping.values());
+
+        ImRevMap<L,JoinProperty.Interface> notUsedJoinMap = notUsedInterfaces.mapRevValues(JoinProperty.genInterface); // строим карту
+        ImRevMap<T,JoinProperty.Interface> usedJoinMap = usedInterfaces.mapRevValues(JoinProperty.genInterface); // строим карту
+
+        ImRevMap<JoinProperty.Interface, L> revNotUsedJoinMap = notUsedJoinMap.reverse();
+        ImRevMap<JoinProperty.Interface, T> revUsedJoinMap = usedJoinMap.reverse();
+        JoinProperty<L> joinProperty = new JoinProperty<>(LocalizedString.NONAME, revUsedJoinMap.keys().addExcl(revNotUsedJoinMap.keys()).toOrderSet(),
+                new PropertyImplement<>(implement.property, mapImplements(implement.mapping, usedJoinMap).addExcl(notUsedJoinMap)));
+        return new Pair<>(joinProperty, revUsedJoinMap);
+    }
+
+    public static <X extends PropertyInterface, T extends PropertyInterface> ActionMapImplement<?, T> createJoinAction(Action<X> action, PropertyMapImplement<?, T> implement) {
+        return PropertyFact.createJoinAction(new ActionImplement<>(action, MapFact.singleton(action.interfaces.single(), implement)));
+    }
     public static <L extends PropertyInterface, T extends PropertyInterface> ActionMapImplement<?,T> createJoinAction(ActionImplement<L, PropertyInterfaceImplement<T>> implement) {
         ImOrderSet<T> usedInterfaces = getUsedInterfaces(implement.mapping.values()).toOrderSet();
         JoinAction<L> joinProperty = new JoinAction<>(LocalizedString.NONAME, usedInterfaces, implement);
         return joinProperty.getImplement(usedInterfaces);
     }
-    
+    // join when there are not all params are passed, and we have to create virtual ones
+    public static <L extends PropertyInterface, T extends PropertyInterface> Pair<Action<PropertyInterface>, ImRevMap<PropertyInterface, T>> createPartJoinAction(ActionImplement<L, PropertyInterfaceImplement<T>> implement) {
+        ImSet<L> notUsedInterfaces = implement.action.interfaces.removeIncl(implement.mapping.keys());
+        ImSet<T> usedInterfaces = getUsedInterfaces(implement.mapping.values());
+
+        ImRevMap<L,PropertyInterface> notUsedJoinMap = notUsedInterfaces.mapRevValues(() -> new PropertyInterface<>());
+        ImRevMap<T,PropertyInterface> usedJoinMap = usedInterfaces.mapRevValues(() -> new PropertyInterface<>());
+
+        ImRevMap<PropertyInterface, L> revNotUsedJoinMap = notUsedJoinMap.reverse();
+        ImRevMap<PropertyInterface, T> revUsedJoinMap = usedJoinMap.reverse();
+
+        JoinAction<L> joinProperty = new JoinAction<L>(LocalizedString.NONAME, revUsedJoinMap.keys().addExcl(revNotUsedJoinMap.keys()).toOrderSet(),
+                new ActionImplement<>(implement.action, mapImplements(implement.mapping, usedJoinMap).addExcl(BaseUtils.<ImRevMap<L, PropertyInterfaceImplement<PropertyInterface>>>immutableCast(notUsedJoinMap))));
+        return new Pair<>(joinProperty, revUsedJoinMap);
+    }
+
     public static <T extends PropertyInterface> PropertyMapImplement<?, T> createCompare(Compare compare, T operator1, T operator2) {
         CompareFormulaProperty compareProperty = new CompareFormulaProperty(compare);
 
@@ -213,8 +253,11 @@ public class PropertyFact {
         return createAnd(LocalizedString.NONAME, interfaces, object, ands);
     }
     public static <T extends PropertyInterface> PropertyMapImplement<?,T> createAnd(ImCol<? extends PropertyInterfaceImplement<T>> ands) {
+        return createAnd(getUsedInterfaces(ands), ands);
+    }
+    public static <T extends PropertyInterface> PropertyMapImplement<?,T> createAnd(ImSet<T> interfaces, ImCol<? extends PropertyInterfaceImplement<T>> ands) {
         ImList<? extends PropertyInterfaceImplement<T>> andsList = ands.toList();
-        return createAnd(getUsedInterfaces(ands), andsList.get(0), andsList.subList(1, andsList.size()).getCol());
+        return createAnd(interfaces, andsList.get(0), andsList.subList(1, andsList.size()).getCol());
     }
     private static <T extends PropertyInterface> PropertyMapImplement<?,T> createAnd(LocalizedString caption, ImSet<T> interfaces, PropertyInterfaceImplement<T> object, final ImCol<? extends PropertyInterfaceImplement<T>> ands) {
         if(ands.size()==0 && object instanceof PropertyMapImplement)
@@ -239,6 +282,9 @@ public class PropertyFact {
     public static <T extends PropertyInterface> PropertyMapImplement<?,T> createAndNot(PropertyInterfaceImplement<T> object, PropertyInterfaceImplement<T> not) {
         return createAndNot(getUsedInterfaces(SetFact.toSet(object, not)), object, not);
     }
+    public static <T extends PropertyInterface> PropertyMapImplement<?,T> createAndNot(PropertyInterfaceImplement<T> object, ImList<PropertyInterfaceImplement<T>> nots) {
+        return createAnd(LocalizedString.NONAME, getUsedInterfaces(nots.addList(object).getCol()), object, nots, ListFact.toList(true, nots.size()));
+    }
     public static <T extends PropertyInterface> PropertyMapImplement<?,T> createAndNot(ImSet<T> innerInterfaces, PropertyInterfaceImplement<T> object, PropertyInterfaceImplement<T> not) {
         return createAnd(LocalizedString.NONAME, innerInterfaces, object, ListFact.singleton(not), ListFact.singleton(true));
     }
@@ -255,7 +301,7 @@ public class PropertyFact {
         return createAnd(interfaces, object, SetFact.singleton(and));
     }
 
-    public static <MP extends PropertyInterface, MT extends PropertyInterface, P extends PropertyInterface, T extends PropertyInterface, C extends PropertyInterface> PropertyMapImplement<?,C> createAnd(PropertyMapImplement<T, C> object, PropertyInterfaceImplement<C> and) {
+    public static <MP extends PropertyInterface, MT extends PropertyInterface, P extends PropertyInterface, T extends PropertyInterface, C extends PropertyInterface> PropertyMapImplement<?,C> createAnd(PropertyInterfaceImplement<C> object, PropertyInterfaceImplement<C> and) {
         return createAnd(getUsedInterfaces(SetFact.toSet(object, and)), object, and);
     }
 
@@ -336,8 +382,20 @@ public class PropertyFact {
         return createStatic(true, LogicalClass.instance);
     }
 
+    public static <T extends PropertyInterface> PropertyMapImplement<?,T> createTTrue() {
+        return createStatic(true, LogicalClass.threeStateInstance);
+    }
+
+    public static <T extends PropertyInterface> PropertyMapImplement<?,T> createTFalse() {
+        return createStatic(false, LogicalClass.threeStateInstance);
+    }
+
     public static <T extends PropertyInterface> PropertyMapImplement<?,T> createOne() {
         return createStatic(1L, LongClass.instance);
+    }
+
+    public static <T extends PropertyInterface> PropertyMapImplement<?,T> create30() {
+        return createStatic(30, IntegerClass.instance);
     }
 
     public static <T extends PropertyInterface> PropertyMapImplement<?, T> createFalse() {
@@ -345,9 +403,6 @@ public class PropertyFact {
 //        return new PropertyMapImplement<PropertyInterface, T>(NullValueProperty.instance, new HashMap<PropertyInterface, T>());
     }
 
-    public static <T extends PropertyInterface> PropertyMapImplement<?,T> createNotNull(PropertyInterfaceImplement<T> notNull) {
-        return createAnd(getUsedInterfaces(notNull), PropertyFact.createTrue(), notNull);
-    }
     public static Object getValueForProp(Object value, StaticClass objectClass) {
         if(objectClass instanceof StringClass)
             return LocalizedString.create((String)value, false);
@@ -381,7 +436,11 @@ public class PropertyFact {
     }
 
     public static <T extends PropertyInterface> PropertyMapImplement<?, T> createLastGProp(Property<T> where, PropertyInterfaceImplement<T> last, ImSet<T> groupInterfaces, ImOrderMap<PropertyInterfaceImplement<T>, Boolean> orders, boolean ordersNotNull) {
-        OrderGroupProperty<T> groupProperty = new OrderGroupProperty<>(LocalizedString.NONAME, where.interfaces, BaseUtils.<ImCol<PropertyInterfaceImplement<T>>>immutableCast(groupInterfaces), ListFact.toList(where.getImplement(), last), GroupType.LAST, orders, ordersNotNull);
+        return createGProp(GroupType.LAST, where.interfaces, groupInterfaces, ListFact.toList(where.getImplement(), last), orders, ordersNotNull);
+    }
+
+    public static <T extends PropertyInterface> PropertyMapImplement<?, T> createGProp(GroupType type, ImSet<T> innerInterfaces, ImSet<T> groupInterfaces, ImList<PropertyInterfaceImplement<T>> props, ImOrderMap<PropertyInterfaceImplement<T>, Boolean> orders, boolean ordersNotNull) {
+        OrderGroupProperty<T> groupProperty = new OrderGroupProperty<>(LocalizedString.NONAME, innerInterfaces, BaseUtils.<ImCol<PropertyInterfaceImplement<T>>>immutableCast(groupInterfaces), props, null, null, type, orders, ordersNotNull);
         return new PropertyMapImplement<>(groupProperty, BaseUtils.<ImMap<GroupProperty.Interface<T>, T>>immutableCast(groupProperty.getMapInterfaces()).toRevExclMap());
     }
 
@@ -390,20 +449,23 @@ public class PropertyFact {
         return groupProperty.getImplement();
     }
 
-    private static <T extends PropertyInterface> PropertyMapImplement<?,T> createFormula(ImSet<T> interfaces, String formula, DataClass valueClass, ImList<? extends PropertyInterfaceImplement<T>> params) {
-        return createFormula(LocalizedString.NONAME, interfaces, formula, valueClass, params);
-    }
-    private static <T extends PropertyInterface> PropertyMapImplement<?,T> createFormula(LocalizedString caption, ImSet<T> interfaces, String formula, DataClass valueClass, ImList<? extends PropertyInterfaceImplement<T>> params) {
+    private static <T extends PropertyInterface> PropertyMapImplement<?,T> createFormula(LocalizedString caption, ImSet<T> interfaces, String formula, DataClass valueClass, ImList<? extends PropertyInterfaceImplement<T>> params, ImOrderSet<String> paramNames) {
         final ImRevMap<T, JoinProperty.Interface> joinMap = interfaces.mapRevValues(JoinProperty.genInterface);
         ImRevMap<JoinProperty.Interface, T> revJoinMap = joinMap.reverse();
 
-        final StringFormulaProperty implement = new StringFormulaProperty(valueClass,new CustomFormulaSyntax(formula),params.size(), false);
-        ImMap<StringFormulaProperty.Interface, PropertyInterfaceImplement<JoinProperty.Interface>> joinImplement = 
-                ((ImList<PropertyInterfaceImplement<T>>)params).mapListKeyValues((int i) -> implement.findInterface("prm"+(i+1)), mapGetCalcValue(joinMap));
+        final FormulaJoinProperty implement = new FormulaJoinProperty(valueClass, new CustomFormulaSyntax(formula, paramNames.getSet()), paramNames, false);
+        ImMap<FormulaJoinProperty.Interface, PropertyInterfaceImplement<JoinProperty.Interface>> joinImplement = implement.getFriendlyOrderInterfaces().mapList(PropertyFact.mapImplements(params, joinMap));
 
-        JoinProperty<StringFormulaProperty.Interface> joinProperty = new JoinProperty<>(caption,
+        JoinProperty<FormulaJoinProperty.Interface> joinProperty = new JoinProperty<>(caption,
                 revJoinMap.keys().toOrderSet(), new PropertyImplement<>(implement, joinImplement));
         return new PropertyMapImplement<>(joinProperty, revJoinMap);
+    }
+    public static <T extends PropertyInterface> PropertyMapImplement<?,T> createFormulaUnion(FormulaUnionImpl formula, ImList<? extends PropertyInterfaceImplement<T>> params) {
+        ImSet<T> usedInterfaces = getUsedInterfaces(params.getCol());
+
+        ImRevMap<T, UnionProperty.Interface> joinMap = usedInterfaces.mapRevValues(UnionProperty.genInterface);
+
+        return new PropertyMapImplement<>(new FormulaUnionProperty(LocalizedString.NONAME, joinMap.valuesSet().toOrderSet(), mapImplements(params, joinMap), formula), joinMap.reverse());
     }
 
     private static <T extends PropertyInterface> PropertyMapImplement<?,T> createConcatenate(LocalizedString caption, ImSet<T> interfaces, ImList<? extends PropertyInterfaceImplement<T>> params) {
@@ -525,27 +587,11 @@ public class PropertyFact {
         return new PropertyMapImplement<>(orderProperty, orderProperty.getMapInterfaces());
     }
 
-    public static <T> PropertyRevImplement<?,T> createCProp(StaticClass valueClass, Object value, ImMap<T, ValueClass> params) {
-        return createCProp(LocalizedString.NONAME, valueClass, value, params);
-    }
-
-    public static <T> PropertyRevImplement<?,T> createCProp(LocalizedString caption, StaticClass valueClass, Object value, ImMap<T, ValueClass> params) {
-        return createCProp(caption, valueClass instanceof LogicalClass && params.size() > 0 ? null : new ValueProperty(LocalizedString.NONAME, value, valueClass), params);
-    }
-
-    public static <T,V extends PropertyInterface> PropertyRevImplement<?,T> createCProp(LocalizedString caption, Property<V> valueProperty, ImMap<T, ValueClass> params) {
-        if(params.size()==0)
-            return new PropertyRevImplement<>(valueProperty, MapFact.EMPTYREV());
-
+    public static <T,V extends PropertyInterface> PropertyRevImplement<?,T> createCProp(LocalizedString caption, ImMap<T, ValueClass> params) {
         ImRevMap<PropertyInterface, T> mapInterfaces = params.keys().mapRevKeys((T value) -> new PropertyInterface());
         ImList<PropertyInterfaceImplement<PropertyInterface>> listImplements = mapInterfaces.join(params).mapColValues((BiFunction<PropertyInterface, ValueClass, PropertyInterfaceImplement<PropertyInterface>>) (key, value) -> IsClassProperty.getProperty(value, "value").mapPropertyImplement(MapFact.singletonRev("value", key))).toList();
 
-        PropertyMapImplement<?, PropertyInterface> and;
-        if(valueProperty==null)
-            and = createAnd(caption, mapInterfaces.keys(), listImplements.get(0), listImplements.subList(1, listImplements.size()).getCol());
-        else
-            and = createAnd(caption, mapInterfaces.keys(), new PropertyMapImplement<>(valueProperty), listImplements.getCol());
-        return and.mapRevImplement(mapInterfaces);
+        return createAnd(caption, mapInterfaces.keys(), listImplements.get(0), listImplements.subList(1, listImplements.size()).getCol()).mapRevImplement(mapInterfaces);
     }
 
     
@@ -630,7 +676,7 @@ public class PropertyFact {
         int numericLength = 15 + roundlen;
         PropertyMapImplement<?, T> distrRound =
                 createFormula(distrCaption, innerInterfaces.getSet(),
-                              "ROUND(CAST((prm1*prm2/prm3) as NUMERIC(" + numericLength + "," + roundlen+ "))," + roundlen + ")", NumericClass.get(numericLength, roundlen), ListFact.toList(distribute, proportion, propSum));
+                              "ROUND(CAST((prm1*prm2/prm3) as NUMERIC(" + numericLength + "," + roundlen+ "))," + roundlen + ")", NumericClass.get(numericLength, roundlen), ListFact.toList(distribute, proportion, propSum), SetFact.toOrderExclSet("prm1", "prm2", "prm3"));
 
         if (!roundfirst) return distrRound;
         
@@ -703,7 +749,10 @@ public class PropertyFact {
         return createDeconcatenate(captions, max, props.size(), baseClass);
     }
 
-    public static <L extends PropertyInterface> PropertyMapImplement<?, L> createIfElseUProp(ImSet<L> innerInterfaces, PropertyInterfaceImplement<L> ifProp, PropertyMapImplement<?, L> trueProp, PropertyMapImplement<?, L> falseProp) {
+    public static <L extends PropertyInterface> PropertyMapImplement<?, L> createIfElseUProp(ImSet<L> innerInterfaces, PropertyInterfaceImplement<L> ifProp, PropertyInterfaceImplement<L> trueProp, PropertyInterfaceImplement<L> falseProp) {
+        if(trueProp != null && falseProp != null && !ScriptingLogicsModule.useExclusiveIfElse)
+            return PropertyFact.createUnion(innerInterfaces, false, ListFact.toList(new CalcCase<>(ifProp, trueProp), new CalcCase<>(createTrue(), falseProp)));
+
         PropertyMapImplement<?, L> ifTrue = null;
         if(trueProp!=null)
             ifTrue = PropertyFact.createAnd(innerInterfaces, trueProp, ifProp);
@@ -728,20 +777,20 @@ public class PropertyFact {
 
     public static <T extends PropertyInterface> PropertyMapImplement<ClassPropertyInterface, T> createForDataProp(ImMap<T, ValueClass> interfaces, ValueClass valueClass, MSet<SessionDataProperty> mLocals) {
         ImOrderMap<T, ValueClass> orderInterfaces = interfaces.toOrderMap();
-        ImOrderSet<T> listInterfaces = orderInterfaces.keyOrderSet();
-        ValueClass[] interfaceClasses = orderInterfaces.valuesList().toArray(new ValueClass[orderInterfaces.size()]);
-        SessionDataProperty dataProperty = new SessionDataProperty(LocalizedString.NONAME, interfaceClasses, valueClass, true);
-        mLocals.add(dataProperty);
-        return dataProperty.getImplement(listInterfaces);
+        SessionDataProperty dataProperty = new SessionDataProperty(LocalizedString.NONAME, orderInterfaces.valuesList().toArray(new ValueClass[orderInterfaces.size()]), valueClass, true);
+        if(mLocals != null)
+            mLocals.add(dataProperty);
+        return dataProperty.getImplement(orderInterfaces.keyOrderSet());
     }
 
-    public static <T> PropertyRevImplement<ClassPropertyInterface, T> createDataPropRev(LocalizedString caption, ImMap<T, ValueClass> interfaces, ValueClass valueClass, LocalNestedType nestedType) {
+    public static Property<?> createDataPropRev(String caption, Object object, ValueClass valueClass) {
+        return createDataPropRev(caption, object, MapFact.EMPTY(), valueClass, LocalNestedType.ALL).property;
+    }
+    public static <T> PropertyRevImplement<ClassPropertyInterface, T> createDataPropRev(String typeString, Object objects, ImMap<T, ValueClass> interfaces, ValueClass valueClass, LocalNestedType nestedType) {
         ImOrderMap<T, ValueClass> orderInterfaces = interfaces.toOrderMap();
-        ImOrderSet<T> listInterfaces = orderInterfaces.keyOrderSet();
-        ValueClass[] interfaceClasses = orderInterfaces.valuesList().toArray(new ValueClass[orderInterfaces.size()]);
-        SessionDataProperty dataProperty = new SessionDataProperty(caption, interfaceClasses, valueClass);
+        SessionDataProperty dataProperty = new SessionDataProperty(LocalizedString.create(typeString + " (" + objects.toString() + ")", false), orderInterfaces.valuesList().toArray(new ValueClass[orderInterfaces.size()]), valueClass);
         dataProperty.nestedType = nestedType;
-        return dataProperty.getRevImplement(listInterfaces);
+        return dataProperty.getRevImplement(orderInterfaces.keyOrderSet());
     }
 
     public static <L extends PropertyInterface> ActionMapImplement<?, L> createIfAction(ImSet<L> innerInterfaces, PropertyMapImplement<?, L> where, ActionMapImplement<?, L> action, ActionMapImplement<?, L> elseAction) {
@@ -762,10 +811,20 @@ public class PropertyFact {
         return caseAction.getImplement(listInterfaces);
     }
 
+    public static <L extends PropertyInterface> PropertyMapImplement<?, L> createCaseProperty(ImSet<L> innerInterfaces, boolean isExclusive, ImList<CalcCase<L>> cases) {
+        ImOrderSet<L> listInterfaces =  innerInterfaces.toOrderSet();
+        final ImRevMap<L, UnionProperty.Interface> mapInterfaces = innerInterfaces.mapRevValues(UnionProperty.genInterface);
+        return new CaseUnionProperty(LocalizedString.NONAME, listInterfaces.mapOrder(mapInterfaces), isExclusive,
+                cases.mapListValues(value -> value.map(mapInterfaces))).getImplement(listInterfaces);
+    }
+
     public static <L extends PropertyInterface> ActionMapImplement<?, L> createEmptyAction() {
         return (ActionMapImplement<?,L>)createListAction(SetFact.EMPTY(), ListFact.EMPTY());
     }
     
+    public static <L extends PropertyInterface> ActionMapImplement<?, L> createListAction(ImSet<L> innerInterfaces, ActionMapImplement<?, L>... actions) {
+        return createListAction(innerInterfaces, ListFact.toList(actions));
+    }
     public static <L extends PropertyInterface> ActionMapImplement<?, L> createListAction(ImSet<L> innerInterfaces, ImList<ActionMapImplement<?, L>> actions) {
         return createListAction(innerInterfaces, actions, SetFact.EMPTY());
     }
@@ -829,11 +888,12 @@ public class PropertyFact {
         return createSetAction(innerInterfaces, context, null, writeToProp, writeFrom);
     }
     public static <L extends PropertyInterface, P extends PropertyInterface, W extends PropertyInterface> ActionMapImplement<?, L> createSetAction(ImSet<L> innerInterfaces, ImSet<L> context, PropertyMapImplement<W, L> whereProp, PropertyMapImplement<P, L> writeToProp, PropertyInterfaceImplement<L> writeFrom) {
-        return createSetAction(innerInterfaces, context.toOrderSet(), whereProp, writeToProp, writeFrom);
-    }
-    public static <L extends PropertyInterface, P extends PropertyInterface, W extends PropertyInterface> ActionMapImplement<?, L> createSetAction(ImSet<L> innerInterfaces, ImOrderSet<L> mapInterfaces, PropertyMapImplement<W, L> whereProp, PropertyMapImplement<P, L> writeToProp, PropertyInterfaceImplement<L> writeFrom) {
-        SetAction<P, W, L> setAction = new SetAction<>(LocalizedString.NONAME, innerInterfaces, mapInterfaces, whereProp, writeToProp, writeFrom);
+        SetAction<P, W, L> setAction = new SetAction<>(LocalizedString.NONAME, innerInterfaces, context.toOrderSet(), whereProp, writeToProp, writeFrom);
         return setAction.getMapImplement();
+    }
+
+    public static <I extends PropertyInterface, M extends PropertyInterface> ActionMapImplement<?, M> createSetAction(ImSet<I> innerInterfaces, ImRevMap<M, I> mapContext, PropertyMapImplement<?, I> writeToProp, PropertyInterfaceImplement<I> writeFromProp) {
+        return createSetAction(innerInterfaces, mapContext.valuesSet(), writeToProp, writeFromProp).map(mapContext.reverse());
     }
 
     public static <L extends PropertyInterface, P extends PropertyInterface, W extends PropertyInterface> ActionMapImplement<?, L> createAddAction(CustomClass cls, ImSet<L> innerInterfaces, ImSet<L> context, PropertyMapImplement<W, L> whereProp, PropertyMapImplement<P, L> resultProp, ImOrderMap<PropertyInterfaceImplement<L>, Boolean> orders, boolean ordersNotNull, boolean autoSet) {
@@ -851,7 +911,16 @@ public class PropertyFact {
         ChangeClassAction<W, L> action = new ChangeClassAction<>(cls, forceDialog, innerInterfaces, mapInterfaces, changeInterface, whereProp, baseClass);
         return action.getMapImplement();
     }
-    
+
+    public static <X extends PropertyInterface, T extends PropertyInterface> void setResetAsync(Action<X> action, AsyncMapChange<T, X> asyncResetExec) {
+        action.setForceAsyncEventExec(asyncExec -> {
+            if(asyncExec instanceof AsyncMapInput) {
+                asyncExec = ((AsyncMapInput<X>) asyncExec).override(AppImage.INPUT_RESET, asyncResetExec);
+            }
+            return asyncExec;
+        });
+    }
+
     public static <L extends PropertyInterface, P extends PropertyInterface, W extends PropertyInterface> ActionMapImplement<?, L> createRequestAction(ImSet<L> innerInterfaces, ActionMapImplement<?, L> requestAction, ActionMapImplement<?, L> doAction, ActionMapImplement<?, L> elseAction) {
         ImOrderSet<L> listInterfaces = innerInterfaces.toOrderSet();
         RequestAction setAction = new RequestAction(LocalizedString.NONAME, listInterfaces, requestAction, doAction, elseAction);
@@ -867,24 +936,30 @@ public class PropertyFact {
         PushRequestAction changeAction = new PushRequestAction(LocalizedString.NONAME, listInterfaces, action);
         return changeAction.getImplement(listInterfaces);
     }
-    public static <L extends PropertyInterface, P extends PropertyInterface> ActionMapImplement<?, L> createDefaultChangedAggAction(ImSet<L> innerInterfaces, Property<P> aggProp, ValueClass aggClass, ActionMapImplement<?, L> changeAction) {
-        ImOrderSet<L> listInterfaces = innerInterfaces.toOrderSet();
-        DefaultChangeAggAction<P> aggAction = new DefaultChangeAggAction<>(LocalizedString.NONAME, listInterfaces, aggProp, aggClass, changeAction);
-        return aggAction.getImplement(listInterfaces);
-    }
     public static <L extends PropertyInterface, P extends PropertyInterface> ActionMapImplement<?, L> createNewSessionAction(ImSet<L> innerInterfaces, ActionMapImplement<?, L> action, boolean singleApply, boolean newSQL, FunctionSet<SessionDataProperty> migrateSessionProperties, boolean isNested) {
+        return createNewSessionAction(innerInterfaces, action, LocalizedString.NONAME, singleApply, newSQL, migrateSessionProperties, isNested);
+    }
+    public static <L extends PropertyInterface, P extends PropertyInterface> ActionMapImplement<?, L> createNewSessionAction(ImSet<L> innerInterfaces, ActionMapImplement<?, L> action, LocalizedString caption, boolean singleApply, boolean newSQL, FunctionSet<SessionDataProperty> migrateSessionProperties, boolean isNested) {
         ImOrderSet<L> listInterfaces = innerInterfaces.toOrderSet();
-        NewSessionAction aggAction = new NewSessionAction(LocalizedString.NONAME, listInterfaces, action, singleApply, newSQL, migrateSessionProperties, isNested);
+        NewSessionAction aggAction = new NewSessionAction(caption, listInterfaces, action, singleApply, newSQL, migrateSessionProperties, isNested);
         return aggAction.getImplement(listInterfaces);
     }
-    public static <L extends PropertyInterface, P extends PropertyInterface> ActionMapImplement<?, L> createNewThreadAction(ImSet<L> innerInterfaces, ActionMapImplement<?, L> action, PropertyInterfaceImplement<L> period, PropertyInterfaceImplement<L> delay, PropertyInterfaceImplement<L> connection) {
+    public static <T extends PropertyInterface> ActionMapImplement<?, T> createSessionScopeAction(FormSessionScope scope, ImSet<T> innerInterfaces, ActionMapImplement<?, T> action, FunctionSet<SessionDataProperty> migrateSessionProps) {
+        return createSessionScopeAction(scope, innerInterfaces, action, LocalizedString.NONAME, migrateSessionProps);
+    }
+    public static <T extends PropertyInterface> ActionMapImplement<?, T> createSessionScopeAction(FormSessionScope scope, ImSet<T> innerInterfaces, ActionMapImplement<?, T> action, LocalizedString caption, FunctionSet<SessionDataProperty> migrateSessionProps) {
+        if(scope.isNewSession())
+            return createNewSessionAction(innerInterfaces, action, caption, false, false, migrateSessionProps, scope.isNestedSession());
+        return action;
+    }
+    public static <L extends PropertyInterface, P extends PropertyInterface> ActionMapImplement<?, L> createNewThreadAction(ImSet<L> innerInterfaces, ActionMapImplement<?, L> action, PropertyInterfaceImplement<L> period, PropertyInterfaceImplement<L> delay, PropertyInterfaceImplement<L> connection, LP<?> targetProp) {
         ImOrderSet<L> listInterfaces = innerInterfaces.toOrderSet();
-        NewThreadAction aggAction = new NewThreadAction(LocalizedString.NONAME, listInterfaces, action, period, delay, connection);
+        NewThreadAction aggAction = new NewThreadAction(LocalizedString.NONAME, listInterfaces, action, period, delay, connection, targetProp);
         return aggAction.getImplement(listInterfaces);
     }
-    public static <L extends PropertyInterface, P extends PropertyInterface> ActionMapImplement<?, L> createNewExecutorAction(ImSet<L> innerInterfaces, ActionMapImplement<?, L> action, PropertyInterfaceImplement<L> threads) {
+    public static <L extends PropertyInterface, P extends PropertyInterface> ActionMapImplement<?, L> createNewExecutorAction(ImSet<L> innerInterfaces, ActionMapImplement<?, L> action, PropertyInterfaceImplement<L> threads, Boolean sync) {
         ImOrderSet<L> listInterfaces = innerInterfaces.toOrderSet();
-        NewExecutorAction aggAction = new NewExecutorAction(LocalizedString.NONAME, listInterfaces, action, threads);
+        NewExecutorAction aggAction = new NewExecutorAction(LocalizedString.NONAME, listInterfaces, action, threads, sync);
         return aggAction.getImplement(listInterfaces);
     }
     public static <L extends PropertyInterface, P extends PropertyInterface> ActionMapImplement<?, L> createApplyAction(ImSet<L> innerInterfaces, ActionMapImplement<?, L> action, FunctionSet<SessionDataProperty> keepSessionProperties, boolean serializable, Property canceled, Property applyMessage) {
@@ -906,7 +981,7 @@ public class PropertyFact {
         if(!innerInterfaces.containsAll(whereInterfaces)) { // оптимизация, если есть допинтерфейсы - надо группировать
             if(!whereInterfaces.containsAll(getUsedInterfaces(writeFrom))) { // если не все ключи есть, придется докинуть or
                 if(writeFrom instanceof PropertyMapImplement) {
-                    whereInterfaces = innerInterfaces.merge(whereInterfaces);
+                    whereInterfaces = whereInterfaces.merge(innerInterfaces);
                     where = (PropertyMapImplement<W, I>) SetAction.getFullProperty(whereInterfaces, where, writeTo, writeFrom);
                 } else { // по сути оптимизация, чтобы or не тянуть
                     whereInterfaces = whereInterfaces.merge((I) writeFrom);
@@ -920,6 +995,16 @@ public class PropertyFact {
             // поэтому будем подставлять те классы которые есть, предполагая что если нет они должны придти сверху
             if(!where.mapIsFull(checkContext)) // может быть избыточно для 2-го случая сверху, но для where в принципе надо
                 where = (PropertyMapImplement<W, I>) createAnd(whereInterfaces, where, IsClassProperty.getMapProperty(where.mapInterfaceClasses(ClassType.wherePolicy).filter(checkContext))); // filterIncl
+
+            // we can do it before the above check, but since we don't have any classes during where extending it doesn't make any sense
+            for(PropertyInterfaceImplement<I> order : orders.keyIt()) {
+                ImSet<I> usedOrderInterfaces = getUsedInterfaces(order);
+                if (!whereInterfaces.containsAll(usedOrderInterfaces)) {
+                    ImSet<I> extraInterfaces = usedOrderInterfaces.remove(whereInterfaces);
+                    whereInterfaces = whereInterfaces.addExcl(extraInterfaces);
+                    where = (PropertyMapImplement<W, I>) createAnd(whereInterfaces, where, BaseUtils.<ImSet<PropertyInterfaceImplement<I>>>immutableCast(extraInterfaces));
+                }
+            }
 
             ImRevMap<W, I> mapPushInterfaces = where.mapping.filterValuesRev(innerInterfaces); ImRevMap<I, W> mapWhere = where.mapping.reverse();
             writeFrom = createLastGProp(where.property, writeFrom.map(mapWhere), mapPushInterfaces.keys(), mapImplements(orders, mapWhere), ordersNotNull).map(mapPushInterfaces);
@@ -941,16 +1026,342 @@ public class PropertyFact {
         return createChangeClassAction(cls, forceDialog, innerInterfaces, context, where, changeInterface, baseClass);
     }
 
-    private static <P extends PropertyInterface> PropertyMapImplement<?, P> getFullWhereProperty(ImSet<P> innerInterfaces, PropertyInterfaceImplement<P> where, ImCol<PropertyInterfaceImplement<P>> exprs) {
-        PropertyMapImplement<?, P> result = createUnion(innerInterfaces, exprs.mapColValues((Function<PropertyInterfaceImplement<P>, PropertyInterfaceImplement<P>>) PropertyFact::createNotNull).toList());
+    private static <P extends PropertyInterface> PropertyMapImplement<?, P> getFullWhereProperty(ImSet<P> innerInterfaces, PropertyInterfaceImplement<P> where, ImList<PropertyInterfaceImplement<P>> exprs) {
+        PropertyMapImplement<?, P> result = createUnionNotNull(innerInterfaces, exprs);
         if (where != null)
             result = PropertyFact.createAnd(innerInterfaces, where, result);
         return result;
     }
 
-    public static <P extends PropertyInterface> PropertyInterfaceImplement<P> getFullWhereProperty(ImSet<P> innerInterfaces, ImSet<P> mapInterfaces, PropertyInterfaceImplement<P> where, ImCol<PropertyInterfaceImplement<P>> exprs) {
+    public static <P extends PropertyInterface> PropertyMapImplement<?, P> createUnionNotNull(ImSet<P> innerInterfaces, ImList<PropertyInterfaceImplement<P>> exprs) {
+        return createUnion(innerInterfaces, exprs.mapListValues((Function<PropertyInterfaceImplement<P>, PropertyInterfaceImplement<P>>) PropertyFact::createNotNull));
+    }
+
+    public static <P extends PropertyInterface> PropertyInterfaceImplement<P> getFullWhereProperty(ImSet<P> innerInterfaces, ImSet<P> mapInterfaces, PropertyInterfaceImplement<P> where, ImList<PropertyInterfaceImplement<P>> exprs) {
         ImSet<P> extInterfaces = innerInterfaces.remove(mapInterfaces);
         return (where == null && extInterfaces.isEmpty()) || (where != null && where.mapIsFull(extInterfaces)) ?
                 (where == null ? PropertyFact.createTrue() : where) : getFullWhereProperty(innerInterfaces, where, exprs);
+    }
+
+    static <X extends PropertyInterface, T extends PropertyInterface> PropertyMapImplement<?, T> createViewProperty(ImList<Property> viewProperties) {
+        PropertyMapImplement<?, T> resultValue = null;
+        for(int i = viewProperties.size()-1; i>=0; i--) {
+            Property<X> viewProperty = viewProperties.get(i);
+            resultValue = resultValue == null ? ((Property<T>)viewProperty).getImplement() : createJoin(new PropertyImplement<>(viewProperty, MapFact.singleton(viewProperty.interfaces.single(), resultValue)));
+        }
+        return resultValue;
+    }
+
+    private static class CacheResult<T> {
+        public final ImList<ImList<ImMap<?, T>>> properties;
+        public final PropertyImplement<?, T> result;
+
+        public CacheResult(ImList<ImList<ImMap<?, T>>> properties, PropertyImplement<?, T> result) {
+            this.properties = properties;
+            this.result = result;
+        }
+
+        public <K> PropertyImplement<?, K> map(ImList<ImList<ImMap<?, K>>> mapProperties) {
+
+            Map<T, K> mapResult = new HashMap<>();
+            if(map(properties, mapProperties, 0, 0, null, mapResult))
+                return result.mapImplement(MapFact.fromJavaMap(mapResult));
+
+            return null;
+        }
+
+        // assert that in the same list ? are the same
+        private static <T, K, X> boolean map(ImList<ImList<ImMap<?, T>>> setProps, ImList<ImList<ImMap<?, K>>> mapSetProps, int index, int listIndex, boolean[] listMapped, Map<T, K> mappedKeys) {
+            ImList<ImMap<?, T>> listSetProps = setProps.get(index);
+            ImList<ImMap<?, K>> listMapSetProps = mapSetProps.get(index);
+            int size = listSetProps.size();
+            assert size == listMapSetProps.size();
+
+            ImMap<X, T> map = (ImMap<X, T>) listSetProps.get(listIndex);
+            if(listIndex == 0)
+                listMapped = new boolean[size];
+
+            for(int i=0;i<size;i++)
+                if(!listMapped[i]) {
+                    ImMap<X, K> mapMap = (ImMap<X, K>) listMapSetProps.get(i);
+                    Set<T> addedKeys = new HashSet<>();
+
+                    boolean incorrectMapping = false;
+                    for(int j=0,sizeJ=map.size();j<sizeJ;j++) {
+                        X propInt = map.getKey(j);
+                        T mapInt = map.getValue(j);
+                        K mapMapInt = mapMap.get(propInt);
+
+                        K prevMap = mappedKeys.get(mapInt);
+                        if(prevMap == null) {
+                            mappedKeys.put(mapInt, mapMapInt);
+                            addedKeys.add(mapInt);
+                        } else {
+                            if(!BaseUtils.hashEquals(mapMapInt, prevMap)) { // wrong mapping
+                                incorrectMapping = true;
+                                break;
+                            }
+                        }
+
+                    }
+
+                    if(!incorrectMapping) {
+                        listMapped[i] = true;
+
+                        boolean last = listIndex == size - 1;
+                        if(last && index == setProps.size() - 1)
+                            return true;
+                        if(map(setProps, mapSetProps, last ? index + 1 : index, last ? 0 : listIndex + 1, last ? null : listMapped, mappedKeys))
+                            return true;
+
+                        listMapped[i] = false;
+                    }
+                    BaseUtils.removeKeys(mappedKeys, addedKeys);
+                }
+
+            return false;
+        }
+    }
+
+    public static abstract class CachedFactory {
+
+        // in theory we can improve caching key, by adding some mapping params
+        private final Map<ImList<ImMap<Property, Integer>>, List<CacheResult>> caches = new HashMap<>();
+
+        protected <T, X> PropertyImplement<?, T> create(ImList<ImSet<PropertyImplement<?, T>>> propertyImplements) {
+
+            // ordering and splitting to 2 lists
+            int size = propertyImplements.size();
+            MList<ImMap<Property, Integer>> mProperties = ListFact.mList(size);
+            MList<ImList<ImMap<?, T>>> mMappings = ListFact.mList();
+            for(int i=0;i<size;i++) {
+                ImMap<Property, ImSet<PropertyImplement<?, T>>> group = propertyImplements.get(i).group(key -> key.property);
+
+                // calculating property counts
+                mProperties.add(group.mapValues(ImCol::size));
+
+                // sorting all properties and adding mappings to the global mappings list
+                mMappings.addAll(group.sort(BusinessLogics.propComparator()).valuesList().mapListValues(pimps -> pimps.toList().mapListValues(pi -> pi.mapping)));
+            }
+            ImList<ImMap<Property, Integer>> properties = mProperties.immutableList();
+            ImList<ImList<ImMap<?, T>>> mappings = mMappings.immutableList();
+
+            List<CacheResult> cacheResults;
+            synchronized (caches) {
+                cacheResults = caches.computeIfAbsent(properties, k -> new ArrayList<>());
+            }
+            synchronized (cacheResults) {
+                PropertyImplement<?, T> result;
+                for (CacheResult<X> cacheResult : cacheResults) {
+                    result = cacheResult.map(mappings);
+                    if (result != null)
+                        return result;
+                }
+
+                result = createNotCached(propertyImplements);
+                cacheResults.add(new CacheResult<>(mappings, result));
+                return result;
+            }
+        }
+
+        protected abstract <T, X extends PropertyInterface> PropertyImplement<?, T> createNotCached(ImList<ImSet<PropertyImplement<?, T>>> propertyImplements);
+    }
+
+    // converter to MapImplement
+    private static class ConverterToMapImplement<X extends PropertyInterface, T> {
+
+        private final MExclMap<X, T> mapping = MapFact.mExclMap();
+        private final MAddExclMap<T, List<X>> revMapping = MapFact.mAddExclMap();
+
+        public <P extends PropertyInterface> PropertyMapImplement<P, X> convert(PropertyImplement<P, T> implement) {
+
+            ImRevValueMap<P, X> mMap = implement.mapping.mapItRevValues();
+            MAddMap<T, Integer> mCount = MapFact.mAddOverrideMap();
+            for(int i=0,size=implement.mapping.size();i<size;i++) {
+                T mapInterface = implement.mapping.getValue(i);
+
+                Integer currentCount;
+                List<X> list = revMapping.get(mapInterface);
+                if(list == null) {
+                    list = new ArrayList<>();
+                    revMapping.exclAdd(mapInterface, list);
+                    currentCount = 0;
+                } else {
+                    currentCount = mCount.get(mapInterface);
+                    if(currentCount == null)
+                        currentCount = 0;
+                }
+                mCount.add(mapInterface, currentCount + 1);
+
+                X interf;
+                if(currentCount >= list.size()) {
+                    interf = (X) new PropertyInterface();
+                    list.add(interf);
+                    mapping.exclAdd(interf, mapInterface);
+                } else
+                    interf = list.get(currentCount);
+
+                mMap.mapValue(i, interf);
+            }
+            return new PropertyMapImplement<>(implement.property, mMap.immutableValueRev());
+        }
+
+        public ImSet<PropertyMapImplement<?, X>> convert(ImSet<PropertyImplement<?, T>> propImplements) {
+            MExclSet<PropertyMapImplement<?, X>> mResult = SetFact.mExclSet(propImplements.size()); // side effects
+            for(PropertyImplement<?, T> propImplement : propImplements)
+                mResult.exclAdd(convert(propImplement));
+            return mResult.immutable();
+        }
+
+        public ImMap<X, T> getMapping() {
+            return mapping.immutable();
+        }
+    }
+
+    public static class AndCachedFactory extends CachedFactory {
+
+        public <T> PropertyImplement<?, T> create(ImSet<PropertyImplement<?, T>> propertyImplements) {
+            return create(ListFact.singleton(propertyImplements));
+        }
+
+        @Override
+        protected <T, X extends PropertyInterface> PropertyImplement<?, T> createNotCached(ImList<ImSet<PropertyImplement<?, T>>> propertyImplements) {
+            ImSet<PropertyImplement<?, T>> ops = propertyImplements.single();
+
+            ConverterToMapImplement<X, T> converter = new ConverterToMapImplement<>();
+
+            ImSet<PropertyMapImplement<?, X>> ands = converter.convert(ops);
+            ImMap<X, T> mapping = converter.getMapping();
+
+            return createAnd(mapping.keys(), ands).mapImplement(mapping);
+        }
+    }
+
+    public static class OrCachedFactory extends CachedFactory {
+
+        public <T> PropertyImplement<?, T> create(ImSet<PropertyImplement<?, T>> propertyImplements) {
+            return create(ListFact.singleton(propertyImplements));
+        }
+
+        @Override
+        protected <T, X extends PropertyInterface> PropertyImplement<?, T> createNotCached(ImList<ImSet<PropertyImplement<?, T>>> propertyImplements) {
+            ImSet<PropertyImplement<?, T>> ops = propertyImplements.single();
+
+            ConverterToMapImplement<X, T> converter = new ConverterToMapImplement<>();
+
+            ImSet<PropertyMapImplement<?, X>> ors = converter.convert(ops).mapSetValues(PropertyFact::createNotNull);
+            ImMap<X, T> mapping = converter.getMapping();
+
+            return createUnion(mapping.keys(), ors.toList()).mapImplement(mapping);
+        }
+    }
+
+    public static <X extends PropertyInterface> PropertyMapImplement<?, X> createNotNull(PropertyInterfaceImplement<X> value) {
+        if (value instanceof PropertyMapImplement && ((PropertyMapImplement<?, ?>) value).property.getType().equals(LogicalClass.instance)) // converting to logical if needed
+            return (PropertyMapImplement<?, X>) value;
+
+        return createAnd(getUsedInterfaces(value), PropertyFact.createTrue(), value);
+    }
+
+    public static class CompareCachedFactory extends CachedFactory {
+
+        private final Compare compare;
+
+        public CompareCachedFactory(Compare compare) {
+            this.compare = compare;
+        }
+
+        public <T> PropertyImplement<?, T> create(PropertyImplement<?, T> propertyA, PropertyImplement<?, T> propertyB) {
+            return create(ListFact.toList(SetFact.singleton(propertyA), SetFact.singleton(propertyB)));
+        }
+
+        @Override
+        protected <T, X extends PropertyInterface> PropertyImplement<?, T> createNotCached(ImList<ImSet<PropertyImplement<?, T>>> propertyImplements) {
+
+            ConverterToMapImplement<X, T> converter = new ConverterToMapImplement<>();
+            PropertyMapImplement<?, X> propertyA = converter.convert(propertyImplements.get(0).single());
+            PropertyMapImplement<?, X> propertyB = converter.convert(propertyImplements.get(1).single());
+            ImMap<X, T> mapping = converter.getMapping();
+
+            return createCompare(mapping.keys(), propertyA, propertyB, compare).mapImplement(mapping);
+        }
+    }
+
+    public static class NotCachedFactory extends CachedFactory {
+
+        public <T> PropertyImplement<?, T> create(PropertyImplement<?, T> property) {
+            return create(ListFact.singleton(SetFact.singleton(property)));
+        }
+
+        @Override
+        protected <T, X extends PropertyInterface> PropertyImplement<?, T> createNotCached(ImList<ImSet<PropertyImplement<?, T>>> propertyImplements) {
+
+            ConverterToMapImplement<X, T> converter = new ConverterToMapImplement<>();
+            PropertyMapImplement<?, X> property = converter.convert(propertyImplements.single().single());
+            ImMap<X, T> mapping = converter.getMapping();
+
+            return createNot(mapping.keys(), property).mapImplement(mapping);
+        }
+    }
+
+    public static class IfCachedFactory extends CachedFactory {
+
+        public IfCachedFactory() {
+        }
+
+        public <T> PropertyImplement<?, T> create(PropertyImplement<?, T> propertyA, PropertyImplement<?, T> propertyB) {
+            return create(ListFact.toList(SetFact.singleton(propertyA), SetFact.singleton(propertyB)));
+        }
+
+        @Override
+        protected <T, X extends PropertyInterface> PropertyImplement<?, T> createNotCached(ImList<ImSet<PropertyImplement<?, T>>> propertyImplements) {
+
+            ConverterToMapImplement<X, T> converter = new ConverterToMapImplement<>();
+            PropertyMapImplement<?, X> propertyA = converter.convert(propertyImplements.get(0).single());
+            PropertyMapImplement<?, X> propertyB = converter.convert(propertyImplements.get(1).single());
+            ImMap<X, T> mapping = converter.getMapping();
+
+            return PropertyFact.createAnd(mapping.keys(), propertyA, propertyB).mapImplement(mapping);
+        }
+    }
+
+    private static final OrCachedFactory orCachedFactory = new OrCachedFactory();
+    public static <T> PropertyImplement<?, T> createOrCached(ImSet<PropertyImplement<?, T>> propertyImplements) {
+        return orCachedFactory.create(propertyImplements);
+    }
+
+    private static final AndCachedFactory andCachedFactory = new AndCachedFactory();
+    public static <T> PropertyImplement<?, T> createAndCached(ImSet<PropertyImplement<?, T>> propertyImplements) {
+        return andCachedFactory.create(propertyImplements);
+    }
+
+    private static final Map<Compare, CompareCachedFactory> compareCachedFactories;
+    static {
+        compareCachedFactories = new HashMap<>();
+        for(Compare compare : Compare.values())
+            compareCachedFactories.put(compare, new CompareCachedFactory(compare));
+    }
+    public static <T> PropertyImplement<?, T> createCompareCached(PropertyImplement<?, T> propertyA, Compare compare, PropertyImplement<?, T> propertyB) {
+        return compareCachedFactories.get(compare).create(propertyA, propertyB);
+    }
+
+    private static final NotCachedFactory notCachedFactory = new NotCachedFactory();
+    public static <T> PropertyImplement<?, T> createNotCached(PropertyImplement<?, T> property) {
+        return notCachedFactory.create(property);
+    }
+
+    private static final IfCachedFactory ifCachedFactory = new IfCachedFactory();
+    public static <T> PropertyImplement<?, T> createIfCached(PropertyImplement<?, T> property, PropertyImplement<?, T> and) {
+        return ifCachedFactory.create(property, and);
+    }
+
+    private static final Object valueLock = new Object();
+    private static Property valueProperty;
+    public static <T> PropertyImplement<?, T> createValueCached(T mapping) {
+        synchronized (valueLock) {
+            if(valueProperty == null)
+                valueProperty = new AndFormulaProperty(0);
+            return valueProperty.getSingleImplement(mapping);
+        }
     }
 }

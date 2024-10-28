@@ -1,36 +1,42 @@
 ---
 title: 'FORM statement'
-sidebar_label: Overview
 ---
 
 The `FORM` statement creates a [form](Forms.md). 
 
 ## Syntax
 
-    FORM name [caption] formOptions
-        formBlock1
-        ...
-        formBlockN
-    ;
+```
+FORM name [caption] formOptions
+    formBlock1
+    ...
+    formBlockN
+;
+```
 
 After specifying the form name and caption, form options `formOptions` are specified in an arbitrary order
 
-    IMAGE path 
-    AUTOREFRESH period 
+```
+imageSetting
+LOCALASYNC
+```
 
 After the form options, the blocks of the form `formBlock1 ... formBlockN` are described in the arbitrary order: 
 
-    OBJECTS ... 
-    TREE ...
-    PROPERTIES ...
-    FILTERS ...
-    [EXTEND] FILTERGROUP ...
-    ORDER ...
-    EVENTS ...
-    REPORT propertyExpression
-    FORMEXTID extID
-    EDIT className OBJECT objectName
-    LIST className OBJECT objectName 
+```
+OBJECTS ... 
+TREE ...
+PROPERTIES ...
+FILTERS ...
+[EXTEND] FILTERGROUP ...
+USERFILTERS ...
+ORDERS ...
+EVENTS ...
+REPORT propertyExpression
+FORMEXTID extID
+EDIT className OBJECT objectName
+LIST className OBJECT objectName 
+```
 
 ## Description
 
@@ -48,21 +54,25 @@ The `FORM` statement declares a new form and adds it to the current [module](Mod
 
 ### Form options (`formOptions`)
 
-- `IMAGE path`
+- `imageSetting`
 
-    The relative path to the file with the image that will be used as the form icon. 
+    Configuring the display of the form's icon. By default, the presence or absence of an icon is controlled by the [parameters](Working_parameters.md) `settings.defaultImagePathRankingThreshold` and `settings.defaultAutoImageRankingThreshold`. This option allows you to manually configure the icon display. It can have one of two forms:
 
-    - `path`
-    
-        Path to the file. String literal. The path is relative to the `images` directory.
+    - `IMAGE [fileExpr]`
 
-- `AUTOREFRESH period`
+        Specifying the relative path to the image file that will be displayed as the form's icon. If `fileExpr` is not specified, the default icon display mode is activated.
 
-    Specifying the [automatic form update](Interactive_view.md#extra) period. If the option is not specified, the form will not be updated automatically.
+        - `fileExpr`
 
-    - `period`
-    
-        A period of time in seconds. [Integral literal](IDs.md#intliteral). 
+            [Expression](Expression.md) whose value specifies the path to the image file. The path is specified relative to the `images` directory.
+
+    - `NOIMAGE`
+
+        Keyword indicating that the form should have no icon.
+
+- `LOCALASYNC`
+
+    Keyword indicating that [local events](Events.md#type) handling will be performed after changes are displayed on the form.
 
 ### Form blocks (`formBlock1 ... formBlockN`) {#blocks}
 
@@ -86,9 +96,17 @@ The `FORM` statement declares a new form and adds it to the current [module](Mod
 
     Adds a group of filters to the form or extends an existing one. [Syntax of a filter group block](Filters_and_sortings_block.md#filtergroup).
 
+- `USERFILTERS ...`
+
+    Adds [user-defined filters](Interactive_view.md#userfilters) to a form. [Syntax of the user filters block](Filters_and_sortings_block.md#userfilters).
+
 - `ORDER ...`
 
     Adds sorting options to the form. [Syntax of the order block](Filters_and_sortings_block.md#sort).
+
+- `PIVOT ...`
+
+    Defines the initial settings for the [pivot table view type](Interactive_view.md#property). [Syntax of the pivot block](Pivot_block.md).
 
 - `EVENTS ...`
 
@@ -141,23 +159,30 @@ CLASS Document;
 
 // declaring the Documents form
 FORM documents 'Documents'
-    OBJECTS d = Document // Adding one object of the Document class. The object will be available by this name in the DESIGN, SHOW, EXPORT, DIALOG, etc. operators.
+    // Adding one object of the Document class. The object will be available by this name 
+    // in the DESIGN, SHOW, EXPORT, DIALOG, etc. operators.
+    OBJECTS d = Document 
 
 
     // ... adding properties and filters to the form
 
-    LIST Document OBJECT d // marking that this form should be used when it is necessary to select a document, while the d object should be used as a return value
+    // marking that this form should be used when it is necessary to select a document, 
+    // while the d object should be used as a return value
+    LIST Document OBJECT d 
 ;
 
 CLASS Item;
 
 // declaring the Product form
 FORM item 'Product'
-    OBJECTS i = Item PANEL // adding an object of the Item class and marking that it should be displayed in the panel (i.e., only one value is visible)
+    // adding an object of the Item class and marking that it should be displayed
+    // in the panel (i.e., only one value is visible)
+    OBJECTS i = Item PANEL 
 
     // ... adding properties and filters to the form
 
-    EDIT Item OBJECT i // marking that this form should be used when it is necessary to add or edit a product
+    // marking that this form should be used when it is necessary to add or edit a product
+    EDIT Item OBJECT i 
 ;
 
 // declaring a form with a list of Products
@@ -166,7 +191,8 @@ FORM items 'Products'
 
     // ... adding properties and filters to the form
 
-    PROPERTIES(i) NEWSESSION NEW, EDIT // adding buttons that will create and edit the product using the item form
+    // adding buttons that will create and edit the product using the item form
+    PROPERTIES(i) NEWSESSION NEW, EDIT 
 ;
 
 CLASS Invoice;
@@ -181,9 +207,11 @@ FORM printInvoice
 
 // splitting the form definition into two statements (the second statement can be transferred to another module)
 EXTEND FORM printInvoice
-    OBJECTS d = InvoiceDetail // adding invoice lines, each of which will be used in the report as a detail
+    // adding invoice lines, each of which will be used in the report as a detail
+    OBJECTS d = InvoiceDetail 
 
     // ... adding properties and filters to the form
 ;
-print (Invoice invoice)  { PRINT printInvoice OBJECTS i = invoice; } // declaring an action that will open the invoice print form
+// declaring an action that will open the invoice print form
+print (Invoice invoice)  { PRINT printInvoice OBJECTS i = invoice; } 
 ```

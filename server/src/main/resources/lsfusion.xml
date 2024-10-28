@@ -137,6 +137,23 @@
                 <entry key="editBooleanOnSingleClick" value="${settings.editBooleanOnSingleClick:}"/>
                 <entry key="editActionOnSingleClick" value="${settings.editActionOnSingleClick:}"/>
                 <entry key="pivotOnlySelectedColumn" value="${settings.pivotOnlySelectedColumn:}"/>
+                <entry key="filterMatchLanguage" value="${settings.filterMatchLanguage:}"/>
+                <entry key="tsVectorDictionaryLanguage" value="${settings.tsVectorDictionaryLanguage:}"/>
+                <entry key="verticalColumnsFiltersContainer" value="${settings.verticalColumnsFiltersContainer:}"/>
+                <entry key="userFiltersManualApplyMode" value="${settings.userFiltersManualApplyMode:}"/>
+                <entry key="defaultAutoImageRankingThreshold" value="${settings.defaultAutoImageRankingThreshold:}"/>
+                <entry key="defaultNavigatorImageRankingThreshold" value="${settings.defaultNavigatorImageRankingThreshold:}"/>
+                <entry key="defaultFormImageRankingThreshold" value="${settings.defaultFormImageRankingThreshold:}"/>
+                <entry key="defaultContainerImageRankingThreshold" value="${settings.defaultContainerImageRankingThreshold:}"/>
+                <entry key="defaultPropertyImageRankingThreshold" value="${settings.defaultPropertyImageRankingThreshold:}"/>
+                <entry key="minInterfaceStatForValueUnique" value="${settings.minInterfaceStatForValueUnique:}"/>
+                <entry key="maxInterfaceStatForValueList" value="${settings.maxInterfaceStatForValueList:}"/>
+                <entry key="maxInterfaceStatForValueDropdown" value="${settings.maxInterfaceStatForValueDropdown:}"/>
+                <entry key="maxLengthForValueButton" value="${settings.maxLengthForValueButton:}"/>
+                <entry key="suppressOnFocusChange" value="${settings.suppressOnFocusChange:}"/>
+                <entry key="contentWordWrap" value="${settings.contentWordWrap:}"/>
+                <entry key="toolbarTopLeft" value="${settings.toolbarTopLeft:}"/>
+                <entry key="createSessionObjects" value="${settings.createSessionObjects:}"/>
             </map>
         </property>
         </bean>
@@ -172,8 +189,8 @@
         <property name="adapter" ref="dataAdapter"/>
         <property name="businessLogics" ref="businessLogics"/>
         <property name="restartManager" ref="restartManager"/>
-        <property name="denyDropModules" value="${db.denyDropModules:false}"/>
-        <property name="denyDropTables" value="${db.denyDropTables:false}"/>
+        <property name="denyDropModules" value="${db.denyDropModules:#{null}}"/>
+        <property name="denyDropTables" value="${db.denyDropTables:#{null}}"/>
         <property name="dbNamingPolicy" value="${db.namingPolicy:lsfusion.server.physics.dev.id.name.FullDBNamingPolicy}"/>
         <property name="dbMaxIdLength" value="${db.maxIdLength:63}"/>
         <property name="defaultUserLanguage" value="${user.defaultLanguage:#{null}}"/>
@@ -182,9 +199,8 @@
         <property name="defaultUserTwoDigitYearStart" value="${user.defaultTwoDigitYearStart:#{null}}"/>
         <property name="defaultUserDateFormat" value="${user.defaultDateFormat:#{null}}"/>
         <property name="defaultUserTimeFormat" value="${user.defaultTimeFormat:#{null}}"/>
-        <property name="serverTwoDigitYearStart" value="${user.serverTwoDigitYearStart:#{null}}"/>
-        <property name="serverDateFormat" value="${user.serverDateFormat:#{null}}"/>
-        <property name="serverTimeFormat" value="${user.serverTimeFormat:#{null}}"/>
+
+        <property name="initTask" ref="initDBTask"/>
     </bean>
 
     <bean id="reflectionManager" class="lsfusion.server.physics.admin.reflection.controller.manager.ReflectionManager">
@@ -214,6 +230,14 @@
         <property name="initialAdminPassword" value="${logics.initialAdminPassword:}"/>
     </bean>
 
+    <bean id="webSocketServer" class="lsfusion.server.physics.dev.integration.external.to.net.websocket.WebSocketServer">
+        <property name="logicsInstance" ref="logicsInstance"/>
+    </bean>
+
+    <bean id="rabbitMQServer" class="lsfusion.server.physics.dev.integration.external.to.net.rabbitmq.RabbitMQServer">
+        <property name="logicsInstance" ref="logicsInstance"/>
+    </bean>
+
     <bean id="logicsInstance" class="lsfusion.server.logics.LogicsInstance">
         <property name="lifecycle" ref="lifecycleManager"/>
         <property name="businessLogics" ref="businessLogics"/>
@@ -223,6 +247,8 @@
         <property name="securityManager" ref="securityManager"/>
         <property name="dbManager" ref="dbManager"/>
         <property name="reflectionManager" ref="reflectionManager"/>
+        <property name="rabbitMQServer" ref="rabbitMQServer"/>
+        <property name="webSocketServer" ref="webSocketServer"/>
         <property name="settings" ref="settings"/>
         <property name="customObjects" ref="instanceCustomObjects"/>
     </bean>
@@ -310,7 +336,7 @@
         <property name="BL" ref="businessLogics"/>
     </bean>
 
-    <bean id="initFullTablesTask" class="lsfusion.server.physics.exec.db.controller.init.InitFullSingleTablesTask">
+    <bean id="initFullSingleTablesTask" class="lsfusion.server.physics.exec.db.controller.init.InitFullSingleTablesTask">
         <property name="dependencies">
             <set>
                 <ref bean="initClassDataPropsTask"/> <!-- нужны все классы, в том числе reflection -->
@@ -322,7 +348,7 @@
     <bean id="initMainLogicTask" class="lsfusion.server.logics.controller.init.InitMainLogicTask">
         <property name="dependencies">
             <set>
-                <ref bean="initFullTablesTask"/> <!-- так как влияет на работу с expr'ами и учавствует в большом количестве кэшей  -->
+                <ref bean="initFullSingleTablesTask"/> <!-- так как влияет на работу с expr'ами и учавствует в большом количестве кэшей  -->
             </set>
         </property>
         <property name="BL" ref="businessLogics"/>
@@ -364,11 +390,30 @@
         <property name="BL" ref="businessLogics"/>
     </bean>
 
+    <!-- we need to execute it after synchronizeDB because updateStat is done there (and thus statProps are filled), and finalizeLazyInit -> form usage -> PropertyDrawEntity.getValue/DrawProperty is used which uses / caches statProps  -->
+    <bean id="finalizeLazyTask" class="lsfusion.server.logics.property.controller.init.FinalizeLazyTask">
+        <property name="dependencies">
+            <set>
+                <ref bean="prereadFormEventsTask"/>
+            </set>
+        </property>
+        <property name="BL" ref="businessLogics"/>
+    </bean>
+
+    <bean id="checkRecursionsTask" class="lsfusion.server.logics.property.controller.init.CheckRecursionsTask">
+        <property name="dependencies">
+            <set>
+                <ref bean="finalizeLazyTask"/>
+            </set>
+        </property>
+        <property name="BL" ref="businessLogics"/>
+    </bean>
+
     <bean id="markRecursionsTask" class="lsfusion.server.logics.property.controller.init.MarkRecursionsTask">
         <property name="dependencies">
             <set>
+                <ref bean="checkDuplicateSystemElements"/>
                 <ref bean="finalizeActionAbstractTask"/>
-                <ref bean="finalizeCalcAbstractTask"/>
             </set>
         </property>
         <property name="BL" ref="businessLogics"/>
@@ -416,7 +461,7 @@
         <property name="dependencies">
             <set>
                 <ref bean="finalizeCalcAbstractTask"/>
-                <ref bean="initFullTablesTask"/> <!-- has markStored inside-->
+                <ref bean="initFullSingleTablesTask"/> <!-- has markStored inside-->
             </set>
         </property>
         <property name="BL" ref="businessLogics"/>
@@ -476,32 +521,44 @@
         <property name="BL" ref="businessLogics"/>
     </bean>
 
-    <bean id="showDependenciesTask" class="lsfusion.server.logics.property.controller.init.ShowDependenciesTask">
-        <property name="dependencies">
+    <!-- we want to execute getting property list after synchronizeDB because updateStat is done there (and thus statProps are filled) because usePrevHeur / noUsePrevHeur are used in the calculating links methods, and they call getExpr, which eventually call getStatProps  -->
+    <bean id="prereadApplyLinksTask" class="lsfusion.server.logics.event.init.PrereadApplyLinksTask">
+    <property name="dependencies">
             <set>
-                <ref bean="setupDrillDownTask"/>
-                <ref bean="setupResetFileTask"/>
-                <ref bean="initIndicesTask"/> <!-- uses getLinks -> getSessionCalcDepends -> hideOlds -> hasAlotKeys -> getStatRows -> cost calculation uses indexes - to early index read-->
+                <!-- getDepends is used which needs lazy props to be finalized  -->
+                <ref bean="finalizeLazyTask"/>
+                <!-- we don't need this dependencies since we're moving all getList to the DBManager   -->
+<!--                <ref bean="initReflectionEventsTask"/> &lt;!&ndash; так как в этом задании добавляются события &ndash;&gt;-->
+<!--                <ref bean="initIndicesTask"/> &lt;!&ndash; hideOlds -> STAT calculation -> getIndices cache  &ndash;&gt;-->
+<!--                <ref bean="setupDrillDownTask"/>-->
+<!--                <ref bean="setupResetFileTask"/>-->
             </set>
         </property>
         <property name="BL" ref="businessLogics"/>
     </bean>
 
-    <bean id="prereadLinksTask" class="lsfusion.server.logics.event.init.PrereadLinksTask">
+    <bean id="getApplyPropertyListTask" class="lsfusion.server.logics.event.init.GetApplyPropertyListTask">
         <property name="dependencies">
             <set>
-                <ref bean="initReflectionEventsTask"/> <!-- так как в этом задании добавляются события -->
-                <ref bean="initIndicesTask"/> <!-- hideOlds -> STAT calculation -> getIndices cache  -->
-                <ref bean="showDependenciesTask"/> <!-- так как используется fillActionChangeProps, а его реализация не синхронизирована -->
+                <ref bean="prereadApplyLinksTask"/> <!-- not in parallel because in the end of getPropertyList links caches are dropped-->
             </set>
         </property>
         <property name="BL" ref="businessLogics"/>
     </bean>
 
-    <bean id="getPropertyListTask" class="lsfusion.server.logics.event.init.GetPropertyListTask">
+    <bean id="prereadSessionLinksTask" class="lsfusion.server.logics.event.init.PrereadSessionLinksTask">
         <property name="dependencies">
             <set>
-                <ref bean="prereadLinksTask"/> <!-- not in parallel because in the end of getPropertyList links caches are dropped-->
+                <ref bean="getApplyPropertyListTask"/> <!-- because actionChangeProps is not thread safe -->
+            </set>
+        </property>
+        <property name="BL" ref="businessLogics"/>
+    </bean>
+
+    <bean id="getSessionPropertyListTask" class="lsfusion.server.logics.event.init.GetSessionPropertyListTask">
+        <property name="dependencies">
+            <set>
+                <ref bean="prereadSessionLinksTask"/> <!-- not in parallel because in the end of getPropertyList links caches are dropped-->
             </set>
         </property>
         <property name="BL" ref="businessLogics"/>
@@ -561,7 +618,8 @@
     <bean id="initClassDialogFormsTask" class="lsfusion.server.logics.classes.controller.init.InitClassDialogFormsTask">
         <property name="dependencies">
             <set>
-                <ref bean="getPropertyListTask"/> <!-- because init dialog forms (and finalize forms) generates event actions, which uses getCheckProperties, thus, getPropertyList (and we don't want to run it with prereadLinks since fill/dropActinChangeProps is not thread-safe) -->
+<!--                <ref bean="finalizeClassesTask"/>-->
+                <ref bean="checkDuplicateSystemElements"/> <!-- otherwise concurrent modification would occur -->
             </set>
         </property>
         <property name="BL" ref="businessLogics"/>
@@ -588,12 +646,68 @@
         <property name="BL" ref="businessLogics"/>
     </bean>
 
+    <bean id="executeOnInitTask" class="lsfusion.server.logics.controller.init.ExecuteOnInitTask">
+        <property name="BL" ref="businessLogics"/>
+        <property name="dependencies">
+            <set>
+            </set>
+        </property>
+    </bean>
+
     <bean id="initDebugTask" class="lsfusion.server.physics.dev.debug.controller.init.InitActionDebuggerTask">
+        <property name="logicsInstance" ref="logicsInstance"/>
+        <property name="dependencies">
+            <set>
+            </set>
+        </property>
+    </bean>
+
+    <bean id="executeOnStartedTask" class="lsfusion.server.logics.controller.init.ExecuteOnStartedTask">
+        <property name="BL" ref="businessLogics"/>
+        <property name="dependencies">
+            <set>
+                <ref bean="initDebugTask"/> <!-- we want the debugger to work in executing actions -->
+            </set>
+        </property>
+    </bean>
+
+    <bean id="executeImportIconsTask" class="lsfusion.server.logics.controller.init.ExecuteImportIconsTask">
+        <property name="BL" ref="businessLogics"/>
+        <property name="dependencies">
+            <set>
+<!--                <ref bean="initDebugTask"/> &lt;!&ndash; we want the debugger to work in executing actions &ndash;&gt;-->
+            </set>
+        </property>
+    </bean>
+
+    <bean id="prereadIconsTask" class="lsfusion.server.logics.form.controller.init.PrereadIconsTask">
+        <property name="BL" ref="businessLogics"/>
+        <property name="securityManager" ref="securityManager"/>
+        <property name="dependencies">
+            <set>
+                <ref bean="executeImportIconsTask"/> <!-- icons should be synchronized first -->
+            </set>
+        </property>
+    </bean>
+
+    <bean id="exportRmiObjectTask" class="lsfusion.server.logics.navigator.controller.init.ExportRmiObjectTask">
+        <property name="BL" ref="businessLogics"/>
+        <property name="remoteLogicsLoader" ref="remoteLogicsLoader"/>
+        <property name="initDevTask" ref="initDevRLTask"/>
+        <property name="dependencies">
+            <set>
+                <ref bean="executeOnInitTask"/>
+                <ref bean="executeImportIconsTask"/> <!-- icons should be synchronized first -->
+            </set>
+        </property>
+    </bean>
+
+    <!-- Самый верхний task -->
+    <bean id="initBLTask" class="lsfusion.server.base.task.GroupTask">
         <property name="dependencies">
             <set>
                 <ref bean="checkAbstractTask"/>
                 <ref bean="initClassAggrPropsTask"/>
-                <ref bean="getPropertyListTask"/>
                 <ref bean="finalizePropsTask"/>
                 <ref bean="initIndicesTask"/>
                 <ref bean="initClassDataIndicesTask"/>
@@ -605,15 +719,43 @@
         </property>
     </bean>
 
-    <!-- Самый верхний task -->
-    <bean id="initBLTask" class="lsfusion.server.base.task.GroupTask">
+    <!-- we need to execute it after synchronizeDB because updateStat is done there (and thus statProps are filled), and in the prereadEventActions -> getDefaultEventAction -> isValueUnique is used which uses / caches statProps  -->
+    <bean id="prereadFormEventsTask" class="lsfusion.server.logics.form.controller.init.PrereadFormEventsTask">
         <property name="dependencies">
             <set>
-                <ref bean="initDebugTask"/>
+            </set>
+        </property>
+        <property name="BL" ref="businessLogics"/>
+    </bean>
+
+    <bean id="initDBTask" class="lsfusion.server.base.task.GroupTask">
+        <property name="dependencies">
+            <set>
+                <ref bean="getSessionPropertyListTask"/>
+                <ref bean="prereadFormEventsTask"/>
+                <ref bean="checkRecursionsTask"/>
             </set>
         </property>
     </bean>
-    
+
+    <bean id="initDevRLTask" class="lsfusion.server.base.task.GroupTask">
+        <property name="dependencies">
+            <set>
+                <ref bean="executeOnStartedTask"/>
+                <ref bean="prereadIconsTask"/>
+            </set>
+        </property>
+    </bean>
+
+    <bean id="initRLTask" class="lsfusion.server.base.task.GroupTask">
+        <property name="dependencies">
+            <set>
+                <ref bean="initDevRLTask"/>
+                <ref bean="exportRmiObjectTask"/>
+            </set>
+        </property>
+    </bean>
+
     <!-- Задачи инициализации reflection manager'а -->
 
     <bean id="syncTablesTask" class="lsfusion.server.physics.admin.reflection.controller.init.SyncTablesTask">
@@ -727,7 +869,7 @@
         <property name="BL" ref="businessLogics"/>
     </bean>
 
-    <bean id="firstRecalculateStatsTask" class="lsfusion.server.physics.exec.db.controller.init.FirstRecalculateStatsTask">
+    <bean id="firstRecalculateStatsAndMaterializationsTask" class="lsfusion.server.physics.exec.db.controller.init.FirstRecalculateStatsAndMaterializationsTask">
         <property name="dependencies">
             <set>
                 <ref bean="syncReflectionTask"/>
@@ -773,7 +915,7 @@
     <bean id="writeModulesHashTask" class="lsfusion.server.physics.admin.reflection.controller.init.WriteModulesHashTask">
         <property name="dependencies">
             <set>
-                <ref bean="firstRecalculateStatsTask"/>
+                <ref bean="firstRecalculateStatsAndMaterializationsTask"/>
             </set>
         </property>
         <property name="reflectionManager" ref="reflectionManager"/>
@@ -801,6 +943,8 @@
     <bean id="rmiManager" class="lsfusion.server.base.controller.remote.RmiManager">
         <property name="port" value="${rmi.port:7652}"/>
         <property name="httpPort" value="${http.port:7651}"/>
+        <property name="https" value="${https:false}"/>
+        <property name="webSocketPort" value="${webSocket.port:8887}"/>
         <property name="debuggerPort" value="${debugger.port:1299}"/>
         <property name="jmxPort" value="${rmi.jmxPort:0}"/>
         <property name="exportName" value="${rmi.exportName:default}"/>
@@ -820,6 +964,7 @@
         <property name="rmiManager" ref="rmiManager"/>
         <property name="dbManager" ref="dbManager"/>
         <property name="remoteLogics" ref="remoteLogics"/>
+        <property name="initTask" ref="initRLTask"/>
     </bean>
 
     <!-- Other services -->
@@ -860,6 +1005,8 @@
         <ref bean="reflectionManager"/>
         <ref bean="scheduler"/>
         <ref bean="externalHttpServer"/>
+        <ref bean="rabbitMQServer"/>
+        <ref bean="webSocketServer"/>
     </util:list>
 
     <util:list id="customLifecycleListeners"/>
@@ -878,5 +1025,12 @@
         <property name="setTimezone" value="${user.setTimezone:#{null}}"/>
         <property name="setLanguage" value="${user.setLanguage:#{null}}"/>
         <property name="setCountry" value="${user.setCountry:#{null}}"/>
+        <property name="twoDigitYearStart" value="${user.twoDigitYearStart:#{null}}"/>
+        <property name="dateFormat" value="${user.dateFormat:#{null}}"/>
+        <property name="timeFormat" value="${user.timeFormat:#{null}}"/>
+        <property name="theme" value="${user.theme:#{null}}"/>
+        <property name="size" value="${user.size:#{null}}"/>
+        <property name="navbar" value="${user.navbar:#{null}}"/>
+        <property name="navigatorPinMode" value="${user.navigatorPinMode:#{false}}"/>
     </bean>
 </beans>

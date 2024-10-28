@@ -1,14 +1,15 @@
 ---
 title: 'Инструкция ACTION'
-sidebar_label: Обзор
 ---
 
 Инструкция `ACTION` - создание нового [действия](Actions.md).
 
 ### Синтаксис
 
-    [ACTION] name [caption] [(param1, ..., paramN)] { operator } [options];
-    [ACTION] name [caption] [(param1, ..., paramN)] contextIndependentOperator [options];
+```
+[ACTION] name [caption] [(param1, ..., paramN)] { operator } [options];
+[ACTION] name [caption] [(param1, ..., paramN)] contextIndependentOperator [options];
+```
 
 ### Описание
 

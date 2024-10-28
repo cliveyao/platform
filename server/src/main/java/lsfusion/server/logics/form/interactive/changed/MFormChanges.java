@@ -10,10 +10,10 @@ import lsfusion.base.col.interfaces.mutable.MExclMap;
 import lsfusion.base.col.interfaces.mutable.MExclSet;
 import lsfusion.base.col.interfaces.mutable.MList;
 import lsfusion.base.col.interfaces.mutable.MMap;
-import lsfusion.interop.form.property.ClassViewType;
 import lsfusion.server.data.value.DataObject;
 import lsfusion.server.data.value.ObjectValue;
 import lsfusion.server.logics.form.interactive.design.ComponentView;
+import lsfusion.server.logics.form.interactive.design.ContainerView;
 import lsfusion.server.logics.form.interactive.instance.object.GroupObjectInstance;
 import lsfusion.server.logics.form.interactive.instance.object.ObjectInstance;
 import lsfusion.server.logics.form.interactive.instance.property.PropertyDrawInstance;
@@ -30,7 +30,7 @@ public class MFormChanges {
     // value.keySet() из key, или пустой если root
     public MExclMap<GroupObjectInstance, ImList<ImMap<ObjectInstance, DataObject>>> parentObjects = MapFact.mExclMap();
 
-    public MExclMap<GroupObjectInstance, ImMap<ImMap<ObjectInstance, DataObject>, Boolean>> expandables = MapFact.mExclMap();
+    public MExclMap<GroupObjectInstance, ImMap<ImMap<ObjectInstance, DataObject>, Integer>> expandables = MapFact.mExclMap();
 
     public MExclMap<PropertyReaderInstance, ImMap<ImMap<ObjectInstance, DataObject>, ObjectValue>> properties = MapFact.mExclMap();
 
@@ -40,6 +40,11 @@ public class MFormChanges {
     
     public MList<ComponentView> activateTabs = ListFact.mList();
     public MList<PropertyDrawInstance> activateProps = ListFact.mList();
+    
+    public MList<ContainerView> collapseContainers = ListFact.mList();
+    public MList<ContainerView> expandContainers = ListFact.mList();
+
+    public boolean needConfirm = false;
 
     public FormChanges immutable() {
 
@@ -52,7 +57,10 @@ public class MFormChanges {
                 dropProperties.immutable(),
                 updateStateObjects.immutable(),
                 activateTabs.immutableList(),
-                activateProps.immutableList()
+                activateProps.immutableList(),
+                collapseContainers.immutableList(),
+                expandContainers.immutableList(),
+                needConfirm
         );
     }
 }

@@ -100,7 +100,8 @@ changeQuantity 'Изменить кол-во' (Order o, Book b)  {
     INPUT q = INTEGER DO { // запрашиваем число
         IF lastOrderDetail(o, b) THEN { // проверяем, есть ли хоть одна строка
             IF q THEN // ввели число
-                quantity(OrderDetail d) <- q IF d == lastOrderDetail(o, b) WHERE order(d) == o AND book(d) == b; // записываем количество в последнюю строку с такой книгой
+                // записываем количество в последнюю строку с такой книгой
+                quantity(OrderDetail d) <- q IF d == lastOrderDetail(o, b) WHERE order(d) == o AND book(d) == b; 
             ELSE // сбросили число - удаляем строку
                 DELETE OrderDetail d WHERE order(d) == o AND book(d) == b;
         } ELSE
@@ -122,7 +123,7 @@ DESIGN order {
     OBJECTS {
         NEW pane { // создаем контейнер после заголовка заказа
             fill = 1;
-            type = TABBED;
+            tabbed = TRUE;
             MOVE BOX(d);
             MOVE BOX(b) {
                 caption = 'Подбор';

@@ -1,12 +1,15 @@
 package lsfusion.gwt.client.form.event;
 
 import com.google.gwt.dom.client.BrowserEvents;
+import com.google.gwt.dom.client.Document;
 import com.google.gwt.dom.client.NativeEvent;
 import com.google.gwt.user.client.Event;
-import lsfusion.gwt.client.form.controller.GFormController;
+import lsfusion.gwt.client.form.controller.FormsController;
 import lsfusion.gwt.client.form.property.cell.GEditBindingMap;
+import lsfusion.gwt.client.view.MainFrame;
 
 import java.io.Serializable;
+import java.util.function.BooleanSupplier;
 
 import static com.google.gwt.dom.client.BrowserEvents.*;
 import static com.google.gwt.event.dom.client.KeyCodes.*;
@@ -36,6 +39,10 @@ public class GKeyStroke implements Serializable {
     public static final int KEY_C = 67;
     public static final int KEY_R = 82;
     public static final int KEY_V = 86;
+    
+    public static final GKeyStroke ADD_USER_FILTER_KEY_STROKE = new GKeyStroke(KEY_F3);
+    public static final GKeyStroke REPLACE_USER_FILTER_KEY_STROKE = new GKeyStroke(KEY_F3, true, false, false);
+    public static final GKeyStroke REMOVE_USER_FILTERS_KEY_STROKE = new GKeyStroke(KEY_F3, false, false, true);
 
     public int keyCode;
     public boolean altPressed;
@@ -94,6 +101,7 @@ public class GKeyStroke implements Serializable {
             case KEY_ESCAPE: keyString = "ESCAPE"; break;
             case KEY_TAB: keyString = "TAB"; break;
             case KEY_INSERT: keyString = "INSERT"; break;
+            case KEY_SPACE: keyString = "SPACE"; break;
             case KEY_F1: keyString = "F1"; break;
             case KEY_F1+1: keyString = "F2"; break;
             case KEY_F1+2: keyString = "F3"; break;
@@ -126,7 +134,8 @@ public class GKeyStroke implements Serializable {
     }
 
     public static boolean isSpaceKeyEvent(NativeEvent event) {
-        return KEYDOWN.equals(event.getType()) && event.getKeyCode() == KEY_SPACE;
+        return KEYDOWN.equals(event.getType()) && event.getKeyCode() == KEY_SPACE ||
+                KEYPRESS.equals(event.getType()) && event.getCharCode() == KEY_SPACE;
     }
 
     public static boolean isAltEnterEvent(NativeEvent event) {
@@ -141,29 +150,83 @@ public class GKeyStroke implements Serializable {
         return KEYDOWN.equals(event.getType()) && event.getKeyCode() == KEY_ESCAPE;
     }
 
-    public static boolean isEditObjectEvent(Event event) {
-        return KEYDOWN.equals(event.getType()) && event.getKeyCode() == KEY_F9
-                || GMouseStroke.isDblClickEvent(event)
-                || GFormController.isLinkEditMode() && GMouseStroke.isChangeEvent(event);
+    public static boolean isTabEvent(NativeEvent event) {
+        return KEYDOWN.equals(event.getType()) && event.getKeyCode() == KEY_TAB;
+    }
+
+    public static boolean isAltEvent(NativeEvent event) {
+        return KEYDOWN.equals(event.getType()) && event.getKeyCode() == KEY_ALT;
+    }
+
+    public static boolean isEditObjectEvent(Event event, boolean hasEditObjectAction, boolean hasChangeAction, boolean isCustomRenderer) {
+        return hasEditObjectAction && (KEYDOWN.equals(event.getType()) && event.getKeyCode() == KEY_F9
+                || (!hasChangeAction && !isCustomRenderer && GMouseStroke.isDblClickEvent(event))
+                || FormsController.isLinkMode() && GMouseStroke.isChangeEvent(event));
+    }
+
+    public static boolean isChangeAppendKeyEvent(Event event) {
+        return KEYDOWN.equals(event.getType()) && event.getKeyCode() == KEY_F2;
     }
 
     public static boolean isGroupChangeKeyEvent(Event event) {
         return KEYDOWN.equals(event.getType()) && event.getKeyCode() == KEY_F12;
     }
 
+    public static Event createAddUserFilterKeyEvent() {
+        return Event.as(Document.get().createKeyDownEvent(ADD_USER_FILTER_KEY_STROKE.ctrlPressed,
+                ADD_USER_FILTER_KEY_STROKE.altPressed,
+                ADD_USER_FILTER_KEY_STROKE.shiftPressed,
+                false,
+                ADD_USER_FILTER_KEY_STROKE.keyCode));
+    }
+    
+    public static boolean isAddUserFilterKeyEvent(Event event) {
+        return ADD_USER_FILTER_KEY_STROKE.isEvent(event);
+    }
+    
+    public static boolean isReplaceUserFilterKeyEvent(Event event) {
+        return REPLACE_USER_FILTER_KEY_STROKE.isEvent(event);
+    }
+
     public static boolean isCharModifyKeyEvent(Event event, GEditBindingMap.EditEventFilter editEventFilter) {
         return ((isCharAddKeyEvent(event) && (editEventFilter == null || editEventFilter.accept(event))) || isCharDeleteKeyEvent(event));
+    }
+
+    public static boolean isInputKeyEvent(Event event, boolean isNavigateInput, boolean isMultiLine) {
+        return isCharModifyKeyEvent(event, null) || isMobileKeyEvent(event) ||
+                (isNavigateInput && (isCharNavigateHorzKeyEvent(event) || (isCharNavigateVertKeyEvent(event) && isMultiLine))) || isPasteFromClipboardEvent(event);
+    }
+
+    //https://stackoverflow.com/questions/65453381/android-keyboard-keypress-not-returning-anything-keydown-returning-229
+    public static boolean isMobileKeyEvent(Event event) {
+        return MainFrame.mobile && isKeyDownEvent(event) && event.getKeyCode() == 229;
     }
 
     public static boolean isDropEvent(Event event) {
         return event.getType().equals(BrowserEvents.DROP);
     }
 
+/*    public static boolean isKeyLeftEvent(NativeEvent event) {
+        return KEYDOWN.equals(event.getType()) && event.getKeyCode() == KEY_LEFT;
+    }
+
+    public static boolean isKeyRightEvent(NativeEvent event) {
+        return KEYDOWN.equals(event.getType()) && event.getKeyCode() == KEY_RIGHT;
+    }*/
+
     // what events should be stealed by TextBasedEditor
-    public static boolean isCharNavigateKeyEvent(NativeEvent event) {
+    public static boolean isCharNavigateHorzKeyEvent(NativeEvent event) {
         if (KEYDOWN.equals(event.getType())) {
             int keyCode = event.getKeyCode();
             return keyCode == KEY_LEFT || keyCode == KEY_RIGHT || keyCode == KEY_END || keyCode == KEY_HOME;
+        }
+        return false;
+    }
+
+    public static boolean isCharNavigateVertKeyEvent(NativeEvent event) {
+        if (KEYDOWN.equals(event.getType())) {
+            int keyCode = event.getKeyCode();
+            return keyCode == KEY_UP || keyCode == KEY_DOWN;
         }
         return false;
     }
@@ -185,6 +248,23 @@ public class GKeyStroke implements Serializable {
             return keyCode != KEY_ENTER && keyCode != KEY_ESCAPE && event.getCharCode() != 0;
         }
         return false;
+    }
+
+    public static boolean isLogicalInputChangeEvent(Event event) {
+        return isSpaceKeyEvent(event);
+    }
+
+    public static boolean isChangeEvent(Event event) {
+        return CHANGE.equals(event.getType());
+    }
+    public static boolean isKeyUpEvent(Event event) {
+        return KEYUP.equals(event.getType());
+    }
+    public static boolean isKeyDownEvent(Event event) {
+        return KEYDOWN.equals(event.getType());
+    }
+    public static boolean isKeyPressEvent(Event event) {
+        return KEYPRESS.equals(event.getType());
     }
 
     public static boolean isKeyEvent(Event event) {
@@ -218,5 +298,54 @@ public class GKeyStroke implements Serializable {
 
     public static boolean isSwitchFullScreenModeEvent(NativeEvent event) {
         return KEYDOWN.equals(event.getType()) && event.getKeyCode() == KEY_F11 && event.getAltKey();
+    }
+
+    public static boolean isSuitableEditKeyEvent(NativeEvent event) {
+        return !isActionKey(event.getKeyCode()) && !isAlt(event);
+    }
+
+    public static boolean isPlainPasteEvent(NativeEvent event) {
+        return KEYDOWN.equals(event.getType()) && 
+                event.getKeyCode() == KEY_V && 
+                event.getCtrlKey() && 
+                event.getShiftKey() &&
+                !event.getAltKey();
+    }
+
+    public static boolean isActionKey(int keyCode) {
+        switch (keyCode) {
+            case KEY_HOME:
+            case KEY_END:
+            case KEY_PAGEUP:
+            case KEY_PAGEDOWN:
+            case KEY_UP:
+            case KEY_DOWN:
+            case KEY_LEFT:
+            case KEY_RIGHT:
+            case KEY_F1:
+            case KEY_F2:
+            case KEY_F3:
+            case KEY_F4:
+            case KEY_F5:
+            case KEY_F6:
+            case KEY_F7:
+            case KEY_F8:
+            case KEY_F9:
+            case KEY_F10:
+            case KEY_F11:
+            case KEY_F12:
+            case KEY_PRINT_SCREEN:
+            case KEY_SCROLL_LOCK:
+            case KEY_CAPS_LOCK:
+            case KEY_NUMLOCK:
+            case KEY_PAUSE:
+            case KEY_INSERT:
+                return true;
+        }
+        return false;
+    }
+
+    public static boolean isAlt(NativeEvent event) {
+        return event.getKeyCode() == KEY_ALT || event.getAltKey();
     }
 }

@@ -3,22 +3,29 @@ package lsfusion.server.language.proxy;
 import lsfusion.interop.base.view.FlexAlignment;
 import lsfusion.interop.form.design.ComponentDesign;
 import lsfusion.interop.form.design.FontInfo;
+import lsfusion.server.language.ElementClassProxy;
+import lsfusion.server.language.converters.FontInfoConverter;
 import lsfusion.server.logics.form.interactive.design.ComponentView;
+import lsfusion.server.logics.form.struct.property.PropertyObjectEntity;
 import lsfusion.server.physics.dev.i18n.LocalizedString;
 
 import java.awt.*;
 
-public class ComponentViewProxy<T extends ComponentView> extends ViewProxy<T> {
+public class ComponentViewProxy<T extends ComponentView> extends ViewProxy<T> implements ElementClassProxy {
     public ComponentViewProxy(T target) {
         super(target);
     }
 
-    public void setAutoSize(boolean autoSize) {
-        target.autoSize = autoSize;
+    public void setSpan(int span) {
+        target.span = span;
     }
 
     public void setDefaultComponent(boolean defaultComponent) {
         target.defaultComponent = defaultComponent;
+    }
+    
+    public void setActivated(boolean activated) {
+        target.activated = activated;
     }
 
     /* ========= constraints properties ========= */
@@ -42,12 +49,32 @@ public class ComponentViewProxy<T extends ComponentView> extends ViewProxy<T> {
         target.setFlex(flex);
     }
 
+    public void setShrink(boolean shrink) {
+        target.setShrink(shrink);
+    }
+
+    public void setAlignShrink(boolean alignShrink) {
+        target.setAlignShrink(alignShrink);
+    }
+
     public void setAlign(FlexAlignment alignment) {
         setAlignment(alignment);
     }
 
     public void setAlignment(FlexAlignment alignment) {
         target.setAlignment(alignment);
+    }
+
+    public void setAlignCaption(boolean alignCaption) {
+        target.alignCaption = alignCaption;
+    }
+
+    public void setOverflowHorz(String overflowHorz) {
+        target.setOverflowHorz(overflowHorz);
+    }
+
+    public void setOverflowVert(String overflowVert) {
+        target.setOverflowVert(overflowVert);
     }
 
     public void setMarginTop(int marginTop) {
@@ -76,8 +103,19 @@ public class ComponentViewProxy<T extends ComponentView> extends ViewProxy<T> {
         target.design.setCaptionFont(captionFont);
     }
 
-    public void setFont(FontInfo font) {
-        target.design.setFont(font);
+    public void setFont(Object font) {
+        if (font instanceof PropertyObjectEntity) {
+            throw new UnsupportedOperationException("Dynamic font is supported only for propertyDraw");
+        } else {
+            target.design.setFont(FontInfoConverter.convertToFontInfo(font.toString()));
+        }
+    }
+
+    public void setClass(Object elementClass) {
+        if(elementClass instanceof LocalizedString)
+            target.setElementClass(elementClass.toString());
+        else
+            target.setPropertyElementClass((PropertyObjectEntity<?>) elementClass);
     }
 
     public void setFontSize(int fontSize) {
@@ -116,15 +154,55 @@ public class ComponentViewProxy<T extends ComponentView> extends ViewProxy<T> {
         design.setFont(font);
     }
 
-    public void setBackground(Color background) {
-        target.design.background = background;
+    public void setBackground(Object background) {
+        if (background instanceof PropertyObjectEntity) {
+            throw new UnsupportedOperationException("Dynamic background is supported only for propertyDraw");
+        } else {
+            target.design.background = (Color) background;
+        }
     }
 
-    public void setForeground(Color foreground) {
-        target.design.foreground = foreground;
+    public void setForeground(Object foreground) {
+        if (foreground instanceof PropertyObjectEntity) {
+            throw new UnsupportedOperationException("Dynamic foreground is supported only for propertyDraw");
+        } else {
+            target.design.foreground = (Color) foreground;
+        }
     }
 
-    public void setImagePath(LocalizedString imagePath) {
-        target.design.setImage(imagePath.getSourceString());
+    // deprecated
+    public void setPanelCaptionVertical(boolean panelCaptionVertical) {
+        target.captionVertical = panelCaptionVertical;
+    }
+
+    // deprecated
+    public void setPanelCaptionLast(boolean panelCaptionLast) {
+        target.captionLast = panelCaptionLast;
+    }
+
+    // deprecated
+    public void setPanelCaptionAlignment(FlexAlignment panelCaptionAlignment) {
+        target.captionAlignmentHorz = panelCaptionAlignment;
+    }
+
+    public void setCaptionVertical(boolean captionVertical) {
+        target.captionVertical = captionVertical;
+    }
+
+    public void setCaptionLast(boolean captionLast) {
+        target.captionLast = captionLast;
+    }
+
+    public void setCaptionAlignmentHorz(FlexAlignment captionAlignment) {
+        target.captionAlignmentHorz = captionAlignment;
+    }
+
+    public void setCaptionAlignmentVert(FlexAlignment captionAlignment) {
+        target.captionAlignmentVert = captionAlignment;
+    }
+
+
+    public void setShowIf(PropertyObjectEntity<?> showIf) {
+        target.setShowIf(showIf);
     }
 }

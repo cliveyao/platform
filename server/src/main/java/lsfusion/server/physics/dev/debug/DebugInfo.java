@@ -7,18 +7,28 @@ public class DebugInfo {
 
     public static class DebugPoint {
         public final String moduleName;
+        public final String path;
         public final int line;
         public final int offset;
         public boolean isInsideNonEnabledMeta;
+
+        public final int globalLine; // as if all meta codes are expanded
         
         public String topName;
         public LocalizedString topCaption;
+
+        public int getScriptLine() {
+            return globalLine;
+        }
         
-        public DebugPoint(String moduleName, int line, int offset, boolean isInsideNonEnabledMeta, String topName, LocalizedString topCaption) {
+        public DebugPoint(String moduleName, String path, int line, int offset, boolean isInsideNonEnabledMeta, int globalLine, String topName, LocalizedString topCaption) {
             this.moduleName = moduleName;
+            this.path = path;
             this.line = line;
             this.offset = offset;
             this.isInsideNonEnabledMeta = isInsideNonEnabledMeta;
+
+            this.globalLine = globalLine;
             
             this.topName = topName;
             this.topCaption = topCaption;
@@ -27,12 +37,20 @@ public class DebugInfo {
         public boolean needToCreateDelegate() {
             return !isInsideNonEnabledMeta;
         }
+
+        public String getFullPath() {
+            return path + getLineWithOffset();
+        }
         
         @Override
         public String toString() {
+            return moduleName + getLineWithOffset();
+        }
+
+        private String getLineWithOffset() {
             final String openedMetaCharacter = "\u2195";
             String openedMetaSuffix = isInsideNonEnabledMeta ? openedMetaCharacter : "";
-            return moduleName + "(" + (line + 1) + ":" + (offset + 1) + openedMetaSuffix + ")";
+            return "(" + (line + 1) + ":" + (offset + 1) + openedMetaSuffix + ")";
         }
     }
 

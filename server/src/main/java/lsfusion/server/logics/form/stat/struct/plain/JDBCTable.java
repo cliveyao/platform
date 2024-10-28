@@ -15,6 +15,8 @@ import lsfusion.base.file.RawFileData;
 import lsfusion.interop.classes.DataType;
 import lsfusion.interop.form.property.ExtInt;
 import lsfusion.server.data.sql.syntax.SQLSyntax;
+import lsfusion.server.data.type.AbstractType;
+import lsfusion.server.data.type.DBType;
 import lsfusion.server.data.type.Type;
 import lsfusion.server.data.type.TypeSerializer;
 import lsfusion.server.data.type.exec.TypeEnvironment;
@@ -28,6 +30,7 @@ import lsfusion.server.logics.classes.data.time.DateClass;
 import lsfusion.server.logics.classes.data.time.DateTimeClass;
 import lsfusion.server.logics.classes.data.time.TimeClass;
 import lsfusion.server.physics.dev.i18n.LocalizedString;
+import org.postgresql.util.PGobject;
 
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
@@ -48,7 +51,7 @@ public class JDBCTable {
         this.set = set;
     }
 
-    public static class JDBCDataClass extends DataClass<Object> {
+    public static class JDBCDataClass extends DataClass<Object> implements DBType {
         private final int sqlType;
         private final String sqlName; // тут конечно стремновато, в разных СУБД могут разные имена, но чудес не бывает
         
@@ -78,9 +81,6 @@ public class JDBCTable {
         protected Class getReportJavaClass() {
             throw new UnsupportedOperationException();
         }
-        public String getString(Object value, SQLSyntax syntax) {
-            throw new UnsupportedOperationException();
-        }
         protected int getBaseDotNetSize() {
             throw new UnsupportedOperationException();
         }
@@ -96,27 +96,24 @@ public class JDBCTable {
         public Object parseString(String s) {
             throw new UnsupportedOperationException();
         }
-        public String formatString(Object value) {
-            throw new UnsupportedOperationException();
-        }
         public String getSID() {
             throw new UnsupportedOperationException();
         }
 
-        public String getDB(SQLSyntax syntax, TypeEnvironment typeEnv) {
+        public DBType getDBType() {
+            return this;
+        }
+        public String getDBString(SQLSyntax syntax, TypeEnvironment typeEnv) {
             return sqlName;
         }
         public int getSQL(SQLSyntax syntax) {
             return sqlType;
         }
-        public boolean isSafeString(Object value) {
-            return false;
-        }
         protected void writeParam(PreparedStatement statement, int num, Object value, SQLSyntax syntax) throws SQLException {
             statement.setObject(num, value, sqlType);
         }
         public Object read(Object value) {
-            return value;
+            return value instanceof PGobject ? ((PGobject) value).getValue() : value;
         }
     }
 
@@ -207,7 +204,7 @@ public class JDBCTable {
         MAddCol<Type> types = ListFact.mAddCol(cc);
         o.writeInt(cc);
         for(int i=1;i<=cc;i++) {
-            String field = metaData.getColumnName(i);
+            String field = metaData.getColumnLabel(i);
             //если имени колонки нет (например, используется coalesce), то генерим его самостоятельно
             if(field.isEmpty())
                 field = "zxcvb" + i;
@@ -224,7 +221,7 @@ public class JDBCTable {
                 Type type = types.get(i);
                 if(type instanceof IntegerClass && value instanceof Boolean) // для tinyint выставляется IntegerClass, а jdbc driver для tinyint(1) может вернуть Boolean, а в read это пока не кладем 
                     value = (Boolean) value ? 1 : 0;
-                BaseUtils.serializeObject(o, type.read(value));
+                BaseUtils.serializeObject(o, ((AbstractType)type).readResult(value));
             }
         }
         o.writeBoolean(false);

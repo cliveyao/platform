@@ -1,8 +1,12 @@
 package lsfusion.server.logics.classes.data;
 
+import lsfusion.interop.base.view.FlexAlignment;
 import lsfusion.interop.classes.DataType;
 import lsfusion.server.data.sql.syntax.SQLSyntax;
+import lsfusion.server.data.type.DBType;
 import lsfusion.server.data.type.exec.TypeEnvironment;
+import lsfusion.server.logics.classes.data.integral.IntegerClass;
+import lsfusion.server.logics.form.interactive.controller.remote.serialization.FormInstanceContext;
 import lsfusion.server.physics.dev.i18n.LocalizedString;
 
 import java.awt.*;
@@ -36,8 +40,8 @@ public class ColorClass extends DataClass<Color> {
     }
 
     @Override
-    public String getDB(SQLSyntax syntax, TypeEnvironment typeEnv) {
-        return syntax.getColorType();
+    public DBType getDBType() {
+        return IntegerClass.instance;
     }
     @Override
     public String getDotNetType(SQLSyntax syntax, TypeEnvironment typeEnv) {
@@ -84,8 +88,19 @@ public class ColorClass extends DataClass<Color> {
     }
 
     @Override
-    public String formatString(Color value) {
-        return String.valueOf(value.getRGB());
+    public String formatString(Color value, boolean ui) {
+        return value == null ? null : String.valueOf(value.getRGB());
+    }
+
+    @Override
+    public Object formatJSON(Color object) {
+        return object.getRGB();
+    }
+
+    // it seems that SQL does the same conversion as above
+    @Override
+    public String formatJSONSource(String valueSource, SQLSyntax syntax) {
+        return super.formatJSONSource(valueSource, syntax);
     }
 
     @Override
@@ -114,6 +129,15 @@ public class ColorClass extends DataClass<Color> {
         int anInt = set.getInt(name);
         if(set.wasNull())
             return null;
-        return read(anInt);
+        return readResult(anInt);
+    }
+
+    public String getInputType(FormInstanceContext context) {
+        return "color";
+    }
+
+    @Override
+    public FlexAlignment getValueAlignmentHorz() {
+        return FlexAlignment.CENTER;
     }
 }

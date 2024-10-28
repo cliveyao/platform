@@ -1,0 +1,27 @@
+.navbar {
+    display: flex;
+    align-items: stretch;
+}
+
+.navbar-text {
+    padding-top: 0.25rem;
+    padding-bottom: 0.25rem;
+    color: var(--text-color);
+}
+
+.navbar-nav .nav-link {
+    border: solid 1px transparent;
+    padding-right: 0.25rem;
+    padding-left: 0.25rem;
+}
+
+.navbar-expand .navbar-nav .nav-link {
+    padding-right: 0.5rem;
+    padding-left: 0.5rem;
+}
+
+.navbar-nav .nav-link.active {
+    border: solid 1px var(--component-border-color);
+    border-radius: var(--button-border-radius);
+    background: var(--selection-color);
+}

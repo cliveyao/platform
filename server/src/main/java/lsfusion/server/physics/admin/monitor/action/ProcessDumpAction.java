@@ -48,7 +48,7 @@ import java.util.Map;
 
 import static lsfusion.base.BaseUtils.trimToEmpty;
 import static lsfusion.base.BaseUtils.trimToNull;
-import static lsfusion.server.logics.classes.data.time.DateTimeConverter.sqlTimestampToLocalDateTime;
+import static lsfusion.base.DateConverter.sqlTimestampToLocalDateTime;
 
 public abstract class ProcessDumpAction extends InternalAction {
 
@@ -106,26 +106,18 @@ public abstract class ProcessDumpAction extends InternalAction {
         String lockName = threadInfo == null ? null : threadInfo.getLockName();
         String lockOwnerId = threadInfo == null ? null : String.valueOf(threadInfo.getLockOwnerId());
         String lockOwnerName = threadInfo == null ? null : threadInfo.getLockOwnerName();
-        LogInfo logInfo = thread == null ? null : ThreadLocalContext.logInfoMap.get(thread);
+        LogInfo logInfo = thread == null ? null : ThreadLocalContext.getLogInfo(thread);
         String computer = logInfo == null ? null : logInfo.hostnameComputer;
         String user = logInfo == null ? null : logInfo.userName;
-        String lsfStack = getLSFStack(thread);
+        String lsfStack = ExecutionStackAspect.getLSFStack(thread);
         Long lastAllocatedBytes = thread == null ? null : SQLSession.getThreadAllocatedBytes(allocatedBytes, thread.getId());
 
         return !onlyActive || ThreadUtils.isActiveJavaProcess(status, stackTrace, false) ? new JavaProcess(stackTrace, name, status, lockName, lockOwnerId,
                 lockOwnerName, computer, user, lsfStack, allocatedBytes, lastAllocatedBytes) : null;
     }
 
-    private String getLSFStack(Thread thread) {
-        try {
-            return thread == null ? null : ExecutionStackAspect.getStackString(thread, true, true);
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
     private SQLProcess getSQLProcess(String query, String addressUser, LocalDateTime dateTime, Boolean isActive,
-                                       String status, Map<Integer, SQLThreadInfo> sessionThreadMap,
+                                       String status, String waitEventType, String waitEvent, Map<Integer, SQLThreadInfo> sessionThreadMap,
                                        Integer sqlId, SQLThreadInfo sessionThread, Map<Integer, List<Object>> lockingMap) {
 
         Boolean fusionInTransaction = status  == null ? null : status.equals("idle in transaction");
@@ -155,7 +147,7 @@ public abstract class ProcessDumpAction extends InternalAction {
 
         return new SQLProcess(dateTimeCall, query, fullQuery, user, computer, addressUser, dateTime,
                 isActive, fusionInTransaction, baseInTransaction, startTransaction, attemptCount, status,
-                statusMessage, lockOwnerId, lockOwnerName, sqlId, isDisabledNestLoop, queryTimeout, debugInfo, threadName, threadStackTrace);
+                statusMessage, waitEventType, waitEvent, lockOwnerId, lockOwnerName, sqlId, isDisabledNestLoop, queryTimeout, debugInfo, threadName, threadStackTrace);
     }
 
     private String getMonitorId(Thread javaThread, Integer processId) {
@@ -199,8 +191,8 @@ public abstract class ProcessDumpAction extends InternalAction {
         propertyReaders.exclAdd("start_time", DateTimeClass.instance);
         propertyReaders.immutable();
 
-        ImOrderMap rs = context.getSession().sql.executeSelect(originalQuery, OperationOwner.unknown, StaticExecuteEnvironmentImpl.EMPTY, (ImMap<String, ParseInterface>) MapFact.mExclMap()
-                , 0, ((ImSet) keyNames).toRevMap(), (ImMap) keyReaders, ((ImSet) propertyNames).toRevMap(), (ImMap) propertyReaders);
+        ImOrderMap rs = context.getSession().sql.executeSelect(originalQuery, OperationOwner.unknown, StaticExecuteEnvironmentImpl.EMPTY, MapFact.EMPTY()
+                , 0, keyNames.immutable().toRevMap(), keyReaders.immutable(), propertyNames.immutable().toRevMap(), propertyReaders.immutable());
 
         Map<String, SQLProcess> resultMap = new HashMap<>();
         for (Object rsValue : rs.values()) {
@@ -226,7 +218,7 @@ public abstract class ProcessDumpAction extends InternalAction {
                     }
                 }
 
-                SQLProcess newEntry = getSQLProcess(query, address, dateTime, null, null, sessionThreadMap, processId, sessionThread, null);
+                SQLProcess newEntry = getSQLProcess(query, address, dateTime, null, null, null, null, sessionThreadMap, processId, sessionThread, null);
                 SQLProcess prevEntry = resultMap.put(resultId, newEntry);
 
                 if (prevEntry != null) {
@@ -266,6 +258,8 @@ public abstract class ProcessDumpAction extends InternalAction {
         propertyNames.exclAdd("client_addr");
         propertyNames.exclAdd("query_start");
         propertyNames.exclAdd("state");
+        propertyNames.exclAdd("wait_event_type");
+        propertyNames.exclAdd("wait_event");
         propertyNames.immutable();
 
         MExclMap<String, Reader> propertyReaders = MapFact.mExclMap();
@@ -275,10 +269,12 @@ public abstract class ProcessDumpAction extends InternalAction {
         propertyReaders.exclAdd("client_addr", PGObjectReader.instance);
         propertyReaders.exclAdd("query_start", DateTimeClass.instance);
         propertyReaders.exclAdd("state", StringClass.get(100));
+        propertyReaders.exclAdd("wait_event_type", StringClass.get(100));
+        propertyReaders.exclAdd("wait_event", StringClass.get(100));
         propertyReaders.immutable();
 
-        ImOrderMap rs = context.getSession().sql.executeSelect(originalQuery, OperationOwner.unknown, StaticExecuteEnvironmentImpl.EMPTY, (ImMap<String, ParseInterface>) MapFact.mExclMap(),
-                0, ((ImSet) keyNames).toRevMap(), (ImMap) keyReaders, ((ImSet) propertyNames).toRevMap(), (ImMap) propertyReaders);
+        ImOrderMap rs = context.getSession().sql.executeSelect(originalQuery, OperationOwner.unknown, StaticExecuteEnvironmentImpl.EMPTY, MapFact.EMPTY(),
+                0, keyNames.immutable().toRevMap(), keyReaders.immutable(), propertyNames.immutable().toRevMap(), propertyReaders.immutable());
 
         if (logSqlProcesses) {
             ServerLoggers.exInfoLogger.info("sessionThreadMap");
@@ -305,6 +301,8 @@ public abstract class ProcessDumpAction extends InternalAction {
                 Integer sqlId = (Integer) entry.get("pid");
                 String address = trimToNull((String) entry.get("client_addr"));
                 LocalDateTime dateTime = (LocalDateTime) entry.get("query_start");
+                String waitEventType = trimToNull((String) entry.get("wait_event_type"));
+                String waitEvent = trimToNull((String) entry.get("wait_event"));
 
                 SQLThreadInfo sessionThread = sessionThreadMap.get(sqlId);
                 Thread javaThread = sessionThread == null ? null : sessionThread.javaThread;
@@ -319,7 +317,7 @@ public abstract class ProcessDumpAction extends InternalAction {
                     }
                 }
 
-                SQLProcess newEntry = getSQLProcess(query, address, dateTime, active, state, sessionThreadMap, sqlId, sessionThread, lockingMap);
+                SQLProcess newEntry = getSQLProcess(query, address, dateTime, active, state, waitEventType, waitEvent, sessionThreadMap, sqlId, sessionThread, lockingMap);
                 SQLProcess prevEntry = resultMap.put(resultId, newEntry);
 
                 if (prevEntry != null) {
@@ -388,8 +386,8 @@ public abstract class ProcessDumpAction extends InternalAction {
         propertyReaders.exclAdd("blocking_statement", StringClass.get(100));
         propertyReaders.immutable();
 
-        ImOrderMap rs = sql.executeSelect(originalQuery, OperationOwner.unknown, StaticExecuteEnvironmentImpl.EMPTY, (ImMap<String, ParseInterface>) MapFact.mExclMap(),
-                0, ((ImSet) keyNames).toRevMap(), (ImMap) keyReaders, ((ImSet) propertyNames).toRevMap(), (ImMap) propertyReaders, true);
+        ImOrderMap rs = sql.executeSelect(originalQuery, OperationOwner.unknown, StaticExecuteEnvironmentImpl.EMPTY, MapFact.EMPTY(),
+                0, keyNames.immutable().toRevMap(), keyReaders.immutable(), propertyNames.immutable().toRevMap(), propertyReaders.immutable());
 
         Map<Integer, List<Object>> resultMap = new HashMap<>();
         for (Object rsValue : rs.values()) {

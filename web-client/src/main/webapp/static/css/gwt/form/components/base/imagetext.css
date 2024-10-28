@@ -1,0 +1,40 @@
+
+/* margins / paddings */
+.wrap-text-not-empty {
+    --wrap-img-horz-margin: 0.375rem;
+    --wrap-img-vert-margin: 0.25rem;
+
+    cursor: default; /* we don't want to use edit cursor, as UA does for the text by default */
+}
+.wrap-text-not-empty.wrap-img-horz.wrap-img-start > .wrap-text-img {
+    margin-right: var(--wrap-img-horz-margin);
+}
+.wrap-text-not-empty.wrap-img-vert.wrap-img-start > .wrap-text-img {
+    margin-bottom: var(--wrap-img-vert-margin);
+}
+.wrap-text-not-empty.wrap-img-horz.wrap-img-end > .wrap-text-img {
+    margin-left: var(--wrap-img-horz-margin);
+}
+.wrap-text-not-empty.wrap-img-vert.wrap-img-end > .wrap-text-img {
+    margin-top: var(--wrap-img-vert-margin);
+}
+
+.wrap-text-not-empty.wrap-img-vert {
+    display: flex;
+    justify-content: center; /* ????   */
+    align-items: center;
+
+    flex-direction: column;
+}
+.wrap-text-not-empty.wrap-img-horz {
+    display: flex;
+    /*justify-content: center;*/
+    align-items: center;
+
+    flex-direction: row;
+}
+
+.wrap-text-div {
+    /* we want display inline just as regular text */
+    display: inline;
+}

@@ -1,16 +1,14 @@
 package lsfusion.server.physics.admin.authentication.security.controller.manager;
 
+import com.google.common.base.Supplier;
 import com.google.common.base.Throwables;
-import io.jsonwebtoken.Claims;
-import io.jsonwebtoken.Jwts;
-import io.jsonwebtoken.SignatureAlgorithm;
+import io.jsonwebtoken.*;
+import io.jsonwebtoken.io.Decoders;
+import io.jsonwebtoken.security.Keys;
 import lsfusion.base.BaseUtils;
 import lsfusion.base.col.MapFact;
-import lsfusion.base.col.interfaces.immutable.ImCol;
 import lsfusion.base.col.interfaces.immutable.ImMap;
 import lsfusion.base.col.interfaces.immutable.ImOrderMap;
-import lsfusion.base.col.lru.LRUSVSMap;
-import lsfusion.base.col.lru.LRUUtil;
 import lsfusion.interop.base.exception.AuthenticationException;
 import lsfusion.interop.base.exception.LockedException;
 import lsfusion.interop.base.exception.LoginException;
@@ -29,7 +27,6 @@ import lsfusion.server.logics.BaseLogicsModule;
 import lsfusion.server.logics.BusinessLogics;
 import lsfusion.server.logics.action.controller.stack.ExecutionStack;
 import lsfusion.server.logics.action.session.DataSession;
-import lsfusion.server.logics.form.struct.FormEntity;
 import lsfusion.server.logics.navigator.NavigatorElement;
 import lsfusion.server.logics.property.oraction.ActionOrProperty;
 import lsfusion.server.physics.admin.Settings;
@@ -48,15 +45,20 @@ import org.apache.log4j.Logger;
 import org.springframework.beans.factory.InitializingBean;
 import org.springframework.util.Assert;
 
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
 import javax.naming.CommunicationException;
+import java.security.InvalidKeyException;
+import java.security.NoSuchAlgorithmException;
 import java.sql.SQLException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 import static lsfusion.base.ApiResourceBundle.getString;
+import static lsfusion.base.BaseUtils.trim;
+import static lsfusion.server.physics.admin.log.ServerLoggers.*;
 
 public class SecurityManager extends LogicsManager implements InitializingBean {
-    private static final Logger startLogger = ServerLoggers.startLogger;
     private static final Logger systemLogger = ServerLoggers.systemLogger;
 
     @Deprecated
@@ -107,24 +109,25 @@ public class SecurityManager extends LogicsManager implements InitializingBean {
 
     @Override
     protected void onInit(LifecycleEvent event) {
-        startLogger.info("Initializing Security Manager.");
+        startLog("Initializing security manager");
         this.LM = businessLogics.LM;
         this.authenticationLM = businessLogics.authenticationLM;
         this.securityLM = businessLogics.securityLM;
         this.reflectionLM = businessLogics.reflectionLM;
 
-        for (FormEntity formEntity : businessLogics.getAllForms())
-            formEntity.proceedAllEventActions((eventAction, drawAction) -> {
-            });
+//        not sure what it was for
+//        for (FormEntity formEntity : businessLogics.getAllForms())
+//            formEntity.proceedAllEventActions((eventAction, drawAction) -> {
+//            });
     }
 
     @Override
     protected void onStarted(LifecycleEvent event) {
-        startLogger.info("Starting Security Manager.");
+        startLog("Starting security manager");
         try {
             businessLogics.initAuthentication(this);
         } catch (SQLException | SQLHandledException e) {
-            throw new RuntimeException("Error starting Security Manager: ", e);
+            throw new RuntimeException("Error starting security manager: ", e);
         }
     }
 
@@ -141,38 +144,48 @@ public class SecurityManager extends LogicsManager implements InitializingBean {
         try(DataSession session = createSession()) {
 
             //created in createSystemUserRoles
-            this.adminUserRole = (DataObject) securityLM.userRoleSID.readClasses(session, new DataObject("admin"));
+            String admin = "admin";
+            this.adminUserRole = (DataObject) securityLM.userRoleSID.readClasses(session, new DataObject(admin));
             this.readOnlyUserRole = (DataObject) securityLM.userRoleSID.readClasses(session, new DataObject("readonly"));
 
-            DataObject adminUser = readUser("admin", session);
-            if (adminUser == null) {
-                adminUser = addUser("admin", initialAdminPassword, session);
-                apply(session);
-            }
-            this.adminUser = new DataObject((Long) adminUser.object, authenticationLM.customUser); // to update classes after apply
+            this.adminUser = initUser(admin, session);
 
-            DataObject anonymousUser = readUser("anonymous", session);
-            if (anonymousUser == null) {
-                anonymousUser = addUser("anonymous", initialAdminPassword, session);
-                apply(session);
-            }
-            this.anonymousUser = new DataObject((Long) anonymousUser.object, authenticationLM.customUser); // to update classes after apply
-
-            //migration 4 -> 5 version
-            Integer intersectingLoginsCount = (Integer) authenticationLM.intersectingLoginsCount.read(session);
-            if(intersectingLoginsCount != null) {
-                startLogger.warn(intersectingLoginsCount + " intersecting logins detected, please remove intersection. It will be forbidden in version 5.");
-            }
-            
+            this.anonymousUser = initUser("anonymous", session);
         }
+    }
+
+    private DataObject initUser(String admin, DataSession session) throws SQLException, SQLHandledException {
+        DataObject adminUser = readUser(admin, session);
+
+        if (adminUser == null) {
+            adminUser = addUser(admin, initialAdminPassword, session);
+            apply(session);
+
+            // to update classes after apply
+            return new DataObject((Long) adminUser.object, authenticationLM.customUser);
+        }
+
+        return adminUser;
+    }
+
+    private DataObject initAndUpdateUser(DataSession session, ExecutionStack stack, String userName, Supplier<String> password, String firstName, String lastName, String email, List<String> groupNames, Map<String, String> attributes) throws SQLException, SQLHandledException {
+        DataObject userObject = readUser(userName, session);
+
+        if (userObject == null)
+            userObject = addUser(userName, password.get(), session);
+
+        setUserParameters(userObject, firstName, lastName, email, groupNames, attributes, session);
+        apply(session, stack);
+
+        return userObject;
     }
 
     public DataObject getAdminUser() {
         return adminUser;
     }
 
-    public DataObject getAnonymousUser() {
-        return anonymousUser;
+    public DataObject getDefaultLoginUser() {
+        return SystemProperties.inDevMode ? adminUser : anonymousUser;
     }
 
     private DataSession createSession() throws SQLException {
@@ -191,13 +204,24 @@ public class SecurityManager extends LogicsManager implements InitializingBean {
         return userObject.isNull() ? null : (DataObject) userObject;
     }
 
+    public DataObject getUser(String login, DataSession session) throws SQLException, SQLHandledException {
+        if(login != null) {
+            DataObject user = readUser(login, session);
+            if(user == null) {
+                throw new AuthenticationException(String.format("User with login %s not found", login));
+            }
+            return user;
+        }
+        return getDefaultLoginUser();
+    }
+
     private String secret = null;
     public void initSecret() throws SQLException, SQLHandledException {
         try(DataSession session = createSession()) {
             LP secretLCP = authenticationLM.secret;
             String secretKey = (String) secretLCP.read(session);
-            if(secretKey == null) {
-                secretKey = BaseUtils.generatePassword(32, false, false);
+            if(secretKey == null || secretKey.length() < 128) { // increased key length for migration to JJWT 0.10.0+
+                secretKey = BaseUtils.generatePassword(128, false, false);
                 secretLCP.change(secretKey, session);
                 apply(session);
             }
@@ -209,29 +233,50 @@ public class SecurityManager extends LogicsManager implements InitializingBean {
         if(token.isAnonymous())
             return null;
 
-        Claims body;
         try {
-            body = Jwts.parser()
-                    .setSigningKey(secret)
-                    .parseClaimsJws(token.string)
-                    .getBody();
+            return Jwts.parser()
+                    .verifyWith(Keys.hmacShaKeyFor(Decoders.BASE64.decode(secret)))
+                    .build()
+                    .parseSignedClaims(token.string)
+                    .getPayload()
+                    .getSubject();
         } catch (Exception e) {
             throw new AuthenticationException(e.getMessage());
         }
 
-        return body.getSubject();
 //        u.setId(Long.parseLong((String) body.get("userId")));
     }
 
     public AuthenticationToken generateToken(String userLogin) {
-        Claims claims = Jwts.claims().setSubject(userLogin);
-        claims.setExpiration(new Date(System.currentTimeMillis() + Settings.get().getAuthTokenExpiration() * 1000 * 60)); // expiration * 1000*60*60
-//        claims.put("userId", u.getId() + "");
+        return generateToken(userLogin, null);
+    }
 
+    public AuthenticationToken generateToken(String userLogin, Integer tokenExpiration) { //tokenExpiration in minutes
+        Claims claims = Jwts.claims()
+                .subject(userLogin)
+                .expiration(new Date(System.currentTimeMillis() +
+                        (tokenExpiration != null ? tokenExpiration : Settings.get().getAuthTokenExpiration()) * 1000 * 60))
+                .build();
         return new AuthenticationToken(Jwts.builder()
-                .setClaims(claims)
-                .signWith(SignatureAlgorithm.HS512, secret)
+                .claims(claims)
+                .signWith(Keys.hmacShaKeyFor(Decoders.BASE64.decode(secret)))
                 .compact());
+    }
+
+    public String signData(String message) {
+        try {
+            Mac sha256_HMAC = Mac.getInstance("HmacSHA256");
+            SecretKeySpec secretKeySpec = new SecretKeySpec(BaseUtils.getHashBytes(secret), "HmacSHA256");
+            sha256_HMAC.init(secretKeySpec);
+            byte[] hmacBytes = sha256_HMAC.doFinal(BaseUtils.getHashBytes(message));
+            return Base64.getUrlEncoder().withoutPadding().encodeToString(hmacBytes);
+        } catch (NoSuchAlgorithmException | InvalidKeyException e) {
+            throw Throwables.propagate(e);
+        }
+    }
+
+    public boolean verifyData(String message, String signature) {
+        return signData(message).equals(signature);
     }
 
     private String getWebClientSecret() {
@@ -244,27 +289,20 @@ public class SecurityManager extends LogicsManager implements InitializingBean {
 
     public AuthenticationToken authenticateUser(Authentication authentication, ExecutionStack stack) {
         try (DataSession session = createSession()) {
-            DataObject userObject;
+            DataObject userObject = null;
             if (authentication instanceof PasswordAuthentication) {
-                userObject = readUser(authentication.getUserName(), session);
-
-                boolean authenticated = false;
                 if (authenticationLM.useLDAP.read(session) != null) {
                     String server = (String) authenticationLM.serverLDAP.read(session);
                     Integer port = (Integer) authenticationLM.portLDAP.read(session);
                     String baseDN = (String) authenticationLM.baseDNLDAP.read(session);
                     String userDNSuffix = (String) authenticationLM.userDNSuffixLDAP.read(session);
                     try {
-                        LDAPParameters ldapParameters = new LDAPAuthenticationService(server, port, baseDN, userDNSuffix)
-                                .authenticate(authentication.getUserName(), ((PasswordAuthentication) authentication).getPassword());
+                        String userName = authentication.getUserName();
+                        String password = ((PasswordAuthentication) authentication).getPassword();
+                        LDAPParameters ldapParameters = new LDAPAuthenticationService(server, port, baseDN, userDNSuffix).authenticate(userName, password);
+
                         if (ldapParameters.isConnected()) {
-                            authenticated = true;
-                            if (userObject == null) {
-                                userObject = addUser(authentication.getUserName(), ((PasswordAuthentication) authentication).getPassword(), session);
-                            }
-                            setUserParameters(userObject, ldapParameters.getFirstName(), ldapParameters.getLastName(),
-                                    ldapParameters.getEmail(), ldapParameters.getGroupNames(), session);
-                            apply(session, stack);
+                            userObject = initAndUpdateUser(session, stack, userName, () -> password, ldapParameters.getFirstName(), ldapParameters.getLastName(), ldapParameters.getEmail(), ldapParameters.getGroupNames(), ldapParameters.getAttributes());
                         } else {
                             throw new LoginException();
                         }
@@ -272,22 +310,21 @@ public class SecurityManager extends LogicsManager implements InitializingBean {
                         systemLogger.error("LDAP authentication failed", e);
                     }
                 }
-                if (!authenticated && (userObject == null || !authenticationLM.checkPassword(session, userObject, ((PasswordAuthentication) authentication).getPassword(), stack)))
-                    throw new LoginException();
+
+                if(userObject == null) {
+                    userObject = readUser(authentication.getUserName(), session);
+
+                    if (userObject == null || !authenticationLM.checkPassword(session, userObject, ((PasswordAuthentication) authentication).getPassword()))
+                        throw new LoginException();
+                }
             } else {
-                String webClientAuthSecret = ((OAuth2Authentication) authentication).getAuthSecret();
-                if ((webClientAuthSecret == null || !webClientAuthSecret.equals(getWebClientSecret()))) {
+                OAuth2Authentication oauth2 = (OAuth2Authentication) authentication;
+                String webClientAuthSecret = oauth2.getAuthSecret();
+                if ((webClientAuthSecret == null || !webClientAuthSecret.equals(getWebClientSecret())))
                     throw new AuthenticationException(getString("exceptions.incorrect.web.client.auth.token"));
-                }
-                userObject = readUser(authentication.getUserName(), session);
-                if (userObject == null) {
-                    String pwd = BaseUtils.generatePassword(20, false, true);
-                    userObject = addUser(authentication.getUserName(), pwd, session);
-                    setUserParameters(userObject, ((OAuth2Authentication) authentication).getFirstName(),
-                            ((OAuth2Authentication) authentication).getLastName(), ((OAuth2Authentication) authentication).getEmail(),
-                            Collections.singletonList("selfRegister"), session);
-                    apply(session, stack);
-                }
+
+                // Because user data can change on the oauth2 provider side - we will update userParameters on each authentication.
+                userObject = initAndUpdateUser(session, stack, oauth2.getUserName(), () -> BaseUtils.generatePassword(20, false, true), oauth2.getFirstName(), oauth2.getLastName(), oauth2.getEmail(), userObject == null ?  Collections.singletonList("selfRegister") : null, oauth2.getAttributes());
             }
             if (authenticationLM.isLockedCustomUser.read(session, userObject) != null) {
                 throw new LockedException();
@@ -302,27 +339,33 @@ public class SecurityManager extends LogicsManager implements InitializingBean {
         List<RoleSecurityPolicy> policies = new ArrayList<>();
         try {
             Set<DataObject> userRoleSet = readUserRoleSet(session, userObject);
-            if(!SystemProperties.lightStart || !userRoleSet.contains(adminUserRole)) {
-                for (DataObject userRole : userRoleSet) {
-                    Long userRoleId = (Long)userRole.getValue();
-                    RoleSecurityPolicy policy = cachedSecurityPolicies.get(userRoleId);
-                    if (policy == null) {
-                        Object cachedSecuritySemaphore = getCachedSecuritySemaphore(userRoleId);
-                        synchronized (cachedSecuritySemaphore) { // we use semaphore to prevent simultaneous reading security policy, since this process consumes a lot of time and memory, can be run really a lot of times concurrently (for example when reconnecting users after server restart)
-                            policy = cachedSecurityPolicies.get(userRoleId);
-                            if (policy == null) { // double check
-                                policy = readSecurityPolicy(userRole, session);
-                                cachedSecurityPolicies.put((Long) userRole.getValue(), policy);
-                            }
-                        }
-                    }
-                    policies.add(policy);
-                }
-            }
+            if(!SystemProperties.lightStart || !userRoleSet.contains(adminUserRole))
+                for (DataObject userRole : userRoleSet)
+                    policies.add(getRoleSecurityPolicy(session, userRole));
             return new SecurityPolicy(policies);
         } catch (Exception e) {
             throw Throwables.propagate(e);
         }
+    }
+
+    public RoleSecurityPolicy getReadOnlySecurityPolicy(DataSession session) throws SQLException, SQLHandledException {
+        return getRoleSecurityPolicy(session, readOnlyUserRole);
+    }
+
+    private RoleSecurityPolicy getRoleSecurityPolicy(DataSession session, DataObject userRole) throws SQLException, SQLHandledException {
+        Long userRoleId = (Long) userRole.getValue();
+        RoleSecurityPolicy policy = cachedSecurityPolicies.get(userRoleId);
+        if (policy == null) {
+            Object cachedSecuritySemaphore = getCachedSecuritySemaphore(userRoleId);
+            synchronized (cachedSecuritySemaphore) { // we use semaphore to prevent simultaneous reading security policy, since this process consumes a lot of time and memory, can be run really a lot of times concurrently (for example when reconnecting users after server restart)
+                policy = cachedSecurityPolicies.get(userRoleId);
+                if (policy == null) { // double check
+                    policy = readSecurityPolicy(userRole, session);
+                    cachedSecurityPolicies.put((Long) userRole.getValue(), policy);
+                }
+            }
+        }
+        return policy;
     }
 
     public void prereadSecurityPolicies() {
@@ -355,39 +398,44 @@ public class SecurityManager extends LogicsManager implements InitializingBean {
                 if (element != null) {
                     policy.navigator.setPermission(element, getPermissionValue(entry.get("permission")));
                 } else {
-                    startLogger.debug(String.format("NavigatorElement '%s' is not found when applying security policy", canonicalName));
+                    startLogDebug(String.format("NavigatorElement '%s' is not found when applying security policy", canonicalName));
                 }
             }
 
             KeyExpr actionOrPropertyExpr = new KeyExpr("actionOrProperty");
             query = new QueryBuilder<>(MapFact.singletonRev("actionOrProperty", actionOrPropertyExpr));
             query.addProperty("canonicalName", reflectionLM.canonicalNameActionOrProperty.getExpr(session.getModifier(), actionOrPropertyExpr));
+            query.addProperty("isProperty", reflectionLM.isProperty.getExpr(session.getModifier(), actionOrPropertyExpr));
             query.addProperty("permissionView", securityLM.permissionViewUserRoleActionOrProperty.getExpr(session.getModifier(), userRoleObject.getExpr(), actionOrPropertyExpr));
             query.addProperty("permissionChange", securityLM.permissionChangeUserRoleActionOrProperty.getExpr(session.getModifier(), userRoleObject.getExpr(), actionOrPropertyExpr));
             query.addProperty("permissionEditObjects", securityLM.permissionEditObjectsUserRoleActionOrProperty.getExpr(session.getModifier(), userRoleObject.getExpr(), actionOrPropertyExpr));
+            query.addProperty("permissionGroupChange", securityLM.permissionGroupChangeUserRoleActionOrProperty.getExpr(session.getModifier(), userRoleObject.getExpr(), actionOrPropertyExpr));
 
             query.and(reflectionLM.canonicalNameActionOrProperty.getExpr(session.getModifier(), actionOrPropertyExpr).getWhere());
             query.and(securityLM.permissionViewUserRoleActionOrProperty.getExpr(session.getModifier(), userRoleObject.getExpr(), actionOrPropertyExpr).getWhere().or(
                     securityLM.permissionChangeUserRoleActionOrProperty.getExpr(session.getModifier(), userRoleObject.getExpr(), actionOrPropertyExpr).getWhere()).or(
-                    securityLM.permissionEditObjectsUserRoleActionOrProperty.getExpr(session.getModifier(), userRoleObject.getExpr(), actionOrPropertyExpr).getWhere()
+                    securityLM.permissionEditObjectsUserRoleActionOrProperty.getExpr(session.getModifier(), userRoleObject.getExpr(), actionOrPropertyExpr).getWhere()).or(
+                    securityLM.permissionGroupChangeUserRoleActionOrProperty.getExpr(session.getModifier(), userRoleObject.getExpr(), actionOrPropertyExpr).getWhere()
             ));
 
             queryResult = query.execute(session);
             for (ImMap<Object, Object> entry : queryResult.values()) {
 
-                String canonicalName = (String) entry.get("canonicalName");
+                String canonicalName = trim((String) entry.get("canonicalName"));
+                boolean isProperty = entry.get("isProperty") != null;
                 try {
-                    LAP<?, ?> property = businessLogics.findPropertyElseAction(canonicalName);
+                    LAP<?, ?> property = isProperty ? businessLogics.findProperty(canonicalName) : businessLogics.findAction(canonicalName);
 
                     if (property != null) {
                         ActionOrProperty<?> actionOrProperty = property.getActionOrProperty();
                         policy.propertyView.setPermission(actionOrProperty, getPermissionValue(entry.get("permissionView")));
                         policy.propertyChange.setPermission(actionOrProperty, getPermissionValue(entry.get("permissionChange")));
                         policy.propertyEditObjects.setPermission(actionOrProperty, getPermissionValue(entry.get("permissionEditObjects")));
+                        policy.propertyGroupChange.setPermission(actionOrProperty, getPermissionValue(entry.get("permissionGroupChange")));
                     } else {
-                        startLogger.debug(String.format("Property '%s' is not found when applying security policy", canonicalName));
+                        startLogDebug(String.format("Property '%s' is not found when applying security policy", canonicalName));
                     }
-                } catch (Exception ignored) {
+                } catch (Throwable ignored) {
                 }
 
             }
@@ -428,9 +476,7 @@ public class SecurityManager extends LogicsManager implements InitializingBean {
         } else return null;
     }
 
-    private LRUSVSMap<Long, ImCol<ImMap<String, Object>>> propertyPolicyCache = new LRUSVSMap<>(LRUUtil.G2);
-
-    public void setUserParameters(DataObject customUser, String firstName, String lastName, String email, List<String> userRoleSIDs, DataSession session) {
+    public void setUserParameters(DataObject customUser, String firstName, String lastName, String email, List<String> userRoleSIDs, Map<String, String> attributes, DataSession session) {
         try {
             if (firstName != null)
                 authenticationLM.firstNameContact.change(firstName, session, customUser);
@@ -449,6 +495,14 @@ public class SecurityManager extends LogicsManager implements InitializingBean {
                         securityLM.inCustomUserUserRole.change(true, session, customUser, (DataObject) userRole);
                         break;
                     }
+                }
+            }
+
+            if (attributes != null) {
+                for (String key : attributes.keySet()) {
+                    String value = attributes.get(key);
+                    if (value != null)
+                        authenticationLM.attributes.change(value, session, customUser, new DataObject(key));
                 }
             }
         } catch (SQLException | SQLHandledException e) {

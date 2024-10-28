@@ -2,14 +2,17 @@ package lsfusion.base.file;
 
 import com.google.common.base.Throwables;
 import com.jcraft.jsch.*;
+import lsfusion.interop.session.ExternalUtils;
 import org.apache.commons.net.ftp.FTP;
 import org.apache.commons.net.ftp.FTPClient;
-import org.apache.http.Header;
-import org.apache.http.HttpEntity;
+import org.apache.commons.net.util.Base64;
+import org.apache.hc.core5.http.HttpEntity;
 
 import java.io.*;
 import java.util.Properties;
 import java.util.function.BiFunction;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 public class IOUtils {
     public static final int BUFFER_SIZE = 16384;
@@ -17,8 +20,8 @@ public class IOUtils {
 
     public static byte[] readBytesFromHttpEntity(HttpEntity entity) throws IOException {
         //there is restriction in MultipartFormEntity: max contentLength = 25 * 1024 bytes
-        Header contentType = entity.getContentType();
-        if(contentType != null && contentType.getValue() != null && contentType.getValue().startsWith("multipart/")) {
+        String contentType = entity.getContentType();
+        if(contentType != null && contentType.startsWith("multipart/")) {
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             entity.writeTo(out);
             return out.toByteArray();
@@ -86,41 +89,73 @@ public class IOUtils {
     }
 
     public static String readStreamToString(InputStream inStream, String charsetName) throws IOException {
-        StringBuilder strBuf = new StringBuilder();
+        ByteArrayOutputStream tmpByteStream = new ByteArrayOutputStream();
+        byte last = getLastByteAndCopyStream(inStream, tmpByteStream);
+        boolean endsWithNewLine = last == '\n';
+        
+        InputStream newInStream = new ByteArrayInputStream(tmpByteStream.toByteArray());
+        String result;
+        try (BufferedReader reader = new BufferedReader(charsetName == null
+                                                            ? new InputStreamReader(newInStream)
+                                                            : new InputStreamReader(newInStream, charsetName))) {
+            result = reader.lines().collect(Collectors.joining(lineSeparator));
+        }
+        
+        if (endsWithNewLine) {
+            result += lineSeparator;
+        }
+        
+        return result;
+    }
 
-        BufferedReader in = new BufferedReader(charsetName == null
-                                               ? new InputStreamReader(inStream)
-                                               : new InputStreamReader(inStream, charsetName));
+    private static byte getLastByteAndCopyStream(InputStream inStream, ByteArrayOutputStream outStream) throws IOException {
         try {
-            String line;
-            while ((line = in.readLine()) != null) {
-                strBuf.append(line).append(lineSeparator);
+            byte[] buffer = new byte[1024];
+            byte lastByte = 0;
+            int bytesRead;
+            while ((bytesRead = inStream.read(buffer, 0, buffer.length)) != -1) {
+                outStream.write(buffer, 0, bytesRead);
+                lastByte = buffer[bytesRead - 1];
             }
+            return lastByte;
         } finally {
             inStream.close();
         }
-
-        return strBuf.toString();
     }
 
-    public static void writeImageIcon(DataOutputStream outStream, SerializableImageIconHolder imageHolder) throws IOException {
+    private static void writeImage(DataOutputStream outStream, Object imageHolder) throws IOException {
         outStream.writeBoolean(imageHolder != null);
-        if (imageHolder != null) {
+        if (imageHolder != null)
             new ObjectOutputStream(outStream).writeObject(imageHolder);
-        }
     }
 
-    public static SerializableImageIconHolder readImageIcon(DataInputStream inStream) throws IOException {
+    public static void writeAppImage(DataOutputStream outStream, AppImage imageHolder) throws IOException {
+        writeImage(outStream, imageHolder);
+    }
+
+    public static void writeAppFileDataImage(DataOutputStream outStream, AppFileDataImage imageHolder) throws IOException {
+        writeImage(outStream, imageHolder);
+    }
+
+    private static <T> T readImage(DataInputStream inStream, Function<Object, T> imageType) throws IOException {
         if (inStream.readBoolean()) {
             ObjectInputStream in = new ObjectInputStream(inStream);
             try {
-                return ((SerializableImageIconHolder) in.readObject());
+                return imageType.apply(in.readObject());
             } catch (ClassNotFoundException e) {
                 throw new RuntimeException(e);
             }
         } else {
             return null;
         }
+    }
+
+    public static AppImage readAppImage(DataInputStream inStream) throws IOException {
+        return readImage(inStream, object -> (AppImage) object);
+    }
+
+    public static AppFileDataImage readAppFileDataImage(DataInputStream inStream) throws IOException {
+        return readImage(inStream, object -> (AppFileDataImage)object);
     }
 
     public static File createTempDirectory(String prefix) throws IOException {
@@ -216,5 +251,23 @@ public class IOUtils {
             if (session != null)
                 session.disconnect();
         }
+    }
+
+    public static String serializeStream(ByteArrayOutputStream outStream) {
+        return Base64.encodeBase64StringUnChunked(outStream.toByteArray());
+    }
+
+    public static ByteArrayInputStream deserializeStream(String image) {
+        return new ByteArrayInputStream(Base64.decodeBase64(image));
+    }
+
+    public static String serializeAppImage(AppImage image) throws IOException {
+        ByteArrayOutputStream outStream = new ByteArrayOutputStream();
+        writeAppImage(new DataOutputStream(outStream), image);
+        return serializeStream(outStream);
+    }
+
+    public static AppImage deserializeAppImage(String image) throws IOException {
+        return readAppImage(new DataInputStream(deserializeStream(image)));
     }
 }

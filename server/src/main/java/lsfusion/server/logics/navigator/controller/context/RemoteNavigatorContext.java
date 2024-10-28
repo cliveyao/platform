@@ -4,7 +4,9 @@ import lsfusion.base.Result;
 import lsfusion.base.col.interfaces.immutable.ImMap;
 import lsfusion.base.col.interfaces.immutable.ImSet;
 import lsfusion.interop.action.ClientAction;
-import lsfusion.interop.form.ModalityType;
+import lsfusion.interop.connection.LocalePreferences;
+import lsfusion.interop.form.ShowFormType;
+import lsfusion.interop.form.WindowFormType;
 import lsfusion.server.base.controller.remote.ui.RemoteUIContext;
 import lsfusion.server.data.sql.exception.SQLHandledException;
 import lsfusion.server.data.value.ObjectValue;
@@ -12,10 +14,13 @@ import lsfusion.server.logics.LogicsInstance;
 import lsfusion.server.logics.action.controller.stack.ExecutionStack;
 import lsfusion.server.logics.action.session.DataSession;
 import lsfusion.server.logics.classes.data.DataClass;
-import lsfusion.server.logics.classes.user.CustomClass;
 import lsfusion.server.logics.form.interactive.ManageSessionType;
+import lsfusion.server.logics.form.interactive.action.async.InputList;
+import lsfusion.server.logics.form.interactive.action.async.InputListAction;
+import lsfusion.server.logics.form.interactive.action.input.InputContext;
+import lsfusion.server.logics.form.interactive.action.input.InputResult;
 import lsfusion.server.logics.form.interactive.controller.remote.RemoteForm;
-import lsfusion.server.logics.form.interactive.dialogedit.DialogRequest;
+import lsfusion.server.logics.form.interactive.controller.remote.serialization.ConnectionContext;
 import lsfusion.server.logics.form.interactive.instance.FormInstance;
 import lsfusion.server.logics.form.interactive.listener.CustomClassListener;
 import lsfusion.server.logics.form.interactive.listener.FocusListener;
@@ -24,6 +29,7 @@ import lsfusion.server.logics.form.struct.FormEntity;
 import lsfusion.server.logics.form.struct.filter.ContextFilterInstance;
 import lsfusion.server.logics.form.struct.object.ObjectEntity;
 import lsfusion.server.logics.navigator.controller.remote.RemoteNavigator;
+import lsfusion.server.logics.property.oraction.ActionOrProperty;
 import lsfusion.server.physics.admin.authentication.controller.remote.RemoteConnection;
 import lsfusion.server.physics.admin.authentication.controller.remote.RemoteConnectionContext;
 import lsfusion.server.physics.admin.authentication.security.policy.SecurityPolicy;
@@ -38,7 +44,11 @@ public class RemoteNavigatorContext extends RemoteConnectionContext {
     private final RemoteNavigator navigator;
     
     private final RemoteUIContext uiContext; // multiple inheritance
-    
+
+    public ConnectionContext getRemoteContext() {
+        return navigator.getRemoteContext();
+    }
+
     public RemoteNavigatorContext(RemoteNavigator remoteNavigator) {
         navigator = remoteNavigator;
         
@@ -99,6 +109,11 @@ public class RemoteNavigatorContext extends RemoteConnectionContext {
             }
 
             @Override
+            public ConnectionContext getConnectionContext() {
+                return RemoteNavigatorContext.this.getRemoteContext();
+            }
+
+            @Override
             public Long getCurrentUserRole() {
                 return RemoteNavigatorContext.this.getCurrentUserRole();
             }
@@ -114,17 +129,22 @@ public class RemoteNavigatorContext extends RemoteConnectionContext {
             }
 
             @Override
+            public LocalePreferences getLocalePreferences() {
+                return RemoteNavigatorContext.this.getLocalePreferences();
+            }
+
+            @Override
             protected boolean isExternal() {
                 return getForm.get() != null;
             }
 
             @Override
-            protected void requestFormUserInteraction(RemoteForm remoteForm, ModalityType modalityType, boolean forbidDuplicate, ExecutionStack stack) throws SQLException, SQLHandledException {
+            protected void requestFormUserInteraction(RemoteForm remoteForm, ShowFormType showFormType, boolean forbidDuplicate, String formId, ExecutionStack stack) throws SQLException, SQLHandledException {
                 Stack<Result<RemoteForm>> getForms = getForm.get();
                 if(getForms != null)
                     getForms.peek().set(remoteForm);
                 else
-                    super.requestFormUserInteraction(remoteForm, modalityType, forbidDuplicate, stack);
+                    super.requestFormUserInteraction(remoteForm, showFormType, forbidDuplicate, formId, stack);
             }
         };
     }
@@ -162,6 +182,11 @@ public class RemoteNavigatorContext extends RemoteConnectionContext {
         return navigator.requestUserInteraction(actions);
     }
 
+    @Override
+    public boolean userInteractionCanBeProcessedInTransaction() {
+        return false;
+    }
+
     public FocusListener getFocusListener() {
         return navigator;
     }
@@ -173,28 +198,34 @@ public class RemoteNavigatorContext extends RemoteConnectionContext {
     // UI interfaces, multiple inheritance
     
     @Override
-    public void requestFormUserInteraction(FormInstance formInstance, ModalityType modalityType, boolean forbidDuplicate, ExecutionStack stack) throws SQLException, SQLHandledException {
-        uiContext.requestFormUserInteraction(formInstance, modalityType, forbidDuplicate, stack);
+    public void requestFormUserInteraction(FormInstance formInstance, ShowFormType showFormType, boolean forbidDuplicate, String formId, ExecutionStack stack) throws SQLException, SQLHandledException {
+        uiContext.requestFormUserInteraction(formInstance, showFormType, forbidDuplicate, formId, stack);
     }
 
-    public ObjectValue requestUserObject(DialogRequest dialog, ExecutionStack stack) throws SQLException, SQLHandledException { // null если canceled
-        return uiContext.requestUserObject(dialog, stack);
+    @Override
+    public InputContext lockInputContext() {
+        return uiContext.lockInputContext();
     }
 
-    public ObjectValue requestUserData(DataClass dataClass, Object oldValue, boolean hasOldValue) {
-        return uiContext.requestUserData(dataClass, oldValue, hasOldValue);
+    @Override
+    public void unlockInputContext() {
+        uiContext.unlockInputContext();
     }
 
-    public ObjectValue requestUserClass(CustomClass baseClass, CustomClass defaultValue, boolean concrete) {
-        return uiContext.requestUserClass(baseClass, defaultValue, concrete);
+    public InputResult inputUserData(ActionOrProperty securityProperty, DataClass dataClass, Object oldValue, boolean hasOldValue, InputContext inputContext, String customChangeFunction, InputList inputList, InputListAction[] actions) {
+        return uiContext.inputUserData(securityProperty, dataClass, oldValue, hasOldValue, inputContext, customChangeFunction, inputList, actions);
     }
 
-    public FormInstance createFormInstance(FormEntity formEntity, ImSet<ObjectEntity> inputObjects, ImMap<ObjectEntity, ? extends ObjectValue> mapObjects, DataSession session, boolean isModal, Boolean noCancel, ManageSessionType manageSession, ExecutionStack stack, boolean checkOnOk, boolean showDrop, boolean interactive, boolean isFloat, ImSet<ContextFilterInstance> contextFilters, boolean readonly) throws SQLException, SQLHandledException {
-        return uiContext.createFormInstance(formEntity, inputObjects, mapObjects, session, isModal, noCancel, manageSession, stack, checkOnOk, showDrop, interactive, isFloat, contextFilters, readonly);
+    public FormInstance createFormInstance(FormEntity formEntity, ImSet<ObjectEntity> inputObjects, ImMap<ObjectEntity, ? extends ObjectValue> mapObjects, DataSession session, boolean isModal, Boolean noCancel, ManageSessionType manageSession, ExecutionStack stack, boolean checkOnOk, boolean showDrop, boolean interactive, WindowFormType type, ImSet<ContextFilterInstance> contextFilters, boolean readonly) throws SQLException, SQLHandledException {
+        return uiContext.createFormInstance(formEntity, inputObjects, mapObjects, session, isModal, noCancel, manageSession, stack, checkOnOk, showDrop, interactive, type, contextFilters, readonly);
     }
 
     public RemoteForm createRemoteForm(FormInstance formInstance, ExecutionStack stack) {
         return uiContext.createRemoteForm(formInstance, stack);
     }
 
+    @Override
+    public ConnectionContext getConnectionContext() {
+        return uiContext.getConnectionContext();
+    }
 }

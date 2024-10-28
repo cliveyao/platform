@@ -2,7 +2,6 @@ package lsfusion.client.form.object.table.grid;
 
 import lsfusion.client.ClientResourceBundle;
 import lsfusion.client.form.controller.remote.serialization.ClientSerializationPool;
-import lsfusion.client.form.design.ClientComponent;
 import lsfusion.client.form.design.ClientContainer;
 import lsfusion.client.form.object.ClientGroupObject;
 
@@ -10,11 +9,12 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 
-public class ClientGrid extends ClientComponent {
+public class ClientGrid extends ClientGridProperty {
+
+    public final static int DEFAULT_HEADER_HEIGHT = 34;
 
     public boolean tabVertical = false;
     public boolean quickSearch;
-    public int headerHeight;
 
     public ClientGroupObject groupObject;
 
@@ -24,12 +24,29 @@ public class ClientGrid extends ClientComponent {
     }
 
     @Override
+    protected Integer getDefaultWidth() {
+        return groupObject.getWidth(lineWidth);
+    }
+
+    @Override
+    protected Integer getDefaultHeight() {
+        return groupObject.getHeight(lineHeight, captionHeight);
+    }
+
+    @Override
     public void customSerialize(ClientSerializationPool pool, DataOutputStream outStream) throws IOException {
         super.customSerialize(pool, outStream);
 
+        outStream.writeBoolean(boxed != null);
+        if(boxed != null)
+            outStream.writeBoolean(boxed);
+
         outStream.writeBoolean(tabVertical);
         outStream.writeBoolean(quickSearch);
-        outStream.writeInt(headerHeight);
+        outStream.writeInt(captionHeight);
+
+        outStream.writeInt(lineWidth);
+        outStream.writeInt(lineHeight);
 
         pool.serializeObject(outStream, record);
 
@@ -40,9 +57,10 @@ public class ClientGrid extends ClientComponent {
     public void customDeserialize(ClientSerializationPool pool, DataInputStream inStream) throws IOException {
         super.customDeserialize(pool, inStream);
 
+        // Grid
+
         tabVertical = inStream.readBoolean();
         quickSearch = inStream.readBoolean();
-        headerHeight = inStream.readInt();
 
         record = pool.deserializeObject(inStream);
 
@@ -68,10 +86,10 @@ public class ClientGrid extends ClientComponent {
     }
 
     public int getHeaderHeight() {
-        return headerHeight;
+        return captionHeight;
     }
 
     public void setHeaderHeight(int headerHeight) {
-        this.headerHeight = headerHeight;
+        this.captionHeight = headerHeight;
     }
 }

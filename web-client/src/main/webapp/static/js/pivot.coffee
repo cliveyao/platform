@@ -468,7 +468,7 @@ callWithJQuery ($) ->
 
         #now actually build the output
         result = document.createElement("table")
-        result.className = "pvtTable"
+        result.className = "pvtTable table"
 
         #helper function for setting row/col-span in pivotTableRenderer
         spanSize = (arr, i, j) ->
@@ -683,8 +683,6 @@ callWithJQuery ($) ->
             filter: -> true
             sorters: {}
             valueHeight: null
-            componentHeightString: null
-            cellHorizontalPadding: null
             attach : null
             getDisplayColor: null
 
@@ -736,9 +734,8 @@ callWithJQuery ($) ->
             rendererControlDiv = $("<div>").appendTo(rendererControl)
             
             renderer = $("<select>")
-                .addClass('pvtRenderer')
+                .addClass('pvtRenderer form-select form-select-sm')
                 .appendTo(rendererControlDiv)
-                .css(height: opts.componentHeightString)
                 .bind "change", -> refresh() #capture reference
             for own x of opts.renderers
                 $("<option>").val(x).html(x).appendTo(renderer)
@@ -789,9 +786,6 @@ callWithJQuery ($) ->
                             placeholder = opts.localeStrings.filterResults
                             $("<input>", {type: "text"}).appendTo(controls)
                                 .attr({placeholder: placeholder, class: "pvtSearch"})
-                                .css
-                                    height: opts.valueHeight + "px"
-                                    padding: "0 " + opts.cellHorizontalPadding + "px" 
                                 .bind "keyup", ->
                                     filter = $(this).val().toLowerCase().trim()
                                     accept_gen = (prefix, accepted) -> (v) ->
@@ -814,16 +808,18 @@ callWithJQuery ($) ->
                                         else
                                             $(this).parent().parent().hide()
                             controls.append $("<br>")
-                            $("<button>", {type:"button"}).appendTo(controls)
+                            $("<button>", {type:"button"})
+                                .addClass('btn btn-sm btn-primary')
+                                .appendTo(controls)
                                 .html(opts.localeStrings.selectAll)
-                                .css(height: opts.componentHeightString)
                                 .bind "click", ->
                                     valueList.find("input:visible:not(:checked)")
                                         .prop("checked", true).toggleClass("changed")
                                     return false
-                            $("<button>", {type:"button"}).appendTo(controls)
+                            $("<button>", {type:"button"})
+                                .addClass('btn btn-sm btn-primary')
+                                .appendTo(controls)
                                 .html(opts.localeStrings.selectNone)
-                                .css(height: opts.componentHeightString)
                                 .bind "click", ->
                                     valueList.find("input:visible:checked")
                                         .prop("checked", false).toggleClass("changed")
@@ -841,7 +837,7 @@ callWithJQuery ($) ->
                                 filterItemExcluded = (value in opts.exclusions[attr])
                              hasExcludedItem ||= filterItemExcluded
                              $("<input>")
-                                .attr("type", "checkbox").addClass('pvtFilter')
+                                .attr("type", "checkbox").addClass('pvtFilter form-check-input')
                                 .attr("checked", !filterItemExcluded).data("filter", [attr,value])
                                 .appendTo(filterItem)
                                 .bind "change", -> $(this).toggleClass("changed")
@@ -852,28 +848,28 @@ callWithJQuery ($) ->
                     closeFilterBox = ->
                         if valueList.find("[type='checkbox']").length >
                                valueList.find("[type='checkbox']:checked").length
-                                attrElem.addClass "pvtFilteredAttribute"
-                            else
-                                attrElem.removeClass "pvtFilteredAttribute"
+                            attrElem.addClass "pvtFilteredAttribute"
+                        else
+                            attrElem.removeClass "pvtFilteredAttribute"
 
-                            valueList.find('.pvtSearch').val('')
-                            valueList.find('.pvtCheckContainer p').show()
-                            valueList.hide()
+                        valueList.find('.pvtSearch').val('')
+                        valueList.find('.pvtCheckContainer p').show()
+                        valueList.hide()
 
                     finalButtons = $("<p>").appendTo(valueList)
 
                     if values.length <= opts.menuLimit
                         $("<button>", {type: "button"}).text(opts.localeStrings.apply)
+                            .addClass('btn btn-sm btn-primary')
                             .appendTo(finalButtons)
-                            .css(height: opts.componentHeightString)
                             .bind "click", ->
                                 if valueList.find(".changed").removeClass("changed").length
                                     refresh()
                                 closeFilterBox()
 
                     $("<button>", {type: "button"}).text(opts.localeStrings.cancel)
+                        .addClass('btn btn-sm btn-primary')
                         .appendTo(finalButtons)
-                        .css(height: opts.componentHeightString)
                         .bind "click", ->
                             valueList.find(".changed:checked")
                                 .removeClass("changed").prop("checked", false)
@@ -881,31 +877,31 @@ callWithJQuery ($) ->
                                 .removeClass("changed").prop("checked", true)
                             closeFilterBox()
 
-                    triangleLink = $("<span>").addClass('pvtTriangle')
-                        .html(" &#x25BE;").bind "click", (e) ->
-                            {left, top} = $(e.currentTarget).position()
-                            listHeight = Math.min(valueList.outerHeight(), uiTable.height())
-                            top = Math.min(uiTable.height() - listHeight, top + 10)
-                            left = Math.min(uiTable.width() - valueList.outerWidth(), left + 10)
-                            valueList.css(left: left, top: top, maxHeight: "#{listHeight - 1}px").show()
-
-                    listItem = $("<li>").addClass("axis_#{i}")
+                    listItem = $("<li>").addClass("axis_#{i} pvtAttr-container")
                     listItem.css(lineHeight: opts.valueHeight + "px")
 
-                    listItem.bind "dblclick", () ->
+                    arrow = $("<div>").addClass('selectArrow').appendTo(listItem)
+                    arrow.bind "click", (e) ->
+                        {left, top} = $(e.currentTarget.parentElement).position()
+                        listHeight = Math.min(valueList.outerHeight(), uiTable.height())
+                        top = Math.min(uiTable.height() - listHeight, top + 10)
+                        left = Math.min(uiTable.width() - valueList.outerWidth(), left + 10)
+                        valueList.css(left: left, top: top, maxHeight: "#{listHeight - 1}px").show()
+
+                    attrElem = $("<select>").addClass('pvtAttr form-select form-select-sm').data("attrName", attr).appendTo(listItem)
+                    $("<option>").text(attr).appendTo(attrElem);
+
+                    attrElem.bind "dblclick", (e) ->
                         if unusedDiv.has(attrElem).length > 0
-                            pvtContainer = $('.pvtAxisContainer.pvtHorizList')
+                            pvtContainer = $(uiTable).find('.pvtAxisContainer.pvtHorizList')
                             listItem.appendTo(pvtContainer[pvtContainer.length - 1])
                         else
                             listItem.prependTo(unusedDiv)
 
                         refresh()
+                        return
 
-                    attrElem = $("<div>").addClass('pvtAttr').data("attrName", attr).appendTo(listItem)
-                    attrElemText = $("<span>").addClass('pvtAttrText').text(attr).prop("title", attr).appendTo(attrElem)
-                    attrElem.append(triangleLink)
-
-                    attrElemText.addClass('pvtFilteredAttribute') if hasExcludedItem
+                    attrElem.addClass('pvtFilteredAttribute') if hasExcludedItem
                     unusedDiv.append(listItem)
                     pvtUiContainer.append(valueList)
 
@@ -913,8 +909,7 @@ callWithJQuery ($) ->
 
             #aggregator menu and value area
 
-            aggregator = $("<select>").addClass('pvtAggregator')
-                .css(height: opts.componentHeightString)
+            aggregator = $("<select>").addClass('pvtAggregator form-select form-select-sm')
                 .bind "change", -> refresh() #capture reference
             for own x of opts.aggregators
                 aggregator.append $("<option>").val(x).html(x)
@@ -1120,8 +1115,8 @@ callWithJQuery ($) ->
 
                 numInputsToProcess = opts.aggregators[aggregator.val()]([])().numInputs ? 0
                 vals = []
-                @find(".pvtRows li div.pvtAttr").each -> subopts.rows.push $(this).data("attrName")
-                @find(".pvtCols li div.pvtAttr").each -> subopts.cols.push $(this).data("attrName")
+                @find(".pvtRows li select.pvtAttr").each -> subopts.rows.push $(this).data("attrName")
+                @find(".pvtCols li select.pvtAttr").each -> subopts.cols.push $(this).data("attrName")
                 @find(".pvtVals select.pvtAttrDropdown").each ->
                     if numInputsToProcess == 0
                         $(this).remove()

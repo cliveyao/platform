@@ -1,6 +1,5 @@
 ---
 title: 'Set operations'
-sidebar_label: Overview
 ---
 
 One of the key features of the platform is the ability to execute certain operations for all object collections for which the values of one or more [properties](Properties.md) are not `NULL`. In the property logic such an operation is the calculation of various *aggregate functions*. 
@@ -52,7 +51,8 @@ FORM f
 
 printFWithD { PRINT f OBJECTS d=currentDate(); } // will be executed successfully
 
-printFWithoutD { PRINT f; } // there is no filter for dates, and d IS DATE is not NULL for an infinite number d, the platform will throw an error
+// there is no filter for dates, and d IS DATE is not NULL for an infinite number d, the platform will throw an error
+printFWithoutD { PRINT f; } 
 ```
 
 
@@ -60,6 +60,9 @@ There are several non-trivial cases when the operation is correct but the platfo
 
 ```lsf
 hs = GROUP SUM 1 IF (a AS INTEGER) >= 4 AND a <= 6;
-messageHS  { MESSAGE hs(); } // theoretically, it should return 3, but the platform will still throw an error
-hi = GROUP SUM 1 IF iterate(a, 4, 6); // workaround: to work with intervals, the iterate property can be used (which, in turn, is implemented through recursion)
+// theoretically, it should return 3, but the platform will still throw an error
+messageHS  { MESSAGE hs(); } 
+// workaround: to work with intervals, the iterate property can be used
+// (which, in turn, is implemented through recursion)
+hi = GROUP SUM 1 IF iterate(a, 4, 6); 
 ```

@@ -6,19 +6,23 @@ The `ABSTRACT` operator creates an [abstract property](Property_extension.md).
 
 ### Syntax
 
-    ABSTRACT [type [exclusionType]] [CHECKED] returnClassName(argClassName1, ..., argClassNameN)
+```
+ABSTRACT [type [exclusionType]] [CHECKED] returnClassName(argClassName1, ..., argClassNameN)
+```
 
 Where `exclusionType` is of two types:
 
-    EXCLUSIVE
-    OVERRIDE [FIRST | LAST]
+```
+EXCLUSIVE
+OVERRIDE [FIRST | LAST]
+```
 
 ### Description
 
 The `ABSTRACT` operator creates an abstract property, the implementations of which can be defined later (for example, in other [modules](Modules.md) dependent on the module containing the `ABSTRACT` property). Implementations are added to the property using the [`+=` statement](+=_statement.md). When calculating an abstract property, its *matching* implementation is selected and calculated. The selection of the matching implementation depends on the *selection conditions* that are defined when adding implementations, and on the `ABSTRACT` operator type.
 
 -   `CASE` - a general case. The selection condition will be explicitly specified in the implementation using the [`WHEN` block](+=_statement.md).
--   `MULTI` – a [polymorphic form](Property_extension.md#poly). The selection condition is that the parameters match the implementation [signature](CLASS_operator.md). This type is the default type and need not to be explicitly specified.
+-   `MULTI` – a [polymorphic form](Property_extension.md#poly). The selection condition is that the parameters match the implementation [signature](ISCLASS_operator.md). This type is the default type and need not to be explicitly specified.
 -   `VALUE` - a polymorphic form. The selection condition will be definiteness (a none-`NULL` value) of the implementation value (essentially, the implementation itself).
 
 The [type of mutual exclusion](Property_extension.md#exclusive) of an operator determines whether several conditions for the implementation of an abstract property can simultaneously be met with a certain set of parameters. The `EXCLUSIVE` type indicates that implementation conditions cannot be met simultaneously. The `OVERRIDE` type allows several simultaneously met conditions. In this case, the implementation to be selected is determined by the keywords `FIRST` and `LAST`.
@@ -65,9 +69,14 @@ CLASS Invoice;
 CLASS InvoiceDetail;
 CLASS Range;
 
-rateChargeExchange(invoice) = ABSTRACT NUMERIC[14,6] (Invoice);             // In this case, ABSTRACT MULTI EXCLUSIVE is created
-backgroundSku 'Color' (d) = ABSTRACT CASE FULL COLOR (InvoiceDetail); // In this case, ABSTRACT CASE OVERRIDE LAST is created, and if there are
-                                                                            // several suitable implementations, the first of them will be calculated
-overVAT = ABSTRACT VALUE OVERRIDE FIRST Range (InvoiceDetail);          // The last matching implementation will be calculated here
+// In this case, ABSTRACT MULTI EXCLUSIVE is created
+rateChargeExchange(invoice) = ABSTRACT NUMERIC[14,6] (Invoice);
+             
+// In this case, ABSTRACT CASE OVERRIDE LAST is created, and if there are
+// several suitable implementations, the first of them will be calculated
+backgroundSku 'Color' (d) = ABSTRACT CASE FULL COLOR (InvoiceDetail);
+ 
+// The last matching implementation will be calculated here
+overVAT = ABSTRACT VALUE OVERRIDE FIRST Range (InvoiceDetail);          
 ```
 

@@ -19,7 +19,6 @@ import lsfusion.server.data.expr.value.ValueExpr;
 import lsfusion.server.data.sql.exception.SQLHandledException;
 import lsfusion.server.data.where.Where;
 import lsfusion.server.data.where.WhereBuilder;
-import lsfusion.server.data.where.classes.ClassWhere;
 import lsfusion.server.logics.action.Action;
 import lsfusion.server.logics.action.implement.ActionMapImplement;
 import lsfusion.server.logics.action.session.change.PropertyChanges;
@@ -51,7 +50,6 @@ import lsfusion.server.logics.property.oraction.PropertyInterface;
 import lsfusion.server.physics.dev.i18n.LocalizedString;
 
 import java.sql.SQLException;
-import java.util.function.Function;
 
 public class IsClassProperty extends SimpleIncrementProperty<ClassPropertyInterface> {
 
@@ -74,7 +72,11 @@ public class IsClassProperty extends SimpleIncrementProperty<ClassPropertyInterf
         synchronized (cacheClasses) {
             PropertyImplement<P, ValueClass> implement = (PropertyImplement<P, ValueClass>) cacheClasses.get(multiClasses);
             if(implement==null) {
-                PropertyRevImplement<?, T> classImplement = PropertyFact.createCProp(LogicalClass.instance, true, classes);
+                PropertyRevImplement<?, T> classImplement;
+                if(classes.size() == 0)
+                    classImplement = PropertyFact.createTrue().mapRevImplement(MapFact.EMPTYREV());
+                else
+                    classImplement = PropertyFact.createCProp(LocalizedString.NONAME, classes);
                 cacheClasses.exclAdd(multiClasses, classImplement.mapImplement(classes));
                 return classImplement;
             } else
@@ -151,6 +153,8 @@ public class IsClassProperty extends SimpleIncrementProperty<ClassPropertyInterf
         if(interfaceClass instanceof CustomClass) { // возвращаем и parent'ы и children'ов (так как при удалении надо и конкретные и абстрактные свойства смотреть)
             CustomClass customClass = (CustomClass) interfaceClass;
             MSet<CustomClass> mDependClasses = SetFact.mSet();
+
+            // correlations
             for(Property upAggrProp : customClass.getUpAggrProps()) {
                 ValueClass valueClass = upAggrProp.getValueClass(ClassType.materializeChangePolicy);
                 if(valueClass instanceof CustomClass) { // нас также интересует класс значения корреляций (так как они тоже могут single apply'ся, а значения корреляций никто не обновит) 
@@ -158,7 +162,9 @@ public class IsClassProperty extends SimpleIncrementProperty<ClassPropertyInterf
                     mDependClasses.addAll(customAggrClass.getAllChildrenParents());
                 }
             }
+
             mDependClasses.addAll(customClass.getAllChildrenParents());
+
             return mDependClasses.immutable().mapSetValues(value -> value.getProperty().getChanged(IncrementType.DROP, ChangeEvent.scope));
         }
         return SetFact.EMPTY();

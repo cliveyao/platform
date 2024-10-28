@@ -1,10 +1,9 @@
 package lsfusion.server.logics.form.interactive.design.object;
 
-import lsfusion.server.logics.form.interactive.design.ComponentView;
+import lsfusion.server.logics.form.interactive.controller.remote.serialization.FormInstanceContext;
+import lsfusion.server.logics.form.interactive.design.BaseComponentView;
 
-import java.awt.*;
-
-public class CalculationsView extends ComponentView {
+public class CalculationsView extends BaseComponentView {
     public CalculationsView() {}
 
     public CalculationsView(int ID) {
@@ -12,7 +11,7 @@ public class CalculationsView extends ComponentView {
     }
 
     @Override
-    public Dimension getSize() {
-        return new Dimension(0, -1);
+    protected int getDefaultWidth(FormInstanceContext context) {
+        return 0;
     }
 }

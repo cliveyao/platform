@@ -1,6 +1,7 @@
 package lsfusion.interop.form.event;
 
 import javax.swing.*;
+import java.awt.event.ActionEvent;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.util.EventObject;
@@ -50,8 +51,8 @@ public class KeyStrokes {
         return KeyStroke.getKeyStroke(KeyEvent.VK_END, InputEvent.CTRL_DOWN_MASK);
     }
 
-    public static KeyStroke getF2() {
-        return KeyStroke.getKeyStroke(KeyEvent.VK_F2, 0);
+    public static KeyStroke getF3() {
+        return KeyStroke.getKeyStroke(KeyEvent.VK_F3, 0);
     }
 
     public static KeyStroke getF6() {
@@ -63,7 +64,7 @@ public class KeyStrokes {
     }
 
     public static KeyStroke getFilterKeyStroke(int modifier) {
-        return KeyStroke.getKeyStroke(KeyEvent.VK_F2, modifier);
+        return KeyStroke.getKeyStroke(KeyEvent.VK_F3, modifier);
     }
 
     public static KeyStroke getRemoveFiltersKeyStroke() {
@@ -86,8 +87,11 @@ public class KeyStrokes {
         return KeyStroke.getKeyStroke(KeyEvent.VK_F12, 0);
     }
 
-    public static boolean isEditObjectEvent(EventObject event) {
-        return isKeyEvent(event, KeyEvent.VK_F9) || MouseStrokes.isDblClickEvent(event);
+    public static boolean isEditObjectEvent(EventObject event, boolean hasEditObjectAction, boolean hasChangeAction) {
+        return hasEditObjectAction && (
+                isKeyEvent(event, KeyEvent.VK_F9) ||
+                (!hasChangeAction && MouseStrokes.isDblClickEvent(event)) ||
+                (event instanceof InputEvent && ((InputEvent) event).isControlDown() && MouseStrokes.isDownEvent(event))); // ctrl doesn't work for now since it is used for a cell selection
     }
 
     public static boolean isKeyEvent(EventObject event, int keyCode) {
@@ -110,6 +114,11 @@ public class KeyStrokes {
         return isKeyEvent(event, KeyEvent.VK_BACK_SPACE);
     }
 
+    //hack to start editing on F2
+    public static boolean isF2Event(EventObject event) {
+        return event instanceof ActionEvent && ((ActionEvent) event).getID() == ActionEvent.ACTION_PERFORMED;
+    }
+
     public static boolean isDeleteEvent(EventObject event) {
         return isKeyEvent(event, KeyEvent.VK_DELETE);
     }
@@ -120,6 +129,10 @@ public class KeyStrokes {
 
     public static boolean isEscapeEvent(EventObject event) {
         return isKeyEvent(event, KeyEvent.VK_ESCAPE);
+    }
+    
+    public static boolean isTabEvent(EventObject event) {
+        return isKeyEvent(event, KeyEvent.VK_TAB);
     }
 
     public static boolean isDigitKeyEvent(EventObject event) {
@@ -137,6 +150,10 @@ public class KeyStrokes {
     }
 
     public static boolean isSuitableStartFilteringEvent(EventObject event) {
+        return isCharAddKeyEvent(event);
+    }
+    
+    public static boolean isCharAddKeyEvent(EventObject event) {
         if (event instanceof KeyEvent) {
             KeyEvent keyEvent = (KeyEvent) event;
             return isSuitableEditKeyEvent(event) &&
@@ -164,23 +181,39 @@ public class KeyStrokes {
                    !keyEvent.isControlDown() &&
                    !KeyStrokes.isShiftEvent(keyEvent) &&
                    !KeyStrokes.isCharUndefinedEvent(keyEvent) &&
-                   !KeyStrokes.isEscapeEvent(keyEvent);
+                   !KeyStrokes.isEscapeEvent(keyEvent) &&
+                   !KeyStrokes.isTabEvent(keyEvent);
         }
         return false;
     }
 
     public static boolean isSuitableNumberEditEvent(EventObject event) {
-        return isSuitableEditKeyEvent(event) && (
+        return (isSuitableEditKeyEvent(event) && (
                 isDigitKeyEvent(event) ||
                 isMinusKeyEvent(event) ||
                 isDeleteEvent(event) ||
                 isBackSpaceEvent(event)
-        );
+        )) || isF2Event(event);
     }
 
     public static KeyStroke getKeyStrokeForEvent(KeyEvent e) {
         return e.getID() == KeyEvent.KEY_TYPED
                ? KeyStroke.getKeyStroke(e.getKeyChar())
                : KeyStroke.getKeyStroke(e.getKeyCode(), e.getModifiers(), e.getID() == KeyEvent.KEY_RELEASED);
+    }
+
+    public static boolean isChangeAppendKeyEvent(EventObject event) {
+        return event instanceof ActionEvent;
+    }
+    
+    public static boolean isPlainPasteEvent(EventObject event) {
+        if (event instanceof KeyEvent) {
+            KeyEvent keyEvent = (KeyEvent) event;
+            return keyEvent.getKeyCode() == KeyEvent.VK_V && 
+                    keyEvent.isControlDown() && 
+                    keyEvent.isShiftDown() &&
+                    !keyEvent.isAltDown();
+        }
+        return false;
     }
 }

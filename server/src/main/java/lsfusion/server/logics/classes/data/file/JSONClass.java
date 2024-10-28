@@ -1,55 +1,50 @@
 package lsfusion.server.logics.classes.data.file;
 
-import lsfusion.base.file.RawFileData;
 import lsfusion.interop.classes.DataType;
+import lsfusion.server.data.sql.syntax.SQLSyntax;
+import lsfusion.server.data.type.exec.TypeEnvironment;
 import lsfusion.server.logics.classes.data.DataClass;
-import lsfusion.server.logics.form.stat.struct.FormIntegrationType;
+import lsfusion.server.physics.dev.i18n.LocalizedString;
 
-import java.util.ArrayList;
-import java.util.Collection;
+public class JSONClass extends AJSONClass {
 
-public class JSONClass extends HumanReadableFileClass {
-
-    protected String getFileSID() {
-        return "JSONFILE";
+    public JSONClass() {
+        super(LocalizedString.create("{classes.json}"));
     }
 
-    private static Collection<JSONClass> instances = new ArrayList<>();
+    public final static JSONClass instance = new JSONClass();
 
-    public static JSONClass get() {
-        return get(false, false);
+    @Override
+    public String getCastFromStatic(String value) {
+        return "cast_static_file_to_json(" + value + ")";
     }
 
-    public static JSONClass get(boolean multiple, boolean storeName) {
-        for (JSONClass instance : instances)
-            if (instance.multiple == multiple && instance.storeName == storeName)
-                return instance;
+    @Override
+    public String getCastToStatic(String value) {
+        return "cast_json_to_static_file(" + value + ")";
+    }
 
-        JSONClass instance = new JSONClass(multiple, storeName);
-        instances.add(instance);
+    static {
         DataClass.storeClass(instance);
-        return instance;
     }
 
-    private JSONClass(boolean multiple, boolean storeName) {
-        super(multiple, storeName);
+    @Override
+    public String getDBString(SQLSyntax syntax, TypeEnvironment typeEnv) {
+        return syntax.getJSON();
     }
 
+    @Override
+    public String getSID() {
+        return "JSON";
+    }
+
+    @Override
+    public DataClass getCompatible(DataClass compClass, boolean or) {
+        return compClass instanceof JSONClass ? this : null;
+    }
+
+    @Override
     public byte getTypeID() {
         return DataType.JSON;
-    }
-
-    public String getOpenExtension(RawFileData file) {
-        return "json";
-    }
-
-    @Override
-    public String getExtension() {
-        return "json";
-    }
-
-    @Override
-    public FormIntegrationType getIntegrationType() {
-        return FormIntegrationType.JSON;
     }
 }

@@ -1,7 +1,10 @@
 package lsfusion.gwt.client.form.property.cell.classes.view.link;
 
-import com.google.gwt.core.client.GWT;
+import lsfusion.gwt.client.base.AppLinkImage;
+import lsfusion.gwt.client.base.BaseImage;
+import lsfusion.gwt.client.classes.data.link.GLinkType;
 import lsfusion.gwt.client.form.property.GPropertyDraw;
+import lsfusion.gwt.client.form.property.PValue;
 import lsfusion.gwt.client.form.property.cell.classes.view.ImageCellRenderer;
 
 public class ImageLinkCellRenderer extends ImageCellRenderer {
@@ -10,7 +13,7 @@ public class ImageLinkCellRenderer extends ImageCellRenderer {
     }
 
     @Override
-    protected String getFilePath(Object value) {
-        return value instanceof String ? (String) value : GWT.getModuleBaseURL() + ICON_EMPTY;
+    protected BaseImage getBaseImage(PValue value) {
+        return new AppLinkImage(PValue.getStringValue(value), ((GLinkType) property.getValueType()).getExtension());
     }
 }

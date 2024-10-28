@@ -1,0 +1,170 @@
+
+.prop-size-value,
+.prop-size-value.fill-parent-perc {
+    box-sizing: content-box; /* it's important to have content-box sizing, since we're setting explicit heights for the renderer element (and we don't want paddings to be included, since we're calculating elements heights based on contents) */
+}
+
+.prop-size-value.fill-parent-perc {
+    /* it's tricky here
+     fill-parent-perc wants 100% and border-box, but prop-size-value wants content-box*/
+    /* so we use the hack with fill-available which respects paddings, and actual width is set in colgroup */
+    width: -webkit-fill-available;
+    width: -moz-available;
+
+    /* we want to stretch div in the cell even if the explicit height is set */
+    /* however there is a problem: prop-size-value sets box-sizing to content-box, and 100% starts ignoring paddings, so the content can overflow the container element */
+    /* it's not really clear how to fix this, the above hack doesn't work. but it's a really rare case (explicit height, wrapped renderer, it has paddings and it's not the largest component) so we'll ignore it for now */
+    min-height: 100%;
+}
+
+.prop-size-value.fill-parent-flex {
+    /* we want to stretch div in the cell even if the explicit width is set (height is stretched by the flex:1 1 auto even if it is explicitly set) */
+    /* maybe later should be moved directly to the fill-parent-flex */
+    min-width: -webkit-fill-available;
+    min-width: -moz-available;
+    max-width: -webkit-fill-available;
+    max-width: -moz-available;
+}
+
+.prop-value-overflow-horz-auto,
+.prop-value-overflow-horz-auto.comp-shrink-horz-clip {
+    overflow-x: auto;
+}
+
+.prop-value-overflow-horz-clip,
+.prop-value-overflow-horz-clip.comp-shrink-horz-auto {
+    overflow-x: clip;
+}
+
+.prop-value-overflow-horz-visible,
+.prop-value-overflow-horz-visible.comp-shrink-horz-auto,
+.prop-value-overflow-horz-visible.comp-shrink-horz-clip {
+    overflow-x: visible;
+}
+
+.prop-value-overflow-vert-auto,
+.prop-value-overflow-vert-auto.comp-shrink-vert-clip {
+    overflow-y: auto;
+}
+
+.prop-value-overflow-vert-clip,
+.prop-value-overflow-vert-clip.comp-shrink-vert-auto {
+    overflow-y: clip;
+}
+
+.prop-value-overflow-vert-visible
+.prop-value-overflow-vert-visible.comp-shrink-vert-auto,
+.prop-value-overflow-vert-visible.comp-shrink-vert-clip {
+    overflow-y: visible;
+}
+
+.text-based-prop-value {
+    cursor: default; /* need this since text by default gets "editing" cursor, however it overrides for example resize cursor, but it's not clear what to do with it */
+}
+a.text-based-prop-value { /* we have to set cursor pointer for a since we don't set href and thus UA doesn't set cursor pointer */
+    cursor: pointer;
+}
+
+.prop-display-flex, .prop-display-flex.form-control, .prop-display-flex.btn {
+    display: flex;
+}
+
+/* 2 and 3 selectors are needed for action cell renderers, to respect that alignments */
+.prop-flex-horz-start,
+.prop-flex-horz-start.wrap-text-not-empty.wrap-img-horz,
+.prop-flex-vert-start.wrap-text-not-empty.wrap-img-vert
+{
+    justify-content: flex-start;
+}
+.prop-flex-horz-center,
+.prop-flex-horz-center.wrap-text-not-empty.wrap-img-horz,
+.prop-flex-vert-center.wrap-text-not-empty.wrap-img-vert
+{
+    justify-content: center;
+}
+.prop-flex-horz-stretch:not(.wrap-text-not-empty.wrap-img-vert)>*,
+.prop-flex-vert-stretch:not(.wrap-text-not-empty.wrap-img-horz)>*
+{
+    flex-grow: 1;
+    flex-shrink: 1;
+}
+.prop-flex-horz-end,
+.prop-flex-horz-end.wrap-text-not-empty.wrap-img-horz,
+.prop-flex-vert-end.wrap-text-not-empty.wrap-img-vert
+{
+    justify-content: flex-end;
+}
+.prop-flex-vert-start,
+.prop-flex-vert-start.wrap-text-not-empty.wrap-img-vert,
+.prop-flex-horz-start.wrap-text-not-empty.wrap-img-horz
+{
+    align-items: flex-start;
+}
+.prop-flex-vert-center,
+.prop-flex-vert-center.wrap-text-not-empty.wrap-img-vert,
+.prop-flex-horz-center.wrap-text-not-empty.wrap-img-horz
+{
+    align-items: center;
+}
+.prop-flex-vert-end,
+.prop-flex-vert-end.wrap-text-not-empty.wrap-img-vert,
+.prop-flex-horz-end.wrap-text-not-empty.wrap-img-horz
+{
+    align-items: flex-end;
+}
+.prop-flex-vert-stretch {
+    align-items: stretch;
+}
+
+.prop-text-horz-start {
+    text-align: left;
+}
+.prop-text-horz-center {
+    text-align: center;
+}
+.prop-text-horz-end {
+    text-align: right;
+}
+.prop-text-vert-start {
+    vertical-align: top;
+}
+.prop-text-vert-center {
+    vertical-align: middle;
+}
+input.prop-text-vert-center {
+    vertical-align: baseline;
+}
+.prop-text-vert-end {
+    vertical-align: bottom;
+}
+
+.cell-with-background .btn,
+.cell-with-background .ms-choice,
+.cell-with-background .selectize-input {
+    background-color: var(--bs-table-bg);
+    --component-background-color: var(--bs-table-bg);
+}
+
+.cell-with-foreground,
+.cell-with-foreground .btn,
+.cell-with-foreground .btn-check:checked+.btn,
+.cell-with-foreground.form-control {
+    color: var(--foreground-color);
+    --disabled-text-color: var(--foreground-color);
+    --text-color: var(--foreground-color);
+}
+
+.cell-with-custom-font,
+.cell-with-custom-font.btn
+{
+    font-size: var(--custom-font-size);
+    font-family: var(--custom-font-family);
+    font-style: var(--custom-font-style);
+    font-weight: var(--custom-font-weight);
+}
+
+/* the problem is that some custom (for example bootstrap) classes can use position:absolute, and we don't want it to go outside the value, because it may lead to some really odd behaviour if somewhere between the element and position:relative element will be overflowed element (the base size of the position:relative element will be really large) */
+.panel-renderer-value,
+.data-grid-cell {
+    position: relative;
+}

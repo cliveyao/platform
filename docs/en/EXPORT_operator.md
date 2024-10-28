@@ -6,18 +6,22 @@ The `EXPORT` operator: creates an [action](Actions.md) that exports [specified p
 
 ## Syntax
 
-    EXPORT [exportFormat] [TOP n] FROM [columnId1 =] propertyExpr1, ..., [columnIdN = ] propertyExprN [WHERE whereExpr] [ORDER orderExpr1 [DESC], ..., orderExprL [DESC]] [TO propertyId]
-    EXPORT formName [OBJECTS objName1 = expr1, ..., objNameK = exprK] [exportFormat] [TOP n] [TO (propertyId | (groupId1 = propertyId1, ..., groupIdN = propertyIdM))]
+```
+EXPORT [exportFormat] [TOP n] FROM [columnId1 =] propertyExpr1, ..., [columnIdN = ] propertyExprN [WHERE whereExpr] [ORDER orderExpr1 [DESC], ..., orderExprL [DESC]] [TO propertyId]
+EXPORT formName [OBJECTS objName1 = expr1, ..., objNameK = exprK] [exportFormat] [TOP n] [TO (propertyId | (groupId1 = propertyId1, ..., groupIdN = propertyIdM))]
+```
 
 `exportFormat` can be specified by one of the following options:
 
-    JSON [CHARSET charsetStr]
-    XML [ATTR] [CHARSET charsetStr]
-    CSV [separator] [HEADER | NOHEADER] [ESCAPE | NOESCAPE] [CHARSET charsetStr]
-    XLS [HEADER | NOHEADER]
-    XLSX [HEADER | NOHEADER]
-    DBF [CHARSET charsetStr]
-    TABLE
+```
+JSON [CHARSET charsetStr]
+XML [HEADER | NOHEADER] [ATTR] [CHARSET charsetStr]
+CSV [separator] [HEADER | NOHEADER] [ESCAPE | NOESCAPE] [CHARSET charsetStr]
+XLS [SHEET sheetProperty] [HEADER | NOHEADER]
+XLSX [SHEET sheetProperty] [HEADER | NOHEADER]
+DBF [CHARSET charsetStr]
+TABLE
+```
 
 ## Description
 
@@ -91,6 +95,8 @@ When exporting a form in an `OBJECTS` block, it is possible to add extra filters
 
     When using the `NOHEADER` option if the column name is one of the predefined names (`A`, `B`, ..., `Z`, `AA`, ..., `AE`), it is exported to the column with the corresponding number, and the following columns are exported to the columns next in order after this column.
 
+    Has other meaning for **XML**: with `HEADER` result file contains first string like `<?xml version="1.0" encoding="UTF-8"?>`. Export with `NOHEADER` exports without this string. The default is `HEADER`.
+
 - `ESCAPE | NOESCAPE`
 
     Keywords specifying the presence (`ESCAPE`) or absence (`NOESCAPE`) of escaping for special characters (`\r`, `\n`, `"` (double quotes) and the specified delimiter (`separator`) in a **CSV** file. It makes sense to use `NOESCAPE` only in cases where the specified delimiter is guaranteed not to occur in the data. The default is `ESCAPE`.
@@ -102,6 +108,10 @@ When exporting a form in an `OBJECTS` block, it is possible to add extra filters
     - `charsetStr`
      
         String literal that defines the encoding. 
+
+- `sheetProperty`
+
+  The [ID of the property](IDs.md#propertyid) whose value is used as the name of the sheet in the exported file. The property must not have parameters. It is used for `XLS` and `XLSX` export formats.
      
 - `TOP n`
 
@@ -132,11 +142,18 @@ weight = DATA NUMERIC[10,2] (Sku);
 in = DATA BOOLEAN (Store, Sku);
 
 exportSkus (Store store)  {
-    EXPORT DBF CHARSET 'CP866' FROM id(Sku s), name(s), weight(s) WHERE in(store, s); // uploading to DBF all Sku for which in (Store, Sku) is specified for the desired warehouse
-    EXPORT CSV NOHEADER NOESCAPE FROM id(Sku s), name(s), weight(s) WHERE in(store, s); // uploads to CSV without header line and escaping special characters
-    EXPORT FROM id(Sku s), name(s), weight(s) WHERE in(store, s) ORDER name(s) DESC; // uploads JSON, sorting by property name[Sku] in descending order
-    EXPORT FROM ff='HI'; // uploads JSON {"ff":"HI"}, as by default it gets the name value, and the platform gets the object {"value":"HI"} to
-    EXPORT FROM 'HI'; // uploads JSON "HI", as by default it gets the name value, and the platform automatically converts the object {"value": "HI"} to "HI"
+    // uploading to DBF all Sku for which in (Store, Sku) is specified for the desired warehouse
+    EXPORT DBF CHARSET 'CP866' FROM id(Sku s), name(s), weight(s) WHERE in(store, s); 
+    // uploads to CSV without header line and escaping special characters
+    EXPORT CSV NOHEADER NOESCAPE FROM id(Sku s), name(s), weight(s) WHERE in(store, s); 
+    // uploads JSON, sorting by property name[Sku] in descending order
+    EXPORT FROM id(Sku s), name(s), weight(s) WHERE in(store, s) ORDER name(s) DESC; 
+    // uploads JSON {"ff":"HI"}, as by default it gets the name value, and the platform
+    // gets the object {"value":"HI"} to "HI"
+    EXPORT FROM ff='HI'; 
+    // uploads JSON "HI", as by default it gets the name value, and the platform
+    // automatically converts the object {"value": "HI"} to "HI"
+    EXPORT FROM 'HI'; 
 }
 ```
 

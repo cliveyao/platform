@@ -1,13 +1,17 @@
 package lsfusion.server.logics.navigator;
 
-import lsfusion.server.logics.form.struct.property.async.AsyncExec;
-import lsfusion.server.physics.dev.i18n.LocalizedString;
+import lsfusion.server.base.AppServerImage;
+import lsfusion.server.logics.form.interactive.action.async.AsyncExec;
+import lsfusion.server.logics.form.interactive.controller.remote.serialization.ConnectionContext;
 
 public class NavigatorFolder extends NavigatorElement {
-    public NavigatorFolder(String canonicalName, LocalizedString caption) {
-        super(canonicalName, caption);
+    public NavigatorFolder(String canonicalName) {
+        super(canonicalName);
+    }
 
-        setImage("open.png", DefaultIcon.OPEN);
+    @Override
+    public String getDefaultIcon() {
+        return isParentRoot() ? AppServerImage.OPENTOP : AppServerImage.OPEN;
     }
 
     @Override
@@ -21,7 +25,7 @@ public class NavigatorFolder extends NavigatorElement {
     }
 
     @Override
-    public AsyncExec getAsyncExec() {
+    public AsyncExec getAsyncExec(ConnectionContext context) {
         return null;
     }
 }

@@ -1,23 +1,21 @@
 package lsfusion.server.logics.property.value;
 
-import lsfusion.base.col.SetFact;
 import lsfusion.base.col.interfaces.immutable.ImMap;
 import lsfusion.server.data.expr.Expr;
 import lsfusion.server.data.expr.where.cases.CaseExpr;
 import lsfusion.server.data.where.WhereBuilder;
 import lsfusion.server.logics.action.session.change.PropertyChanges;
 import lsfusion.server.logics.property.CalcType;
-import lsfusion.server.logics.property.classes.data.FormulaProperty;
 import lsfusion.server.logics.property.classes.infer.ExClassSet;
 import lsfusion.server.logics.property.classes.infer.InferType;
 import lsfusion.server.logics.property.classes.infer.Inferred;
 import lsfusion.server.logics.property.oraction.PropertyInterface;
 import lsfusion.server.physics.dev.i18n.LocalizedString;
 
-public class NullValueProperty extends FormulaProperty<PropertyInterface> {
+public class NullValueProperty extends StaticValueProperty {
 
     private NullValueProperty() {
-        super(LocalizedString.create("Значение NULL"), SetFact.EMPTYORDER());
+        super(LocalizedString.create("Значение NULL"));
 
         finalizeInit();
     }
@@ -41,5 +39,10 @@ public class NullValueProperty extends FormulaProperty<PropertyInterface> {
     @Override
     protected ExClassSet calcInferValueClass(ImMap<PropertyInterface, ExClassSet> inferred, InferType inferType) {
         return ExClassSet.FALSE;
+    }
+
+    @Override
+    public Object getStaticValue() {
+        return null;
     }
 }

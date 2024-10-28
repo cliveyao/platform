@@ -1,12 +1,16 @@
 package lsfusion.server.logics.property.implement;
 
 import lsfusion.base.BaseUtils;
+import lsfusion.base.Pair;
 import lsfusion.base.col.MapFact;
 import lsfusion.base.col.interfaces.immutable.*;
 import lsfusion.base.col.interfaces.mutable.MSet;
 import lsfusion.server.data.expr.Expr;
 import lsfusion.server.data.expr.query.GroupType;
+import lsfusion.server.data.expr.value.StaticParamNullableExpr;
 import lsfusion.server.data.sql.exception.SQLHandledException;
+import lsfusion.server.data.stat.Cost;
+import lsfusion.server.data.stat.Stat;
 import lsfusion.server.data.value.DataObject;
 import lsfusion.server.data.value.ObjectValue;
 import lsfusion.server.data.where.Where;
@@ -15,6 +19,7 @@ import lsfusion.server.data.where.classes.ClassWhere;
 import lsfusion.server.logics.action.controller.context.ExecutionContext;
 import lsfusion.server.logics.action.controller.context.ExecutionEnvironment;
 import lsfusion.server.logics.action.implement.ActionMapImplement;
+import lsfusion.server.logics.action.session.change.CalcDataType;
 import lsfusion.server.logics.action.session.change.DataChanges;
 import lsfusion.server.logics.action.session.change.PropertyChange;
 import lsfusion.server.logics.action.session.change.PropertyChanges;
@@ -24,11 +29,12 @@ import lsfusion.server.logics.action.session.changed.OldProperty;
 import lsfusion.server.logics.classes.ValueClass;
 import lsfusion.server.logics.classes.user.set.AndClassSet;
 import lsfusion.server.logics.event.PrevScope;
+import lsfusion.server.logics.form.interactive.action.async.map.AsyncMapChange;
+import lsfusion.server.logics.form.interactive.action.edit.FormSessionScope;
 import lsfusion.server.logics.form.interactive.instance.property.PropertyObjectInstance;
 import lsfusion.server.logics.form.interactive.instance.property.PropertyObjectInterfaceInstance;
 import lsfusion.server.logics.form.struct.object.ObjectEntity;
 import lsfusion.server.logics.form.struct.property.PropertyObjectEntity;
-import lsfusion.server.logics.property.AggregateProperty;
 import lsfusion.server.logics.property.Property;
 import lsfusion.server.logics.property.PropertyFact;
 import lsfusion.server.logics.property.UnionProperty;
@@ -39,6 +45,7 @@ import lsfusion.server.logics.property.classes.infer.*;
 import lsfusion.server.logics.property.data.DataProperty;
 import lsfusion.server.logics.property.oraction.ActionOrPropertyInterfaceImplement;
 import lsfusion.server.logics.property.oraction.PropertyInterface;
+import lsfusion.server.logics.property.value.StaticValueProperty;
 
 import java.sql.SQLException;
 
@@ -52,11 +59,11 @@ public class PropertyMapImplement<P extends PropertyInterface, T extends Propert
         super(property, mapping);
     }
 
-    public DataChanges mapJoinDataChanges(PropertyChange<T> change, GroupType type, WhereBuilder changedWhere, PropertyChanges propChanges) {
+    public DataChanges mapJoinDataChanges(PropertyChange<T> change, CalcDataType type, GroupType groupType, WhereBuilder changedWhere, PropertyChanges propChanges) {
         ImMap<T, Expr> mapExprs = change.getMapExprs();
         if(mapExprs.size() == mapping.size()) // optimization
-            return property.getDataChanges(change.mapChange(mapping), propChanges, changedWhere);
-        return property.getJoinDataChanges(mapping.join(mapExprs), change.expr, change.where, type, propChanges, changedWhere);
+            return property.getDataChanges(change.mapChange(mapping), type, propChanges, changedWhere);
+        return property.getJoinDataChanges(mapping.join(mapExprs), change.expr, change.where, groupType, propChanges, type, changedWhere);
     }
 
     public PropertyMapImplement<P, T> mapOld(PrevScope event) {
@@ -135,6 +142,11 @@ public class PropertyMapImplement<P extends PropertyInterface, T extends Propert
         return checkInterfaces.size() >= interfaces.size() && property.isFull(checkInterfaces, AlgType.actionType);
     }
 
+    @Override
+    public boolean mapHasNoGridReadOnly(ImSet<T> gridInterfaces) {
+        return property.hasNoGridReadOnly(mapping.filterValues(gridInterfaces).keys());
+    }
+
     public Expr mapExpr(ImMap<T, ? extends Expr> joinImplement, Modifier modifier) throws SQLException, SQLHandledException {
         return property.getExpr(mapping.join(joinImplement), modifier);
     }
@@ -142,19 +154,15 @@ public class PropertyMapImplement<P extends PropertyInterface, T extends Propert
         return property.getExpr(mapping.join(joinImplement), propChanges);
     }
 
-    public Expr mapExpr(ImMap<T, ? extends Expr> joinImplement) {
-        return property.getExpr(mapping.join(joinImplement));
-    }
-
     public void mapFillDepends(MSet<Property> depends) {
         depends.add(property);
     }
 
     public int mapHashCode() {
-        return property.hashCode() * 31 + mapping.hashCode();
+        return hashMap();
     }
     public boolean mapEquals(PropertyInterfaceImplement<T> implement) {
-        return implement instanceof PropertyMapImplement && property.equals(((PropertyMapImplement) implement).property) && mapping.equals(((PropertyMapImplement) implement).mapping);
+        return implement instanceof PropertyMapImplement && equalsMap(implement);
     }
 
     public ImSet<OldProperty> mapOldDepends() {
@@ -162,7 +170,7 @@ public class PropertyMapImplement<P extends PropertyInterface, T extends Propert
     }
 
     public Object read(ExecutionContext context, ImMap<T, ? extends ObjectValue> interfaceValues) throws SQLException, SQLHandledException {
-        return property.read(context.getSession().sql, mapping.join(interfaceValues), context.getModifier(), context.getQueryEnv());
+        return property.read(context.getSession(), mapping.join(interfaceValues), context.getModifier(), context.getQueryEnv());
     }
 
     public ObjectValue readClasses(ExecutionContext context, ImMap<T, ? extends ObjectValue> interfaceValues) throws SQLException, SQLHandledException {
@@ -170,8 +178,23 @@ public class PropertyMapImplement<P extends PropertyInterface, T extends Propert
     }
 
     @Override
+    public boolean mapIsDrawNotNull() {
+        return property.isDrawNotNull();
+    }
+
+    @Override
+    public boolean mapIsNotNull() {
+        return property.isNotNull();
+    }
+
+    @Override
+    public boolean mapIsExplicitTrue() {
+        return property.isExplicitTrue();
+    }
+
+    @Override
     public boolean mapHasAlotKeys() {
-        return property instanceof AggregateProperty && ((AggregateProperty) property).hasAlotKeys();
+        return property.hasAlotKeys();
     }
 
     @Override
@@ -194,12 +217,12 @@ public class PropertyMapImplement<P extends PropertyInterface, T extends Propert
         return property.hasPreread(modifier);
     }
 
-    public long mapComplexity() {
-        return property.getComplexity();
+    public long mapSimpleComplexity() {
+        return property.getSimpleComplexity();
     }
 
-    public DataChanges mapJoinDataChanges(ImMap<T, ? extends Expr> mapKeys, Expr expr, Where where, GroupType type, WhereBuilder changedWhere, PropertyChanges propChanges) {
-        return property.getJoinDataChanges(mapping.join(mapKeys), expr, where, type, propChanges, changedWhere);
+    public DataChanges mapJoinDataChanges(ImMap<T, ? extends Expr> mapKeys, Expr expr, Where where, GroupType groupType, WhereBuilder changedWhere, PropertyChanges propChanges, CalcDataType type) {
+        return property.getJoinDataChanges(mapping.join(mapKeys), expr, where, groupType, propChanges, type, changedWhere);
     }
 
     public void fill(MSet<T> interfaces, MSet<PropertyMapImplement<?, T>> properties) {
@@ -211,9 +234,24 @@ public class PropertyMapImplement<P extends PropertyInterface, T extends Propert
     }
 
     @Override
-    public ActionMapImplement<?, T> mapEventAction(String eventSID, ImList<Property> viewProperties) {
-        ActionMapImplement<?, P> eventAction = property.getEventAction(eventSID, viewProperties);
+    public ActionMapImplement<?, T> mapEventAction(String eventSID, FormSessionScope defaultChangeEventScope, ImList<Property> viewProperties, String customChangeFunction) {
+        ActionMapImplement<?, P> eventAction = property.getEventAction(eventSID, defaultChangeEventScope, viewProperties, customChangeFunction);
         return eventAction == null ? null : eventAction.map(mapping);
+    }
+
+    @Override
+    public Property.Select<T> mapSelect(ImList<Property> viewProperties, boolean forceSelect) {
+        Property.Select<P> select = property.getSelectProperty(viewProperties, forceSelect);
+        return select == null ? null : new Property.Select<>(filterSelected -> {
+            PropertyMapImplement<?, P> selectProperty = select.property.get(filterSelected);
+            if(selectProperty == null)
+                return null;
+            return selectProperty.map(mapping);
+        }, select.stat, select.values, select.multi, select.html, select.notNull);
+    }
+
+    public boolean mapNameValueUnique() {
+        return property.isNameValueUnique();
     }
 
     public Inferred<T> mapInferInterfaceClasses(ExClassSet commonValue, InferType inferType) {
@@ -224,6 +262,9 @@ public class PropertyMapImplement<P extends PropertyInterface, T extends Propert
     }
     public ExClassSet mapInferValueClass(ImMap<T, ExClassSet> inferred, InferType inferType) {
         return property.inferValueClass(mapping.join(inferred), inferType);
+    }
+    public ValueClass mapValueClass(ClassType classType) {
+        return property.getValueClass(classType);
     }
 
     public AndClassSet mapValueClassSet(ClassWhere<T> interfaceClasses) {
@@ -240,6 +281,13 @@ public class PropertyMapImplement<P extends PropertyInterface, T extends Propert
 
     public <I extends PropertyInterface> void mapCheckExclusiveness(String caseInfo, PropertyMapImplement<I, T> implement, String implementCaption, String abstractInfo) {
         property.checkExclusiveness(caseInfo, implement.property, implementCaption, implement.mapping.rightCrossValuesRev(mapping), abstractInfo);
+    }
+
+    public Pair<PropertyInterfaceImplement<T>, PropertyInterfaceImplement<T>> getIfProp() {
+        Pair<PropertyInterfaceImplement<P>, PropertyInterfaceImplement<P>> ifProp = property.getIfProp();
+        if(ifProp != null)
+            return new Pair<>(ifProp.first.map(mapping), ifProp.second.map(mapping));
+        return null;
     }
 
     public ActionMapImplement<?, T> getSetNotNullAction(boolean notNull) {
@@ -263,6 +311,56 @@ public class PropertyMapImplement<P extends PropertyInterface, T extends Propert
 
     public PropertyMapImplement<?, T> mapClassProperty() {
         return property.getClassProperty().mapPropertyImplement(mapping);
+    }
+
+    @Override
+    public boolean mapChangedWhen(boolean toNull, PropertyInterfaceImplement<T> changeProperty) {
+         return getInterfaces().containsAll(changeProperty.getInterfaces()) && property.isChangedWhen(toNull, changeProperty.map(mapping.reverse()));
+    }
+    @Override
+    public boolean mapIsExplicitNot(PropertyInterfaceImplement<T> where) {
+        return getInterfaces().containsAll(where.getInterfaces()) && property.isNot(where.map(mapping.reverse()));
+    }
+
+    @Override
+    public <X extends PropertyInterface> AsyncMapChange<X, T> mapAsyncChange(PropertyMapImplement<X, T> writeTo, ObjectEntity object) {
+        if(property instanceof StaticValueProperty)
+            return new AsyncMapChange<>(writeTo, object, ((StaticValueProperty) property).getStaticValue(), null);
+        return null;
+    }
+
+    public <C extends PropertyInterface> PropertyMapImplement<P, C> mapInner(ImRevMap<T, C> map) {
+        ImRevMap<P, C> joinMapValues = mapInner(mapping, map);
+        if(joinMapValues == null)
+            return null;
+
+        return new PropertyMapImplement<>(property, joinMapValues);
+    }
+
+    public <C extends PropertyInterface> PropertyMapImplement<P, C> mapJoin(ImMap<T, PropertyInterfaceImplement<C>> map) {
+        ImRevMap<P, C> revJoinMapValues = mapJoin(mapping, map);
+        if (revJoinMapValues == null)
+            return null;
+
+        return new PropertyMapImplement<>(property, revJoinMapValues);
+    }
+
+    public static <C extends PropertyInterface, P extends PropertyInterface, T extends PropertyInterface> ImRevMap<P, C> mapInner(ImRevMap<P, T> mapping, ImRevMap<T, C> map) {
+        // here it's not evident if we should consider the case like FOR f=g(a) DO INPUT ... LIST x(d) IF g(d) = f as a simple input
+        // we won't since we don't do that in FilterEntity, ContextFilterEntity.getInputListEntity
+        ImRevMap<P, C> joinMapValues = mapping.innerJoin(map);
+        if(joinMapValues.size() != mapping.size())
+            return null;
+
+        return joinMapValues;
+    }
+
+    public static <C extends PropertyInterface, P extends PropertyInterface, T extends PropertyInterface> ImRevMap<P, C> mapJoin(ImRevMap<P, T> mapping, ImMap<T, PropertyInterfaceImplement<C>> map) {
+        ImMap<P, PropertyInterfaceImplement<C>> joinMapValues = mapping.innerJoin(map);
+        if(joinMapValues.size() != mapping.size())
+            return null;
+
+        return PropertyInterface.getIdentityMap(joinMapValues);
     }
 
     // временно
@@ -290,4 +388,21 @@ public class PropertyMapImplement<P extends PropertyInterface, T extends Propert
     public int hashMap() {
         return 31 * property.hashCode() + mapping.hashCode();
     }
+
+    private ImMap<P, StaticParamNullableExpr> getInterfaceParams(ImMap<T, PropertyObjectInterfaceInstance> mapObjects) { // maybe classes from ObjectValue should be used with the proper caching
+        return PropertyObjectInstance.getParamExprs(property, mapping.join(mapObjects));
+    }
+
+    public Stat mapSelectStat(ImMap<T, PropertyObjectInterfaceInstance> mapObjects) {
+        return property.getSelectStat(getInterfaceParams(mapObjects));
+    }
+
+    public Stat mapInterfaceStat(ImMap<T, PropertyObjectInterfaceInstance> mapObjects) {
+        return property.getInterfaceStat(getInterfaceParams(mapObjects));
+    }
+
+    public Cost mapInterfaceCost(ImMap<T, PropertyObjectInterfaceInstance> mapObjects) {
+        return property.getInterfaceCost(getInterfaceParams(mapObjects));
+    }
+
 }

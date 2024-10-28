@@ -1,0 +1,18 @@
+.modal-form > .show {
+    display: block;
+}
+
+.modal-dialog.modal-fit-content {
+    max-width: 100vw;
+    width: fit-content;
+    margin-right: auto;
+    margin-left: auto;
+}
+
+.modal-dialog.modal-resizable {
+    margin: 0;
+}
+
+.form {
+    /*z-index: 0;*/
+}

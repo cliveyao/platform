@@ -6,25 +6,25 @@ import com.google.gwt.dom.client.Style;
 import com.google.gwt.user.client.ui.Label;
 import com.google.gwt.user.client.ui.Widget;
 import lsfusion.gwt.client.ClientMessages;
+import lsfusion.gwt.client.base.FocusUtils;
 import lsfusion.gwt.client.base.GwtSharedUtils;
 import lsfusion.gwt.client.base.Pair;
 import lsfusion.gwt.client.base.jsni.NativeHashMap;
-import lsfusion.gwt.client.base.view.DivWidget;
-import lsfusion.gwt.client.base.view.FlexPanel;
-import lsfusion.gwt.client.base.view.ResizableSimplePanel;
-import lsfusion.gwt.client.base.view.SimpleImageButton;
+import lsfusion.gwt.client.base.view.*;
 import lsfusion.gwt.client.form.controller.GFormController;
 import lsfusion.gwt.client.form.design.GFont;
 import lsfusion.gwt.client.form.object.GGroupObjectValue;
+import lsfusion.gwt.client.form.object.table.TableContainer;
 import lsfusion.gwt.client.form.object.table.grid.controller.GGridController;
 import lsfusion.gwt.client.form.object.table.grid.user.design.GGroupObjectUserPreferences;
 import lsfusion.gwt.client.form.object.table.view.GGridPropertyTable;
+import lsfusion.gwt.client.form.order.user.GOrder;
 import lsfusion.gwt.client.form.property.GPropertyDraw;
-import lsfusion.gwt.client.form.property.cell.GEditBindingMap;
+import lsfusion.gwt.client.form.property.PValue;
+import lsfusion.gwt.client.form.property.cell.view.RendererType;
 import lsfusion.gwt.client.form.view.Column;
 import lsfusion.gwt.client.view.MainFrame;
 
-import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -47,16 +47,27 @@ public abstract class GStateTableView extends FlexPanel implements GTableView {
 
     protected List<GPropertyDraw> properties = new ArrayList<>();
     protected List<List<GGroupObjectValue>> columnKeys = new ArrayList<>();
-    protected List<NativeHashMap<GGroupObjectValue, Object>> captions = new ArrayList<>();
-    protected List<NativeHashMap<GGroupObjectValue, Object>> values = new ArrayList<>();
-    protected List<List<NativeHashMap<GGroupObjectValue, Object>>> lastAggrs = new ArrayList<>();
-    protected List<NativeHashMap<GGroupObjectValue, Object>> readOnlys = new ArrayList<>();
-    protected List<NativeHashMap<GGroupObjectValue, Object>> showIfs = new ArrayList<>();
-    protected NativeHashMap<GGroupObjectValue, Object> rowBackgroundValues = new NativeHashMap<>();
-    protected NativeHashMap<GGroupObjectValue, Object> rowForegroundValues = new NativeHashMap<>();
+    protected List<NativeHashMap<GGroupObjectValue, PValue>> captions = new ArrayList<>();
+    protected List<NativeHashMap<GGroupObjectValue, PValue>> captionElementClasses = new ArrayList<>();
+    protected List<NativeHashMap<GGroupObjectValue, PValue>> values = new ArrayList<>();
+    protected List<List<NativeHashMap<GGroupObjectValue, PValue>>> lastAggrs = new ArrayList<>();
+    protected List<NativeHashMap<GGroupObjectValue, PValue>> readOnlys = new ArrayList<>();
+    protected List<NativeHashMap<GGroupObjectValue, PValue>> showIfs = new ArrayList<>();
+    protected NativeHashMap<GGroupObjectValue, PValue> rowBackgroundValues = new NativeHashMap<>();
+    protected NativeHashMap<GGroupObjectValue, PValue> rowForegroundValues = new NativeHashMap<>();
+    protected List<NativeHashMap<GGroupObjectValue, PValue>> cellValueElementClasses = new ArrayList<>();
+    protected List<NativeHashMap<GGroupObjectValue, PValue>> cellFontValues = new ArrayList<>();
+    protected List<NativeHashMap<GGroupObjectValue, PValue>> cellBackgroundValues = new ArrayList<>();
+    protected List<NativeHashMap<GGroupObjectValue, PValue>> cellForegroundValues = new ArrayList<>();
+    protected List<NativeHashMap<GGroupObjectValue, PValue>> placeholders = new ArrayList<>();
+    protected List<NativeHashMap<GGroupObjectValue, PValue>> patterns = new ArrayList<>();
+    protected List<NativeHashMap<GGroupObjectValue, PValue>> regexps = new ArrayList<>();
+    protected List<NativeHashMap<GGroupObjectValue, PValue>> regexpMessages = new ArrayList<>();
+    protected List<NativeHashMap<GGroupObjectValue, PValue>> tooltips = new ArrayList<>();
+    protected List<NativeHashMap<GGroupObjectValue, PValue>> valueTooltips = new ArrayList<>();
 
     protected boolean checkShowIf(int property, GGroupObjectValue columnKey) {
-        NativeHashMap<GGroupObjectValue, Object> propertyShowIfs = showIfs.get(property);
+        NativeHashMap<GGroupObjectValue, PValue> propertyShowIfs = showIfs.get(property);
         return propertyShowIfs != null && propertyShowIfs.get(columnKey) == null;
     }
 
@@ -69,11 +80,15 @@ public abstract class GStateTableView extends FlexPanel implements GTableView {
         return clone;
     }-*/;
 
-    public GStateTableView(GFormController form, GGridController grid) {
+    private final TableContainer tableContainer;
+
+    public GStateTableView(GFormController form, GGridController grid, TableContainer tableContainer) {
         super(true);
 
         this.form = form;
         this.grid = grid;
+
+        this.tableContainer = tableContainer;
 
 //        setElement(DOM.createDiv());
 
@@ -83,6 +98,8 @@ public abstract class GStateTableView extends FlexPanel implements GTableView {
         addFill(drawWidget);
 
         initPageSizeWidget();
+
+        GFormController.setBindingGroupObject(this, grid.groupObject);
     }
 
     private final Label messageLabel = new Label();
@@ -92,7 +109,7 @@ public abstract class GStateTableView extends FlexPanel implements GTableView {
         messageLabel.getElement().getStyle().setPaddingRight(4, Style.Unit.PX);
         messageAndButton.addCentered(messageLabel);
 
-        SimpleImageButton showAllButton = new SimpleImageButton(ClientMessages.Instance.get().formGridPageSizeShowAll());
+        StaticImageButton showAllButton = new StaticImageButton(ClientMessages.Instance.get().formGridPageSizeShowAll(), null);
         showAllButton.addClickHandler(event -> {
             pageSize = Integer.MAX_VALUE / 10; // /10 to prevent Integer overflow because in GroupObjectInstance we use "pageSize * 2"
             this.grid.changePageSize(pageSize);
@@ -114,8 +131,16 @@ public abstract class GStateTableView extends FlexPanel implements GTableView {
     }
 
     private final Widget drawWidget;
-    protected Element getDrawElement() {
+    public Element getDrawElement() {
         return drawWidget.getElement();
+    }
+
+    public Widget getPopupOwnerWidget() {
+        return getWidget();
+    }
+
+    public Element getTableDataFocusElement() {
+        return tableContainer.getFocusElement();
     }
 
     private Widget pageSizeWidget;
@@ -123,7 +148,7 @@ public abstract class GStateTableView extends FlexPanel implements GTableView {
         return pageSizeWidget;
     }
 
-    private boolean dataUpdated = false;
+    protected boolean dataUpdated = false;
 
     @Override
     public void setCurrentKey(GGroupObjectValue currentKey) {
@@ -163,7 +188,7 @@ public abstract class GStateTableView extends FlexPanel implements GTableView {
     }
 
     @Override
-    public void updateProperty(GPropertyDraw property, ArrayList<GGroupObjectValue> columnKeys, boolean updateKeys, NativeHashMap<GGroupObjectValue, Object> values) {
+    public void updateProperty(GPropertyDraw property, ArrayList<GGroupObjectValue> columnKeys, boolean updateKeys, NativeHashMap<GGroupObjectValue, PValue> values) {
         int index = properties.indexOf(property);
         if(!updateKeys) {
             if(index < 0) {
@@ -175,8 +200,18 @@ public abstract class GStateTableView extends FlexPanel implements GTableView {
                 this.values.add(index, null);
                 this.readOnlys.add(index, null);
                 this.showIfs.add(index, null);
+                this.cellValueElementClasses.add(index, null);
+                this.cellFontValues.add(index, null);
+                this.cellBackgroundValues.add(index, null);
+                this.cellForegroundValues.add(index, null);
+                this.placeholders.add(index, null);
+                this.patterns.add(index, null);
+                this.regexps.add(index, null);
+                this.regexpMessages.add(index, null);
+                this.tooltips.add(index, null);
+                this.valueTooltips.add(index, null);
 
-                List<NativeHashMap<GGroupObjectValue, Object>> list = new ArrayList<>();
+                List<NativeHashMap<GGroupObjectValue, PValue>> list = new ArrayList<>();
                 for (int i = 0; i < property.lastReaders.size(); i++)
                     list.add(null);
                 lastAggrs.add(index, list);
@@ -184,24 +219,43 @@ public abstract class GStateTableView extends FlexPanel implements GTableView {
             this.columnKeys.set(index, columnKeys);
         } else
             assert index >= 0;
-        this.values.set(index, values);
+
+        NativeHashMap<GGroupObjectValue, PValue> valuesMap = this.values.get(index);
+        if (updateKeys && valuesMap != null) {
+            valuesMap.putAll(values);
+        } else {
+            NativeHashMap<GGroupObjectValue, PValue> pvalues = new NativeHashMap<>();
+            pvalues.putAll(values);
+            this.values.set(index, pvalues);
+        }
 
         dataUpdated = true;
     }
 
     @Override
-    public void updatePropertyCaptions(GPropertyDraw property, NativeHashMap<GGroupObjectValue, Object> values) {
+    public void updatePropertyCaptions(GPropertyDraw property, NativeHashMap<GGroupObjectValue, PValue> values) {
         this.captions.set(properties.indexOf(property), values);
 
         dataUpdated = true;
     }
 
     @Override
-    public void updatePropertyFooters(GPropertyDraw property, NativeHashMap<GGroupObjectValue, Object> values) {
+    public void updateCaptionElementClasses(GPropertyDraw property, NativeHashMap<GGroupObjectValue, PValue> values) {
+        this.captionElementClasses.set(properties.indexOf(property), values);
+
+        dataUpdated = true;
     }
 
     @Override
-    public void updateLastValues(GPropertyDraw property, int index, NativeHashMap<GGroupObjectValue, Object> values) {
+    public void updateLoadings(GPropertyDraw propertyDraw, NativeHashMap<GGroupObjectValue, PValue> values) {
+    }
+
+    @Override
+    public void updatePropertyFooters(GPropertyDraw property, NativeHashMap<GGroupObjectValue, PValue> values) {
+    }
+
+    @Override
+    public void updateLastValues(GPropertyDraw property, int index, NativeHashMap<GGroupObjectValue, PValue> values) {
         this.lastAggrs.get(properties.indexOf(property)).set(index, values);
 
         dataUpdated = true;
@@ -289,7 +343,7 @@ public abstract class GStateTableView extends FlexPanel implements GTableView {
     // ignore for now
     @Override
     public void focusProperty(GPropertyDraw propertyDraw) {
-
+        focus(FocusUtils.Reason.ACTIVATE);
     }
 
     @Override
@@ -298,59 +352,123 @@ public abstract class GStateTableView extends FlexPanel implements GTableView {
     }
 
     @Override
-    public void updateRowBackgroundValues(NativeHashMap<GGroupObjectValue, Object> values) {
+    public void changePropertyOrders(LinkedHashMap<GPropertyDraw, GOrder> value) {
+    }
+
+    @Override
+    public void updateRowBackgroundValues(NativeHashMap<GGroupObjectValue, PValue> values) {
         rowBackgroundValues = values;
     }
     
-    public Object getRowBackgroundColor(GGroupObjectValue key) {
-        return rowBackgroundValues.get(key);
+    public String getRowBackgroundColor(GGroupObjectValue key) {
+        return PValue.getColorStringValue(rowBackgroundValues.get(key));
     }
 
     @Override
-    public void updateRowForegroundValues(NativeHashMap<GGroupObjectValue, Object> values) {
+    public void updateRowForegroundValues(NativeHashMap<GGroupObjectValue, PValue> values) {
         rowForegroundValues = values;
     }
 
-    public Object getRowForegroundColor(GGroupObjectValue key) {
-        return rowForegroundValues.get(key);
+    public String getRowForegroundColor(GGroupObjectValue key) {
+        return PValue.getColorStringValue(rowForegroundValues.get(key));
     }
 
     @Override
-    public void updateCellBackgroundValues(GPropertyDraw propertyDraw, NativeHashMap<GGroupObjectValue, Object> values) {
+    public void updateCellValueElementClasses(GPropertyDraw propertyDraw, NativeHashMap<GGroupObjectValue, PValue> values) {
+        this.cellValueElementClasses.set(properties.indexOf(propertyDraw), values);
+
+        this.dataUpdated = true;
+    }
+
+    @Override
+    public void updateCellFontValues(GPropertyDraw propertyDraw, NativeHashMap<GGroupObjectValue, PValue> values) {
+        this.cellFontValues.set(properties.indexOf(propertyDraw), values);
+
+        this.dataUpdated = true;
+    }
+
+    @Override
+    public void updateCellBackgroundValues(GPropertyDraw propertyDraw, NativeHashMap<GGroupObjectValue, PValue> values) {
+        this.cellBackgroundValues.set(properties.indexOf(propertyDraw), values);
+
+        this.dataUpdated = true;
+    }
+
+    @Override
+    public void updateCellForegroundValues(GPropertyDraw propertyDraw, NativeHashMap<GGroupObjectValue, PValue> values) {
+        this.cellForegroundValues.set(properties.indexOf(propertyDraw), values);
+
+        this.dataUpdated = true;
+    }
+
+    @Override
+    public void updatePlaceholderValues(GPropertyDraw propertyDraw, NativeHashMap<GGroupObjectValue, PValue> values) {
+        this.placeholders.set(properties.indexOf(propertyDraw), values);
+
+        this.dataUpdated = true;
+    }
+
+    @Override
+    public void updatePatternValues(GPropertyDraw propertyDraw, NativeHashMap<GGroupObjectValue, PValue> values) {
+        this.patterns.set(properties.indexOf(propertyDraw), values);
+
+        this.dataUpdated = true;
+    }
+
+    @Override
+    public void updateRegexpValues(GPropertyDraw propertyDraw, NativeHashMap<GGroupObjectValue, PValue> values) {
+        this.regexps.set(properties.indexOf(propertyDraw), values);
+
+        this.dataUpdated = true;
+    }
+
+    @Override
+    public void updateRegexpMessageValues(GPropertyDraw propertyDraw, NativeHashMap<GGroupObjectValue, PValue> values) {
+        this.regexpMessages.set(properties.indexOf(propertyDraw), values);
+
+        this.dataUpdated = true;
+    }
+
+    @Override
+    public void updateTooltipValues(GPropertyDraw propertyDraw, NativeHashMap<GGroupObjectValue, PValue> values) {
+        this.tooltips.set(properties.indexOf(propertyDraw), values);
+
+        this.dataUpdated = true;
+    }
+
+    @Override
+    public void updateValueTooltipValues(GPropertyDraw propertyDraw, NativeHashMap<GGroupObjectValue, PValue> values) {
+        this.valueTooltips.set(properties.indexOf(propertyDraw), values);
+
+        this.dataUpdated = true;
+    }
+
+    @Override
+    public void updateImageValues(GPropertyDraw propertyDraw, NativeHashMap<GGroupObjectValue, PValue> values) {
 
     }
 
     @Override
-    public void updateCellForegroundValues(GPropertyDraw propertyDraw, NativeHashMap<GGroupObjectValue, Object> values) {
-
-    }
-
-    @Override
-    public void updateImageValues(GPropertyDraw propertyDraw, NativeHashMap<GGroupObjectValue, Object> values) {
-
-    }
-
-    @Override
-    public void updateShowIfValues(GPropertyDraw property, NativeHashMap<GGroupObjectValue, Object> values) {
+    public void updateShowIfValues(GPropertyDraw property, NativeHashMap<GGroupObjectValue, PValue> values) {
         this.showIfs.set(properties.indexOf(property), values);
 
         this.dataUpdated = true;
     }
 
     @Override
-    public void updateReadOnlyValues(GPropertyDraw propertyDraw, NativeHashMap<GGroupObjectValue, Object> values) {
+    public void updateReadOnlyValues(GPropertyDraw propertyDraw, NativeHashMap<GGroupObjectValue, PValue> values) {
         this.readOnlys.set(properties.indexOf(propertyDraw), values);
 
         this.dataUpdated = true;
     }
 
     @Override
-    public GGroupObjectValue getCurrentKey() {
+    public GGroupObjectValue getSelectedKey() {
         return currentKey; // for executing actions used for wysiwyg
     }
 
     protected boolean isCurrentKey(GGroupObjectValue object){
-        return Objects.equals(object, getCurrentKey());
+        return Objects.equals(object, getSelectedKey());
     }
 
     @Override
@@ -382,21 +500,25 @@ public abstract class GStateTableView extends FlexPanel implements GTableView {
     }
 
     @Override
-    public Object getSelectedValue(GPropertyDraw property, GGroupObjectValue columnKey) {
+    public PValue getSelectedValue(GPropertyDraw property, GGroupObjectValue columnKey) {
         return null;
     }
 
     @Override
-    public List<Pair<Column, String>> getSelectedColumns() {
+    public List<Pair<Column, String>> getFilterColumns() {
         List<Pair<Column, String>> result = new ArrayList<>();
         for(int i=0,size=properties.size();i<size;i++) {
             GPropertyDraw property = properties.get(i);
-            NativeHashMap<GGroupObjectValue, Object> propertyCaptions = captions.get(i);
+            NativeHashMap<GGroupObjectValue, PValue> propertyCaptions = captions.get(i);
             List<GGroupObjectValue> columns = columnKeys.get(i);
             for (GGroupObjectValue column : columns)
-                result.add(GGridPropertyTable.getSelectedColumn(propertyCaptions, property, column));
+                result.add(GGridPropertyTable.getFilterColumn(property, column, GGridPropertyTable.getPropertyCaption(propertyCaptions, property, column)));
         }
         return result;
+    }
+
+    protected static String getColumnSID(GPropertyDraw property, int c, GGroupObjectValue columnKey) {
+        return property.integrationSID + (columnKey.isEmpty() ? "" : "_" + c);
     }
 
     @Override
@@ -429,31 +551,161 @@ public abstract class GStateTableView extends FlexPanel implements GTableView {
         return form.changeGroupObject(grid.groupObject, value);
     }
 
-    protected Object getValue(GPropertyDraw property, GGroupObjectValue rowKey, GGroupObjectValue columnKey) {
-        return values.get(properties.indexOf(property)).get(GGroupObjectValue.getFullKey(rowKey, columnKey));
+    public PValue getValue(GPropertyDraw property, GGroupObjectValue fullKey) {
+        return values.get(properties.indexOf(property)).get(fullKey);
     }
 
-    protected void changeProperties(GPropertyDraw[] properties, GGroupObjectValue[] rowKeys, GGroupObjectValue[] columnKeys, Serializable[] newValues) {
-        int length = properties.length;
-        Object[] oldValues = new Object[length];
-        for (int i = 0; i < length; i++) {
-            oldValues[i] = getValue(properties[i], rowKeys[i], columnKeys[i]);
-        }
-
-        form.changeProperties(properties, GEditBindingMap.CHANGE, rowKeys, columnKeys, newValues, oldValues, null);
-    }
-
-    protected boolean isReadOnly(GPropertyDraw property, GGroupObjectValue rowKey, GGroupObjectValue columnKey) {
-        if(property.isReadOnly())
+    protected boolean isReadOnly(GPropertyDraw property, GGroupObjectValue rowKey, GGroupObjectValue columnKey, boolean rendered) {
+        if(property.isReadOnly() != null)
             return true;
 
-        NativeHashMap<GGroupObjectValue, Object> readOnlyValues = readOnlys.get(properties.indexOf(property));
+        // when result is rendered, it's important to have property pending change mechanism to cancel changes when server ignores this changes
+        if(rendered && !property.hasExternalChangeActionForRendering(RendererType.SIMPLE))
+            return true;
+
+        NativeHashMap<GGroupObjectValue, PValue> readOnlyValues = readOnlys.get(properties.indexOf(property));
         if(readOnlyValues == null)
             return false;
 
-        return readOnlyValues.get(GGroupObjectValue.getFullKey(rowKey, columnKey)) != null;
+        return PValue.getBooleanValue(readOnlyValues.get(GGroupObjectValue.getFullKey(rowKey, columnKey)));
     }
 
+    protected String getCellValueElementClass(GPropertyDraw property, GGroupObjectValue rowKey, GGroupObjectValue columnKey) {
+        NativeHashMap<GGroupObjectValue, PValue> cellValueElementClass = cellValueElementClasses.get(properties.indexOf(property));
+        if(cellValueElementClass == null)
+            return null;
+
+        return PValue.getClassStringValue(cellValueElementClass.get(GGroupObjectValue.getFullKey(rowKey, columnKey)));
+    }
+
+    protected String getCaptionElementClass(GPropertyDraw property, GGroupObjectValue columnKey) {
+        NativeHashMap<GGroupObjectValue, PValue> cellCaptionElementClass = captionElementClasses.get(properties.indexOf(property));
+        if(cellCaptionElementClass == null)
+            return null;
+
+        return PValue.getClassStringValue(cellCaptionElementClass.get(columnKey));
+    }
+
+    protected PValue getCellFont(GPropertyDraw property, GGroupObjectValue rowKey, GGroupObjectValue columnKey) {
+        NativeHashMap<GGroupObjectValue, PValue> cellFont = cellFontValues.get(properties.indexOf(property));
+        if(cellFont == null)
+            return null;
+
+        return cellFont.get(GGroupObjectValue.getFullKey(rowKey, columnKey));
+    }
+
+    protected PValue getCellBackground(GPropertyDraw property, GGroupObjectValue rowKey, GGroupObjectValue columnKey) {
+        NativeHashMap<GGroupObjectValue, PValue> cellBackground = cellBackgroundValues.get(properties.indexOf(property));
+        if(cellBackground == null)
+            return null;
+
+        return cellBackground.get(GGroupObjectValue.getFullKey(rowKey, columnKey));
+    }
+
+    protected PValue getCellPlaceholder(GPropertyDraw property, GGroupObjectValue rowKey, GGroupObjectValue columnKey) {
+        NativeHashMap<GGroupObjectValue, PValue> placeholder = placeholders.get(properties.indexOf(property));
+        if(placeholder == null)
+            return null;
+
+        return placeholder.get(GGroupObjectValue.getFullKey(rowKey, columnKey));
+    }
+
+    protected PValue getCellPattern(GPropertyDraw property, GGroupObjectValue rowKey, GGroupObjectValue columnKey) {
+        NativeHashMap<GGroupObjectValue, PValue> pattern = patterns.get(properties.indexOf(property));
+        if(pattern == null)
+            return null;
+
+        return pattern.get(GGroupObjectValue.getFullKey(rowKey, columnKey));
+    }
+
+    protected PValue getCellRegexp(GPropertyDraw property, GGroupObjectValue rowKey, GGroupObjectValue columnKey) {
+        NativeHashMap<GGroupObjectValue, PValue> regexp = regexps.get(properties.indexOf(property));
+        if(regexp == null)
+            return null;
+
+        return regexp.get(GGroupObjectValue.getFullKey(rowKey, columnKey));
+    }
+
+    protected PValue getCellRegexpMessage(GPropertyDraw property, GGroupObjectValue rowKey, GGroupObjectValue columnKey) {
+        NativeHashMap<GGroupObjectValue, PValue> regexpMessage = regexpMessages.get(properties.indexOf(property));
+        if(regexpMessage == null)
+            return null;
+
+        return regexpMessage.get(GGroupObjectValue.getFullKey(rowKey, columnKey));
+    }
+
+    protected PValue getCellTooltip(GPropertyDraw property, GGroupObjectValue rowKey, GGroupObjectValue columnKey) {
+        NativeHashMap<GGroupObjectValue, PValue> tooltip = tooltips.get(properties.indexOf(property));
+        if(tooltip == null)
+            return null;
+
+        return tooltip.get(GGroupObjectValue.getFullKey(rowKey, columnKey));
+    }
+
+    protected PValue getCellValueTooltip(GPropertyDraw property, GGroupObjectValue rowKey, GGroupObjectValue columnKey) {
+        NativeHashMap<GGroupObjectValue, PValue> valueTooltip = valueTooltips.get(properties.indexOf(property));
+        if(valueTooltip == null)
+            return null;
+
+        return valueTooltip.get(GGroupObjectValue.getFullKey(rowKey, columnKey));
+    }
+
+    protected String getValueElementClass(GPropertyDraw property, GGroupObjectValue rowKey, GGroupObjectValue columnKey) {
+        return getCellValueElementClass(property, rowKey, columnKey);
+    }
+
+    protected GFont getFont(GPropertyDraw property, GGroupObjectValue rowKey, GGroupObjectValue columnKey) {
+        PValue cellFont = getCellFont(property, rowKey, columnKey);
+        return cellFont == null ? property.font : PValue.getFontValue(cellFont);
+    }
+
+    protected String getBackground(GPropertyDraw property, GGroupObjectValue rowKey, GGroupObjectValue columnKey) {
+        PValue cellBackground = getCellBackground(property, rowKey, columnKey);
+        return cellBackground == null ? property.getBackground() : PValue.getColorStringValue(cellBackground);
+    }
+
+    protected String getPlaceholder(GPropertyDraw property, GGroupObjectValue rowKey, GGroupObjectValue columnKey) {
+        PValue placeholder = getCellPlaceholder(property, rowKey, columnKey);
+        return placeholder == null ? property.placeholder : PValue.getStringValue(placeholder);
+    }
+
+    protected String getPattern(GPropertyDraw property, GGroupObjectValue rowKey, GGroupObjectValue columnKey) {
+        PValue pattern = getCellPattern(property, rowKey, columnKey);
+        return pattern == null ? property.getPattern() : PValue.getStringValue(pattern);
+    }
+
+    protected String getRegexp(GPropertyDraw property, GGroupObjectValue rowKey, GGroupObjectValue columnKey) {
+        PValue regexp = getCellRegexp(property, rowKey, columnKey);
+        return regexp == null ? property.regexp : PValue.getStringValue(regexp);
+    }
+
+    protected String getRegexpMessage(GPropertyDraw property, GGroupObjectValue rowKey, GGroupObjectValue columnKey) {
+        PValue regexpMessage = getCellRegexpMessage(property, rowKey, columnKey);
+        return regexpMessage == null ? property.regexpMessage : PValue.getStringValue(regexpMessage);
+    }
+
+    protected String getTooltip(GPropertyDraw property, GGroupObjectValue rowKey, GGroupObjectValue columnKey) {
+        PValue tooltip = getCellTooltip(property, rowKey, columnKey);
+        return tooltip == null ? property.tooltip : PValue.getStringValue(tooltip);
+    }
+
+    protected String getValueTooltip(GPropertyDraw property, GGroupObjectValue rowKey, GGroupObjectValue columnKey) {
+        PValue valueTooltip = getCellValueTooltip(property, rowKey, columnKey);
+        return valueTooltip == null ? property.valueTooltip : PValue.getStringValue(valueTooltip);
+    }
+
+    protected String getCellForeground(GPropertyDraw property, GGroupObjectValue rowKey, GGroupObjectValue columnKey) {
+        NativeHashMap<GGroupObjectValue, PValue> cellForeground = cellForegroundValues.get(properties.indexOf(property));
+        if(cellForeground == null)
+            return null;
+
+        return PValue.getColorStringValue(cellForeground.get(GGroupObjectValue.getFullKey(rowKey, columnKey)));
+    }
+
+    protected String getForeground(GPropertyDraw property, GGroupObjectValue rowKey, GGroupObjectValue columnKey) {
+        String cellForeground = getCellForeground(property, rowKey, columnKey);
+        return cellForeground == null ? property.getForeground() : cellForeground;
+    }
     // utils
 
     protected JsArray<JavaScriptObject> convertToObjectsString(JsArray<JsArrayString> array) {
@@ -517,32 +769,38 @@ public abstract class GStateTableView extends FlexPanel implements GTableView {
         }-*/;
     }
 
-    protected native final JavaScriptObject getValue(JavaScriptObject object, String key) /*-{
-            return object[key];
+    protected static native boolean hasKey(JavaScriptObject object, String key) /*-{
+        return object[key] !== undefined;
+    }-*/;
+    protected static native JavaScriptObject getValue(JavaScriptObject object, String key) /*-{
+        return object[key];
     }-*/;
 
-    protected native final JavaScriptObject fromString(String string) /*-{
+    public static native JavaScriptObject fromString(String string) /*-{
         return string;
     }-*/;
-    protected native final String toString(JavaScriptObject string) /*-{
+    public static native String toString(JavaScriptObject string) /*-{
         return string;
     }-*/;
-    protected native final JavaScriptObject fromNumber(double d) /*-{
+    protected static native JavaScriptObject fromDouble(double d) /*-{
         return d;
     }-*/;
-    protected native final double toNumber(JavaScriptObject d) /*-{
+    public static native int toInt(JavaScriptObject d) /*-{
         return d;
     }-*/;
-    protected native final JavaScriptObject fromBoolean(boolean b) /*-{
+    protected static native double toDouble(JavaScriptObject d) /*-{
+        return d;
+    }-*/;
+    protected static native JavaScriptObject fromBoolean(boolean b) /*-{
         return b;
     }-*/;
-    protected native final boolean toBoolean(JavaScriptObject b) /*-{
+    protected static native boolean toBoolean(JavaScriptObject b) /*-{
         return b;
     }-*/;
-    protected native final <T> JavaScriptObject fromObject(T object) /*-{
+    public static native <T> JavaScriptObject fromObject(T object) /*-{
         return object;
     }-*/;
-    protected native final <T> T toObject(JavaScriptObject object) /*-{
+    public static native <T> T toObject(JavaScriptObject object) /*-{
         return object;
     }-*/;
 }

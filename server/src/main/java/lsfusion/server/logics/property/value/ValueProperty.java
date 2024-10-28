@@ -1,6 +1,5 @@
 package lsfusion.server.logics.property.value;
 
-import lsfusion.base.col.SetFact;
 import lsfusion.base.col.interfaces.immutable.ImMap;
 import lsfusion.server.data.expr.Expr;
 import lsfusion.server.data.expr.value.StaticValueExpr;
@@ -8,14 +7,13 @@ import lsfusion.server.data.where.WhereBuilder;
 import lsfusion.server.logics.action.session.change.PropertyChanges;
 import lsfusion.server.logics.classes.StaticClass;
 import lsfusion.server.logics.property.CalcType;
-import lsfusion.server.logics.property.NoIncrementProperty;
 import lsfusion.server.logics.property.classes.infer.ExClassSet;
 import lsfusion.server.logics.property.classes.infer.InferType;
 import lsfusion.server.logics.property.classes.infer.Inferred;
 import lsfusion.server.logics.property.oraction.PropertyInterface;
 import lsfusion.server.physics.dev.i18n.LocalizedString;
 
-public class ValueProperty extends NoIncrementProperty<PropertyInterface> {
+public class ValueProperty extends StaticValueProperty {
 
     public final Object value;
     public final StaticClass staticClass;
@@ -25,7 +23,7 @@ public class ValueProperty extends NoIncrementProperty<PropertyInterface> {
     } 
 
     public ValueProperty(LocalizedString caption, Object value, StaticClass staticClass) {
-        super(caption, SetFact.EMPTYORDER());
+        super(caption);
         this.value = value;
         this.staticClass = staticClass;
 
@@ -40,7 +38,7 @@ public class ValueProperty extends NoIncrementProperty<PropertyInterface> {
 
     @Override
     protected Inferred<PropertyInterface> calcInferInterfaceClasses(ExClassSet commonValue, InferType inferType) {
-        return Inferred.EMPTY();
+        return StaticValueProperty.inferInterfaceClasses(inferType, commonValue);
     }
 
     @Override
@@ -51,5 +49,10 @@ public class ValueProperty extends NoIncrementProperty<PropertyInterface> {
     @Override
     public ExClassSet calcInferValueClass(ImMap<PropertyInterface, ExClassSet> inferred, InferType inferType) {
         return new ExClassSet(staticClass.getResolveSet(), value);
+    }
+
+    @Override
+    public Object getStaticValue() {
+        return value;
     }
 }

@@ -1,20 +1,23 @@
 package lsfusion.server.data.type;
 
+import com.google.common.base.Throwables;
 import com.hexiong.jdbf.JDBFException;
 import lsfusion.base.file.FileData;
+import lsfusion.base.file.RawFileData;
 import lsfusion.interop.base.view.FlexAlignment;
+import lsfusion.interop.session.ExternalRequest;
+import lsfusion.interop.session.ExternalUtils;
 import lsfusion.server.data.sql.SQLSession;
 import lsfusion.server.data.sql.syntax.SQLSyntax;
 import lsfusion.server.data.type.exec.TypeEnvironment;
 import lsfusion.server.data.type.reader.AbstractReader;
+import lsfusion.server.logics.classes.ValueClass;
 import lsfusion.server.logics.classes.data.ParseException;
 import lsfusion.server.logics.classes.data.integral.IntegerClass;
-import lsfusion.server.logics.classes.data.integral.IntegralClass;
 import lsfusion.server.logics.classes.data.time.DateClass;
 import lsfusion.server.logics.form.stat.struct.export.plain.dbf.OverJDBField;
 import lsfusion.server.logics.form.stat.struct.export.plain.xls.ExportXLSWriter;
 import lsfusion.server.logics.form.stat.struct.imports.plain.dbf.CustomDbfRecord;
-import lsfusion.server.physics.admin.Settings;
 import net.iryndin.jdbf.core.DbfFieldTypeEnum;
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.CellValue;
@@ -27,35 +30,13 @@ import java.io.IOException;
 import java.math.BigDecimal;
 import java.nio.charset.Charset;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 
 public abstract class AbstractType<T> extends AbstractReader<T> implements Type<T> {
 
     public boolean isSafeType() {
         return true;
-    }
-
-    public String getCast(String value, SQLSyntax syntax, TypeEnvironment typeEnv) {
-        return getCast(value, syntax, typeEnv, null);
-    }
-    public String getCast(String value, SQLSyntax syntax, TypeEnvironment typeEnv, Type typeFrom) {
-        return "CAST(" + value + " AS " + getDB(syntax, typeEnv) + ")";
-    }
-
-    // CAST который возвращает NULL, если не может этого сделать 
-    public String getSafeCast(String value, SQLSyntax syntax, TypeEnvironment typeEnv, Type typeFrom, boolean isArith) {
-        if(hasSafeCast()) {
-            boolean isInt = isArith || typeFrom instanceof IntegralClass;
-            if(!(isInt && Settings.get().getSafeCastIntType() == 2)) {
-                typeEnv.addNeedSafeCast(this, isInt);
-                return syntax.getSafeCastNameFnc(this, isInt) + "(" + value + ")";
-            }
-        }
-        return getCast(value, syntax, typeEnv, typeFrom);
-    }
-    
-    public boolean hasSafeCast() {
-        return false;
     }
 
     protected abstract void writeParam(PreparedStatement statement, int num, Object value, SQLSyntax syntax) throws SQLException;
@@ -81,18 +62,34 @@ public abstract class AbstractType<T> extends AbstractReader<T> implements Type<
         return getBaseDotNetSize() + 1; // для boolean
     }
 
-    public boolean useIndexedJoin() {
-        return false;
-    }
-
     @Override
     public boolean isFlex() {
         return false;
     }
 
     @Override
-    public FlexAlignment getValueAlignment() {
+    public FlexAlignment getValueAlignmentHorz() {
         return FlexAlignment.START;
+    }
+
+    @Override
+    public FlexAlignment getValueAlignmentVert() {
+        return FlexAlignment.CENTER;
+    }
+
+    @Override
+    public String getValueOverflowHorz() {
+        return "clip";
+    }
+
+    @Override
+    public boolean getValueShrinkHorz() {
+        return false;
+    }
+
+    @Override
+    public boolean getValueShrinkVert() {
+        return false;
     }
 
     protected static boolean isParseNullValue(String value) {
@@ -103,13 +100,20 @@ public abstract class AbstractType<T> extends AbstractReader<T> implements Type<
         return "";
     }
 
+    public static ValueClass getUnknownClassNull() {
+        return IntegerClass.instance;
+    }
     public static Type getUnknownTypeNull() { // хак для общения нетипизированными параметрами
         return IntegerClass.instance;
     }
 
     @Override
-    public T parseHTTP(Object o, Charset charset) throws ParseException {
-        String s = o instanceof FileData ? new String(((FileData) o).getRawFile().getBytes(), charset) :  (String) o;
+    public T parseHTTP(ExternalRequest.Param param) throws ParseException {
+        Object value = param.value;
+        if(value instanceof FileData)
+            value = ExternalUtils.encodeFileData((FileData) value, param.charsetName);
+
+        String s = (String) value;
         if(isParseNullValue(s))
             return null;
         return parseString(s);
@@ -120,6 +124,32 @@ public abstract class AbstractType<T> extends AbstractReader<T> implements Type<
         if(value == null)
             return getParseNullValue();
         return formatString(value);
+    }
+
+    @Override
+    public T parseFile(RawFileData value, String extension, String charset) {
+        if(value == null)
+            return null;
+        return writePropNotNull(value, extension, charset);
+    }
+
+    protected T writePropNotNull(RawFileData value, String extension, String charset) {
+        try {
+            return parseString(value.getString(charset));
+        } catch (ParseException e) {
+            throw Throwables.propagate(e);
+        }
+    }
+
+    @Override
+    public RawFileData formatFile(T value, String charset) {
+        if(value == null)
+            return null;
+        return readPropNotNull(value, charset);
+    }
+
+    public RawFileData readPropNotNull(T value, String charset) {
+        return new RawFileData(formatString(value), charset);
     }
 
     public T parseNullableString(String string, boolean emptyIsNull) throws ParseException {
@@ -168,7 +198,10 @@ public abstract class AbstractType<T> extends AbstractReader<T> implements Type<
                 } else {
                     cellValue = BigDecimal.valueOf(formulaValue.getNumberValue()).stripTrailingZeros().toPlainString();
                 }
-                break;        
+                break;
+            case ERROR:
+                cellValue = null;
+                break;
             default:
                 cellValue = formulaValue.formatAsString();
         }
@@ -176,12 +209,21 @@ public abstract class AbstractType<T> extends AbstractReader<T> implements Type<
     }
 
     @Override
+    public T parsePaste(String value) throws ParseException {
+        return parseNullableString(value, false);
+    }
+
+    @Override
     public OverJDBField formatDBF(String fieldName) throws JDBFException {
-        return new OverJDBField(fieldName, 'C', 253, 0);
+        return OverJDBField.createField(fieldName, 'C', 253, 0);
     }
     @Override
     public Object formatJSON(T object) {
         return formatNullableString(object, false); // json supports nulls
+    }
+    @Override
+    public String formatJSONSource(String valueSource, SQLSyntax syntax) {
+        return formatStringSource(valueSource, syntax);
     }
     @Override
     public String getJSONType() {
@@ -198,12 +240,20 @@ public abstract class AbstractType<T> extends AbstractReader<T> implements Type<
     }
 
     @Override
+    public String formatMessage(T object) {
+        return formatString(object, true);
+    }
+
+    @Override
     public void formatXLS(T object, Cell cell, ExportXLSWriter.Styles styles) {
         String formatted = formatNullableString(object, false); // xls supports nulls
         if(formatted != null)
             cell.setCellValue(formatted);
     }
 
+    public T readResult(Object object) {
+        return read(object);
+    }
     protected T readDBF(Object object) {
         return read(object);
     }
@@ -212,5 +262,28 @@ public abstract class AbstractType<T> extends AbstractReader<T> implements Type<
     }
     protected T readXLS(Object object) {
         return read(object);
+    }
+
+    public T read(ResultSet set, SQLSyntax syntax, String name) throws SQLException {
+        return readResult(set.getObject(name));
+    }
+
+    public boolean isSafeString(Object value) {
+        return false;
+    }
+
+    @Override
+    public String formatString(T value, boolean ui) {
+        return value == null ? null : value.toString();
+    }
+
+    @Override
+    public String formatStringSource(String valueSource, SQLSyntax syntax) {
+        return valueSource;
+    }
+
+    @Override
+    public String getString(Object value, SQLSyntax syntax) {
+        throw new UnsupportedOperationException();
     }
 }

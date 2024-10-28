@@ -18,10 +18,8 @@ import java.util.concurrent.*;
 public abstract class AbstractLogicsProviderImpl {
 
     // not like in other providers, getter shouldn't be called directly to ensure invalidating reference if we get RemoteException
-    private LogicsSessionObject createLogicsSessionObject(LogicsConnection connection) throws AppServerNotAvailableException {
-        LogicsSessionObject logicsSessionObject;
-        logicsSessionObject = new LogicsSessionObject(lookup(connection), connection);
-        return logicsSessionObject;
+    protected LogicsSessionObject createLogicsSessionObject(LogicsConnection connection) throws AppServerNotAvailableException, RemoteException {
+        return new LogicsSessionObject(lookup(connection), connection);
     }
 
     protected RemoteLogicsInterface lookup(final LogicsConnection connection) throws AppServerNotAvailableException {
@@ -50,7 +48,7 @@ public abstract class AbstractLogicsProviderImpl {
 
     private final Map<LogicsConnection, LogicsSessionObject> currentLogics = new ConcurrentHashMap<>();
 
-    private LogicsSessionObject createOrGetLogicsSessionObject(LogicsConnection connection) throws AppServerNotAvailableException {
+    private LogicsSessionObject createOrGetLogicsSessionObject(LogicsConnection connection) throws AppServerNotAvailableException, RemoteException {
         LogicsSessionObject logicsSessionObject = currentLogics.get(connection);
         if(logicsSessionObject == null) { // no sync, it's no big deal if we'll lost some cache
             logicsSessionObject = createLogicsSessionObject(connection);
@@ -70,7 +68,7 @@ public abstract class AbstractLogicsProviderImpl {
     private <R> R runRequest(LogicsConnection connection, LogicsRunnable<R> runnable, boolean retry) throws AppServerNotAvailableException, RemoteException {
         LogicsSessionObject logicsSessionObject = createOrGetLogicsSessionObject(connection);
         try {
-            return runnable.run(logicsSessionObject);
+            return runnable.run(logicsSessionObject, retry);
         } catch (AuthenticationException e) {
             // if there is an AuthenticationException and server has anonymousUI, that means that the mode has changed, so we we'll drop serverSettings cache
             if(logicsSessionObject.serverSettings != null && logicsSessionObject.serverSettings.anonymousUI)
@@ -87,10 +85,15 @@ public abstract class AbstractLogicsProviderImpl {
 
     public ServerSettings getServerSettings(LogicsConnection connection, final SessionInfo sessionInfo, final String contextPath, final boolean noCache) {
         try {
-            return runRequest(connection, sessionObject -> sessionObject.getServerSettings(sessionInfo, contextPath, noCache));
+            return runRequest(connection, (sessionObject, retry) -> sessionObject.getServerSettings(sessionInfo, contextPath, noCache));
         } catch (Throwable t) {
-//            throw Throwables.propagate(t);
             return null;
         }
+    }
+
+    public void resetServerSettingsCache(LogicsConnection connection) {
+        LogicsSessionObject logicsSessionObject = currentLogics.get(connection);
+        if (logicsSessionObject != null)
+            logicsSessionObject.serverSettings = null;
     }
 }

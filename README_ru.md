@@ -3,7 +3,7 @@
   <span>Русский</span>
 </p>
 
-# lsFusion <a href="http://lsfusion.org" target="_blank"><img src="https://lsfusion.org/themes/lsfusion/assets/images/i-logo-lsfusion.svg" align="right"/></a>  
+# lsFusion <a href="http://lsfusion.org" target="_blank"><img src="https://lsfusion.org/imgs/logo.svg" align="right"/></a>  
 
 Бесплатная открытая платформа разработки информационных систем на основе одноименного языка пятого поколения.
 
@@ -86,66 +86,23 @@
 Более полный список возможностей можно найти на [веб-сайте](https://ru.lsfusion.org/opportunities).
 
 ## Установка
-### Windows 
-- **Разработка**
 
-    Программы установки **lsFusion 4.1**, которые установят все необходимое для разработки в один клик (OpenJDK 11.0.9, PostgreSQL 13.1(x64)/10.8(x32), Tomcat 9.0.21, IntelliJ IDEA Community Edition 2020.3.1)  
-    - [x32](http://download.lsfusion.org/exe/lsfusion-dev-4.1.exe)  
-    - [x64](http://download.lsfusion.org/exe/lsfusion-dev-4.1-x64.exe)
-
-    Помимо **lsFusion** эти программы также устанавливают **OpenJDK**, **PostgreSQL**, **Tomcat** и **IntelliJ IDEA Community Edition** со встроенным **lsFusion плагином**. Если какие-то из этих программ уже есть на вашем компьютере, то их можно будет исключить в процессе установки.
-
-    После того как установка успешно завершится, на рабочем столе будут автоматически созданы соответствующие ярлыки для запуска IDE и клиента. Описание работы с IDE после ее запуска находится [здесь](https://ru-documentation.lsfusion.org/display/LSFUS/IDE).
-
-- **Запуск**
-
-    Программы установки **lsFusion 4.1 Server & Client**, которые установят все необходимое в один клик (OpenJDK 11.0.9, PostgreSQL 13.1(x64)/10.8(x32), Tomcat 9.0.21)
-    - [x32](http://download.lsfusion.org/exe/lsfusion-4.1.exe)  
-    - [x64](http://download.lsfusion.org/exe/lsfusion-4.1-x64.exe)
-
-    Помимо установки **lsFusion** эти программы / скрипты установки также устанавливают **OpenJDK**, **PostgreSQL** и **Tomcat**. При этом **Tomcat** встраивается в установку **lsFusion Client**, а **OpenJDK** и **PostgreSQL** устанавливаются отдельно (в частности, в отдельные папки).
-
-### Linux
-- **Разработка**
-
-    1. [Установите](https://www.jetbrains.com/help/idea/installation-guide.html) **Intellij IDEA Community Edition**.
-    1. Установите [Intellij IDEA плагин для lsFusion](https://plugins.jetbrains.com/plugin/7601-lsfusion). В настройках IDEA `File > Settings` выбрать `Plugins > Marketplace`, найти **lsFusion** плагин, нажать **Install**, перезапустить IDEA. 
-    1. Создайте новый lsFusion проект в IDEA:
-    
-        1. Выберите пункт **Create New Project** при старте IDEA. Или, если IDEA уже запущена, выберите в меню пункт `File > New > Project`. 
-        1. Выберите тип проекта **lsFusion**. Проверьте, что задан JDK. 
-        1. Нажмите на кнопку **Download**: IDEA автоматически скачает jar-файл последней (не beta) версии сервера lsFusion с центрального сервера и установит этот файл в качестве зависимости этого проекта (а точнее единственного его модуля: `File > Project Structure > Modules > имя проекта > Dependencies`). Также, при необходимости, можно скачать другую (отличную от последней) версию сервера или выбрать уже скачанный jar-файл сервера на локальном диске.  
-    
-    После старта сервера, в логе старта одной из последних строк будет строка с ссылкой на jnlp-файл, запустив который клиент автоматически установится при помощи технологии Java Web Start.
-   
-- **Запуск**
-
-    **lsFusion 4 Server & Client** (OpenJDK 1.8, PostgreSQL 11, Tomcat 9.0.21).
-
-    - RHEL 7 / CentOS 7 / Fedora 29
-
-          source <(curl -s https://download.lsfusion.org/yum/install-lsfusion4)
-
-    - Ubuntu 18 / Debian 9
-
-          source <(curl -s https://download.lsfusion.org/apt/install-lsfusion4)
-
-Для более детального описания процесса установки обратитесь к соответствующему [разделу документации](https://ru-documentation.lsfusion.org/pages/viewpage.action?pageId=18645035). 
+См. https://docs.lsfusion.org/ru/Install/
 
 ## Примеры кода
-- [Турнирная таблица](https://ru-documentation.lsfusion.org/pages/viewpage.action?pageId=2228240)
+- [Турнирная таблица](https://docs.lsfusion.org/ru/Score_table/)
 
   Простое приложение, позволяющее рассчитывать турнирную таблицу хоккейного турнира. В нем существует ровно одна форма, в которой пользователь может вводить результаты матчей, на основе которых автоматически строится турнирная таблица.
   
   При помощи этого примера можно получить представление, как быстро разрабатывать "Excel-style" приложения, в которых данные на формах доступны для редактирования, и при любом их изменении все зависимые данные на форме обновляются инкрементно.
 
-- [Управление материальными потоками](https://ru-documentation.lsfusion.org/pages/viewpage.action?pageId=2228636)
+- [Управление материальными потоками](https://docs.lsfusion.org/ru/Materials_management/)
 
   Пример создания простого бизнес-приложения по управлению складом. В нем пользователь может фиксировать документы приходов и расходов, а также получать остатки по товарам.
 
   В данном примере показан способ создания приложения по обработке документов, в которых есть шапка и строки. Все формы созданы по "Dialog style" принципу. В таком подходе для каждого объекта в системе создается форма с их списком, в которой доступны для редактирования только кнопки по созданию, редактированию и удалению объектов. При нажатии соответствующей кнопки открывается отдельная диалоговая форма, при помощи которой пользователь добавляет новый или редактирует существующий объект.
 
-- [How-To](https://ru-documentation.lsfusion.org/display/LSFUS/How-to)
+- [How-To](https://docs.lsfusion.org/ru/How-to/)
 
   Раздел документации How-to содержит примеры типовых задач, разбитые по категориям.
 
@@ -154,13 +111,13 @@
 
 ## Демонстрационные примеры
 - [Турнирная таблица](https://demo.lsfusion.org/hockeystats) 
-  - [описание](https://ru-documentation.lsfusion.org/pages/viewpage.action?pageId=2228240) 
+  - [описание](https://docs.lsfusion.org/ru/Score_table/) 
   - [github](https://github.com/lsfusion/samples/tree/master/hockeystats) 
   - логин: guest
   - пароль: guest 
 
 - [Управление материальными потоками](https://demo.lsfusion.org/mm)
-  - [описание](https://ru-documentation.lsfusion.org/pages/viewpage.action?pageId=2228636)
+  - [описание](https://docs.lsfusion.org/ru/Materials_management/)
   - [github](https://github.com/lsfusion/samples/tree/master/mm) 
   - логин: guest
   - пароль: guest 
@@ -177,7 +134,7 @@
 
 ## Ссылки
 - [Страница проекта](https://ru.lsfusion.org/)
-- [Документация](https://ru-documentation.lsfusion.org/)
+- [Документация](https://docs.lsfusion.org/ru/)
 - [Блог](https://habr.com/ru/company/lsfusion/blog/)
 - [Q&A](https://ru.stackoverflow.com/questions/tagged/lsfusion)
 - [Репозиторий](https://github.com/lsfusion/platform)
@@ -187,6 +144,7 @@
 ## Обратная связь
 - [Issue tracker](https://github.com/lsfusion/platform/issues) 
 - [Сообщество в Slack](https://slack.lsfusion.org)
+- [Группа в Telegram](https://t.me/lsfusion_official)
 
 ## Лицензия
 Платформа выпускается под лицензией [LGPL v3](http://www.gnu.org/licenses/lgpl-3.0.ru.html), позволяющей свободно использовать, распространять, а также модифицировать платформу под свои нужды.

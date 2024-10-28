@@ -306,8 +306,8 @@
         <rollingPolicy class="org.apache.log4j.rolling.FixedWindowRollingPolicy">
             <param name="minIndex" value="1"/>
             <param name="maxIndex" value="5"/>
-            <param name="activeFileName" value="logs/scheduler-log.log"/>
-            <param name="fileNamePattern" value="logs/scheduler-log-%i.log.zip"/>
+            <param name="activeFileName" value="logs/scheduler.log"/>
+            <param name="fileNamePattern" value="logs/scheduler-%i.log.zip"/>
         </rollingPolicy>
         <triggeringPolicy class="org.apache.log4j.rolling.SizeBasedTriggeringPolicy">
             <param name="maxFileSize" value="10485760"/> <!-- 10MB -->
@@ -324,6 +324,22 @@
             <param name="maxIndex" value="5"/>
             <param name="activeFileName" value="logs/explain.log"/>
             <param name="fileNamePattern" value="logs/explain-%i.log.zip"/>
+        </rollingPolicy>
+        <triggeringPolicy class="org.apache.log4j.rolling.SizeBasedTriggeringPolicy">
+            <param name="maxFileSize" value="104857600"/> <!-- 100MB -->
+        </triggeringPolicy>
+        <layout class="org.apache.log4j.EnhancedPatternLayout">
+            <param name="ConversionPattern" value="%d{DATE} %X{client} - %X{computer} - %X{remoteAddress} %5p %c{1} - %m%n%throwable{1000}"/>
+        </layout>
+    </appender>
+
+    <appender name="explainapplog" class="org.apache.log4j.rolling.RollingFileAppender">
+        <param name="encoding" value="UTF-8" />
+        <rollingPolicy class="org.apache.log4j.rolling.FixedWindowRollingPolicy">
+            <param name="minIndex" value="1"/>
+            <param name="maxIndex" value="5"/>
+            <param name="activeFileName" value="logs/explainapp.log"/>
+            <param name="fileNamePattern" value="logs/explainapp-%i.log.zip"/>
         </rollingPolicy>
         <triggeringPolicy class="org.apache.log4j.rolling.SizeBasedTriggeringPolicy">
             <param name="maxFileSize" value="104857600"/> <!-- 100MB -->
@@ -372,6 +388,38 @@
             <param name="maxIndex" value="5"/>
             <param name="activeFileName" value="logs/httpserver.log"/>
             <param name="fileNamePattern" value="logs/httpserver-%i.log.zip"/>
+        </rollingPolicy>
+        <triggeringPolicy class="org.apache.log4j.rolling.SizeBasedTriggeringPolicy">
+            <param name="maxFileSize" value="104857600"/> <!-- 100MB -->
+        </triggeringPolicy>
+        <layout class="org.apache.log4j.EnhancedPatternLayout">
+            <param name="ConversionPattern" value="%d{DATE} %5p %c{1} - %m%n%throwable{1000}"/>
+        </layout>
+    </appender>
+
+    <appender name="httpfromexternalsystemrequestslog" class="org.apache.log4j.rolling.RollingFileAppender">
+        <param name="encoding" value="UTF-8" />
+        <rollingPolicy class="org.apache.log4j.rolling.FixedWindowRollingPolicy">
+            <param name="minIndex" value="1"/>
+            <param name="maxIndex" value="5"/>
+            <param name="activeFileName" value="logs/httpfromexternalsystemrequests.log"/>
+            <param name="fileNamePattern" value="logs/httpfromexternalsystemrequests-%i.log.zip"/>
+        </rollingPolicy>
+        <triggeringPolicy class="org.apache.log4j.rolling.SizeBasedTriggeringPolicy">
+            <param name="maxFileSize" value="104857600"/> <!-- 100MB -->
+        </triggeringPolicy>
+        <layout class="org.apache.log4j.EnhancedPatternLayout">
+            <param name="ConversionPattern" value="%d{DATE} %5p %c{1} - %m%n%throwable{1000}"/>
+        </layout>
+    </appender>
+
+    <appender name="httptoexternalsystemrequestslog" class="org.apache.log4j.rolling.RollingFileAppender">
+        <param name="encoding" value="UTF-8" />
+        <rollingPolicy class="org.apache.log4j.rolling.FixedWindowRollingPolicy">
+            <param name="minIndex" value="1"/>
+            <param name="maxIndex" value="5"/>
+            <param name="activeFileName" value="logs/httptoexternalsystemrequests.log"/>
+            <param name="fileNamePattern" value="logs/httptoexternalsystemrequests-%i.log.zip"/>
         </rollingPolicy>
         <triggeringPolicy class="org.apache.log4j.rolling.SizeBasedTriggeringPolicy">
             <param name="maxFileSize" value="104857600"/> <!-- 100MB -->
@@ -500,6 +548,11 @@
         <appender-ref ref="explainlog"/>
     </category>
 
+    <category name="ExplainAppLogger">
+        <priority value="INFO"/>
+        <appender-ref ref="explainapplog"/>
+    </category>
+
     <category name="ExplainCompileLogger" additivity="false">
         <priority value="INFO"/>
         <appender-ref ref="explaincompilelog"/>
@@ -513,6 +566,16 @@
     <category name="HttpServerLogger">
         <priority value="ALL"/>
         <appender-ref ref="httpserverlog"/>
+    </category>
+
+    <category name="HttpFromExternalSystemRequestsLogger"  additivity="false">
+        <priority value="ALL"/>
+        <appender-ref ref="httpfromexternalsystemrequestslog"/>
+    </category>
+
+    <category name="HttpToExternalSystemRequestsLogger"  additivity="false">
+        <priority value="ALL"/>
+        <appender-ref ref="httptoexternalsystemrequestslog"/>
     </category>
 
     <category name="net.sf.jasperreports" additivity="false">

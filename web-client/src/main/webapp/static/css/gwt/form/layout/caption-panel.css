@@ -1,0 +1,104 @@
+
+.left-border {
+    padding-left: var(--border-cont-horz-padding);
+
+    /* borders in bootstrap give pretty good design */
+    /* "adding" border */
+    border-left: var(--border-width) solid var(--panel-border-color);
+}
+
+/* it makes sense to use padding when there is no border, otherwise scrolling will be odd (for example in toolbar), as well as background */
+.right-margin {
+    margin-right: var(--border-cont-horz-padding);
+}
+
+.right-padding {
+    padding-right: var(--border-cont-vert-padding);
+}
+
+.top-border {
+    padding-top: var(--border-cont-vert-padding);
+
+    border-top: var(--border-width) solid var(--panel-border-color);
+}
+
+/* it makes sense to use padding when there is no border, otherwise scrolling will be odd (for example in toolbar), as well as background */
+.bottom-margin,
+.bottom-margin.nav /* nov sets margin-bottom:0 somewhy */
+{
+    margin-bottom: var(--border-cont-vert-padding);
+}
+
+.bottom-padding {
+    padding-bottom: var(--border-cont-vert-padding);
+}
+
+.left-border-wrap {
+    padding-left: var(--border-cont-horz-padding);
+
+    /* borders in bootstrap give pretty good design */
+    /* "adding" border */
+    border-left: var(--border-width) solid var(--panel-border-color);
+
+    margin-left: calc(0px - var(--border-width) - var(--border-cont-horz-padding));
+}
+
+.flex-horz-border-wrap {
+    column-gap: calc(var(--border-cont-horz-padding) + var(--border-cont-horz-padding));
+}
+
+.flex-horz-margin-wrap {
+    column-gap: var(--border-cont-horz-padding);
+}
+
+/* form main shrinked (needs scrolling / padding) container */
+.form-shrink-padded-container {
+    overflow: auto;
+}
+:not(.form-embedded) > .form-shrink-padded-container { /* we don't want paddings in the embedded form*/
+    padding: var(--border-cont-vert-padding) var(--border-cont-horz-padding);
+}
+
+/* we want header to also have at least double cont vert padding, to be consistent with bottom / left / right borders */
+
+.caption-panel-header-line {
+    display: flex;
+}
+.caption-panel-header-line-vert {
+    flex-direction: row;
+}
+.caption-panel-header-line-horz {
+    flex-direction: column;
+}
+
+.caption-panel-header {
+    min-height: calc(var(--border-cont-vert-padding) + var(--border-cont-vert-padding));
+    display: flex;
+    align-items: center;
+}
+
+/* drawing margins around text  */
+
+.caption-panel-header.wrap-text-not-empty,
+.caption-panel-header.wrap-img-start,
+.caption-panel-header.collapsible {
+    margin: var(--border-label-vert-padding) var(--border-label-horz-padding);
+}
+
+.caption-panel-header.collapsible.wrap-text-not-empty::before,
+.caption-panel-header.collapsible.wrap-img-start::before {
+    margin-right: var(--border-label-horz-padding);
+}
+
+.caption-panel-header.collapsible,
+.caption-panel-header.collapsible.wrap-text-not-empty {
+    cursor: pointer;
+}
+
+.caption-panel-body {
+}
+
+.popup-panel-button.wrap-text-not-empty,
+.popup-panel-button.wrap-img-start {
+    margin: var(--border-comp-vert-padding) var(--border-comp-horz-padding);
+}

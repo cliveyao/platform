@@ -1,13 +1,14 @@
 ---
 title: 'Инструкция ON'
-sidebar_label: Обзор
 ---
 
 Инструкция `ON` - добавление обработчика [события](Events.md).
 
 ### Синтаксис 
 
-    ON eventClause eventAction;
+```
+ON eventClause eventAction;
+```
 
 ### Описание
 

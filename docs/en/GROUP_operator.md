@@ -6,11 +6,13 @@ The `GROUP` operator creates a [property](Properties.md) implementing [grouping]
 
 ### Syntax 
 
-    GROUP 
-    type expr1, ..., exprN
-    [ORDER [DESC] orderExpr1, ..., orderExprK]
-    [WHERE whereExpr]
-    [BY groupExpr1, ..., groupExprM]
+```
+GROUP 
+type expr1, ..., exprN
+[ORDER [DESC] orderExpr1, ..., orderExprK]
+[WHERE whereExpr]
+[BY groupExpr1, ..., groupExprM]
+```
 
 ### Description
 
@@ -67,7 +69,8 @@ hostTeam = DATA Team (Game);
 hostGoalsScored(team) = GROUP SUM hostGoals(Game game) BY hostTeam(game);
 
 name = DATA STRING[100] (Country);
-countryName = GROUP AGGR Country country WHERE country IS Country BY name(country); // property (STRING[100]) -> Country is obtained
+// property (STRING[100]) -> Country is obtained
+countryName = GROUP AGGR Country country BY name(country); 
 
 CLASS Book;
 CLASS Tag;

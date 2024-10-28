@@ -100,7 +100,7 @@ We need to create an action that will delete the marked orders and immediately s
 deleteSelectedOrders 'Delete marked orders' ()  {
     NEWSESSION NESTED(selected) {
         DELETE Order o WHERE selected(o);
-        ASK 'You are about to delete ' + (GROUP SUM 1 IF DROPPED (Order o)) + ' orders. Continue?' DO {
+        ASK 'You are about to delete ' + (GROUP SUM 1 IF DROPPED(o IS Order)) + ' orders. Continue?' DO {
             APPLY;
         }
     }
@@ -134,7 +134,8 @@ We need to create a button on the form for opening a separate edit form for paym
 
 ```lsf
 FORM orderPayments 'Order payments'
-    OBJECTS o = Order PANEL // Not adding properties so that this object is not visible on the form at all
+    // Not adding properties so that this object is not visible on the form at all
+    OBJECTS o = Order PANEL 
 
     OBJECTS p = Payment
     PROPERTIES(p) date, sum, NEW, DELETE

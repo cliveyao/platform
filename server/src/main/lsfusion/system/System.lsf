@@ -27,6 +27,8 @@ GROUP NATIVE id '{system.group.id}' : base;
 GROUP drillDown '{system.group.drill.down}' : root;
 GROUP propertyPolicy '{system.group.property.policy}' : root;
 
+GROUP objects : root; // usually for using in the interactive JSONs
+
 canceled = DATA LOCAL BOOLEAN ();
 applyMessage = DATA LOCAL TEXT ();
 empty()  { };
@@ -37,34 +39,48 @@ logMessage = DATA LOCAL TEXT ();
 apply  { APPLY; }
 cancel  { CANCEL; }
 
+notEmpty(STRING s) = IF s = '' THEN NULL ELSE s; 
+
+responseTcp = DATA LOCAL RAWFILE();
+timeoutTcp = DATA LOCAL INTEGER();
+
 statusHttp = DATA LOCAL INTEGER();
 failedHttp = statusHttp() < 200 OR statusHttp() >= 300;
+statusHttpTo = DATA LOCAL NESTED INTEGER();
 timeoutHttp() = DATA LOCAL INTEGER ();
+insecureSSL() = DATA LOCAL BOOLEAN ();
 
 headers = DATA LOCAL NESTED TEXT(TEXT);    
 cookies = DATA LOCAL NESTED TEXT(TEXT);    
 headersTo = DATA LOCAL NESTED TEXT(TEXT);
 cookiesTo = DATA LOCAL NESTED TEXT(TEXT);
 query = DATA LOCAL NESTED TEXT();
-params = DATA LOCAL NESTED TEXT(TEXT);
+params = DATA LOCAL NESTED TEXT(TEXT, INTEGER);
+params(text) = params(text, 0);
+actionPathInfo = DATA LOCAL NESTED TEXT();
+contentType = DATA LOCAL NESTED TEXT();
+body = DATA LOCAL NESTED RAWFILE();
 appHost = DATA LOCAL NESTED TEXT();
 appPort = DATA LOCAL NESTED INTEGER();
 exportName = DATA LOCAL NESTED TEXT();
 scheme = DATA LOCAL NESTED TEXT();
+method = DATA LOCAL NESTED TEXT();
 webHost = DATA LOCAL NESTED TEXT();
 webPort = DATA LOCAL NESTED INTEGER();
 contextPath = DATA LOCAL NESTED TEXT();
 servletPath = DATA LOCAL NESTED TEXT();
 pathInfo = DATA LOCAL NESTED TEXT();
 webPath() = scheme() + '://' + webHost() + ':' + webPort() + contextPath();
-url() = webPath() + servletPath() + pathInfo(); 
+url() = webPath() + servletPath() + pathInfo();
 
 messageCaughtException = DATA LOCAL TEXT();
 javaStackTraceCaughtException = DATA LOCAL TEXT();
 lsfStackTraceCaughtException = DATA LOCAL TEXT();
 
-upper = FORMULA 'upper($1)';    
-lower = FORMULA 'lower($1)';   
+upper = FORMULA STRING 'upper($1)';    
+lower = FORMULA STRING 'lower($1)';   
+
+reload INTERNAL CLIENT 'reload';
 
 formApply '{action.form.save}'  INTERNAL  'lsfusion.server.logics.form.interactive.action.lifecycle.FormApplyAction' () CHANGEKEY 'alt ENTER' IMAGE 'apply.png';
 formCancel '{action.form.cancel}'  INTERNAL  'lsfusion.server.logics.form.interactive.action.lifecycle.FormCancelAction' () CHANGEKEY 'shift ESCAPE' IMAGE 'cancel.png';
@@ -73,6 +89,12 @@ formDrop '{action.form.drop}'  INTERNAL  'lsfusion.server.logics.form.interactiv
 formRefresh '{action.form.refresh}'  INTERNAL  'lsfusion.server.logics.form.interactive.action.lifecycle.RefreshAction' () CHANGEKEY 'F5;priority=-100' IMAGE 'refresh.png';
 formOk '{action.form.ok}'  INTERNAL  'lsfusion.server.logics.form.interactive.action.lifecycle.OkAction' () CHANGEKEY 'ctrl ENTER' CHANGEMOUSE 'DBLCLK;priority=1000;dialog=only;group=input;preview=only' IMAGE 'ok.png';
 formClose '{action.form.close}'  INTERNAL  'lsfusion.server.logics.form.interactive.action.lifecycle.CloseAction' () CHANGEKEY 'ESCAPE' IMAGE 'close.png';
+formShare '{action.form.share}' INTERNAL 'lsfusion.server.logics.form.interactive.action.FormShareAction' () IMAGE 'share.png';
+
+formApplied ABSTRACT LIST FIRST (); 
+formApplied() + {
+    MESSAGE '{form.instance.changes.saved}' NOWAIT LOG;
+}
 
 seek '{system.seek}'  INTERNAL  'lsfusion.server.logics.form.interactive.action.seek.SeekInternalAction' (Object);
 
@@ -125,6 +147,7 @@ fillingIDs = DATA LOCAL BOOLEAN ();
 CONSTRAINT CHANGED(staticName(StaticObject object)) AND NOT fillingIDs() MESSAGE '{system.constraint.change.staticname.forbidden}';
 
 staticCaption '{system.static.caption.object}' = DATA BPISTRING[100] (StaticObject) TABLE staticObject IN id;
+image '{classes.image}' = DATA HTML (StaticObject) TABLE staticObject IN id;
 
 objectClassName '{system.object.class.name.object}' (Object o) = staticCaption(objectClass(o));
 prevObjectClassName '{system.object.class.name.object}' (Object o) = staticCaption(PREV(objectClass(o)));
@@ -160,19 +183,31 @@ lsfParams(STRING s) = ABSTRACT VALUE STRING(STRING);
 
 // ----------------------------------- open files ----------------------------------- //
 
-//source path, name
-open '{system.open.file}'  INTERNAL  'lsfusion.server.physics.dev.integration.external.to.file.open.OpenPathAction' (ISTRING[255], ISTRING[255]);
-open '{system.open.file}' (STRING[255] source)  { open(source, NULL); }
-//source file, name
-open '{system.open.file}'  INTERNAL  'lsfusion.server.physics.dev.integration.external.to.file.open.OpenFileAction' (FILE, ISTRING[255]);
-open '{system.open.file}' (FILE source)  { open(source, NULL); }
-//source rawFile, name
-open '{system.open.file}'  INTERNAL  'lsfusion.server.physics.dev.integration.external.to.file.open.OpenRawFileAction' (RAWFILE, ISTRING[255]);
-open '{system.open.file}' (RAWFILE source)  { open(source, NULL); }
-//source link
-open '{system.open.link}'  INTERNAL  'lsfusion.server.physics.dev.integration.external.to.file.open.OpenLinkAction' (LINK);
-//source rawLink
-open '{system.open.link}'  INTERNAL  'lsfusion.server.physics.dev.integration.external.to.file.open.OpenRawLinkAction' (RAWLINK);
+open '{system.open.file}'  INTERNAL 'lsfusion.server.physics.dev.integration.external.to.file.open.OpenAction' (STRING, STRING, BOOLEAN);
+open '{system.open.file}' (STRING source, STRING name)  { open(source, name, NULL); }
+open '{system.open.file}' (STRING source, BOOLEAN noWait)  { open(source, NULL, noWait); }
+open '{system.open.file}' (STRING source)  { open(source, NULL, NULL); }
+
+open '{system.open.file}'  INTERNAL  'lsfusion.server.physics.dev.integration.external.to.file.open.OpenFileAction' (FILE, STRING, BOOLEAN);
+open '{system.open.file}' (FILE source, STRING name)  { open(source, name, NULL); }
+open '{system.open.file}' (FILE source, BOOLEAN noWait)  { open(source, NULL, noWait); }
+open '{system.open.file}' (FILE source)  { open(source, NULL, NULL); }
+
+open '{system.open.file}'  INTERNAL  'lsfusion.server.physics.dev.integration.external.to.file.open.OpenNamedFileAction' (NAMEDFILE, BOOLEAN);
+open '{system.open.file}' (NAMEDFILE source)  { open(source, NULL); }
+
+open '{system.open.file}'  INTERNAL  'lsfusion.server.physics.dev.integration.external.to.file.open.OpenRawFileAction' (RAWFILE, STRING, BOOLEAN);
+open '{system.open.file}' (RAWFILE source, STRING name)  { open(source, name, NULL); }
+open '{system.open.file}' (RAWFILE source, BOOLEAN noWait)  { open(source, NULL, noWait); }
+open '{system.open.file}' (RAWFILE source)  { open(source, NULL, NULL); }
+
+open '{system.open.link}'  INTERNAL  'lsfusion.server.physics.dev.integration.external.to.file.open.OpenLinkAction' (LINK, BOOLEAN, BOOLEAN);
+open '{system.open.link}' (LINK source, BOOLEAN noWait)  { open(source, noWait, NULL); }
+open '{system.open.link}' (LINK source)  { open(source, NULL); }
+
+open '{system.open.link}' (RAWLINK source, BOOLEAN noWait, BOOLEAN noEncode) { open(LINK(source), noWait, noEncode); }
+open '{system.open.link}' (RAWLINK source, BOOLEAN noWait)  { open(source, noWait, NULL); }
+open '{system.open.link}' (RAWLINK source)  { open(source, NULL); }
 
 // ----------------------------------- open html link in tab ----------------------------------- //
 
@@ -182,7 +217,7 @@ PROPERTIES() READONLY htmlLinkInTab;
 DESIGN htmlLinkInTab {
     NEW panel {
         fill = 1;
-        type = CONTAINERH;
+        horizontal = TRUE;
         MOVE PROPERTY(htmlLinkInTab()) {
             fill = 1;
         }
@@ -195,12 +230,15 @@ htmlLinkInTab(HTMLLINK htmlLink) {
 }
   
 addedObject() = DATA LOCAL Object ();
+eventSource() = DATA LOCAL STRING ();
 formPageCount() = DATA LOCAL INTEGER ();
 
 exportObject = DATA LOCAL Object ();
 exportBpString = DATA LOCAL BPSTRING ();
 exportString = DATA LOCAL STRING ();
 exportText = DATA LOCAL TEXT ();
+exportRichText = DATA LOCAL RICHTEXT ();
+exportHTMLText = DATA LOCAL HTMLTEXT ();
 exportInteger = DATA LOCAL INTEGER ();
 exportLong = DATA LOCAL LONG ();
 exportDouble = DATA LOCAL DOUBLE ();
@@ -211,13 +249,20 @@ exportZDateTime = DATA LOCAL ZDATETIME ();
 exportIntervalDate = DATA LOCAL INTERVAL[DATE] ();
 exportIntervalDateTime = DATA LOCAL INTERVAL[DATETIME] ();
 exportIntervalTime = DATA LOCAL INTERVAL[TIME] ();
+exportIntervalZDateTime = DATA LOCAL INTERVAL[ZDATETIME] ();
 exportBoolean = DATA LOCAL BOOLEAN ();
+exportTBoolean = DATA LOCAL TBOOLEAN ();
 exportDate = DATA LOCAL DATE ();
 exportTime = DATA LOCAL TIME ();
 exportColor = DATA LOCAL COLOR ();
+exportJSON = DATA LOCAL JSON ();
+exportHTML = DATA LOCAL HTML ();
+exportJSONText = DATA LOCAL JSONTEXT ();
 exportWordFile = DATA LOCAL WORDFILE ();
 exportImageFile = DATA LOCAL IMAGEFILE ();
 exportPdfFile = DATA LOCAL PDFFILE ();
+exportVideoFile = DATA LOCAL VIDEOFILE ();
+exportDbfFile = DATA LOCAL DBFFILE ();
 exportRawFile = DATA LOCAL RAWFILE ();
 exportFile = DATA LOCAL FILE ();
 exportExcelFile = DATA LOCAL EXCELFILE ();
@@ -227,9 +272,12 @@ exportHtmlFile = DATA LOCAL HTMLFILE ();
 exportJsonFile = DATA LOCAL JSONFILE ();
 exportXmlFile = DATA LOCAL XMLFILE ();
 exportTableFile = DATA LOCAL TABLEFILE ();
+exportNamedFile = DATA LOCAL NAMEDFILE ();
 exportWordLink = DATA LOCAL WORDLINK ();
 exportImageLink = DATA LOCAL IMAGELINK ();
 exportPdfLink = DATA LOCAL PDFLINK ();
+exportVideoLink = DATA LOCAL VIDEOLINK ();
+exportDbfLink = DATA LOCAL DBFLINK ();
 exportRawLink = DATA LOCAL RAWLINK ();
 exportLink = DATA LOCAL LINK ();
 exportExcelLink = DATA LOCAL EXCELLINK ();    
@@ -238,40 +286,60 @@ exportCsvLink = DATA LOCAL CSVLINK ();
 exportHtmlLink = DATA LOCAL HTMLLINK ();    
 exportJsonLink = DATA LOCAL JSONLINK ();    
 exportXmlLink = DATA LOCAL XMLLINK ();    
-exportTableLink = DATA LOCAL TABLELINK ();    
+exportTableLink = DATA LOCAL TABLELINK ();
+exportTSVectorLink = DATA LOCAL TSVECTOR ();
 
 importFile() = DATA LOCAL FILE ();
 imported = DATA LOCAL BOOLEAN (INTEGER);
 importedString = DATA LOCAL BOOLEAN (STRING[10]);
 
+inputList = DATA LOCAL STRING (INTEGER);
+displayInputList = DATA LOCAL STRING (INTEGER);
+
 readFile = DATA LOCAL FILE ();
 
-getFileExtension(FILE file) = FORMULA TEXT 'get_extension($1)';
-getExtension = getFileExtension(FILE(file));
+showResult = DATA LOCAL TEXT();
 
-downloadFile '{system.download.file}'  INTERNAL  'lsfusion.server.physics.dev.integration.external.to.file.DownloadFileAction' (STRING[100]); 
+//cast to FILE and NAMEDFILE
+file(RAWFILE rawFile, STRING extension) = FORMULA FILE 'cast_static_file_to_dynamic_file($1, $2)' NULL;
+namedFile(RAWFILE rawFile, STRING name, STRING extension) = FORMULA NAMEDFILE 'cast_static_file_to_named_file($1, $2, $3)' NULL;
+namedFile(FILE file, STRING name) = FORMULA NAMEDFILE 'cast_dynamic_file_to_named_file($1, $2)' NULL;
 
-loadDownloadedLibrary '{system.load.downloaded.library}'  INTERNAL  'lsfusion.server.physics.dev.integration.external.to.file.LoadDownloadedLibraryAction' (STRING[100]);
-loadDownloadedFont '{system.load.downloaded.font}'  INTERNAL  'lsfusion.server.physics.dev.integration.external.to.file.LoadDownloadedFontAction' (STRING[100]);
+// hashes
+md5(FILE file) = FORMULA STRING 'md5($1)';
+
+//get name and extension
+extension(FILE file) = FORMULA TEXT 'get_extension($1)';
+name(NAMEDFILE file) = FORMULA TEXT 'get_named_file_name($1)';
+extension(NAMEDFILE file) = FORMULA TEXT 'get_named_file_extension($1)';
+
+//change name and extension
+file(FILE file, STRING newExtension) = file(RAWFILE(file), newExtension);
+namedFile(NAMEDFILE file, STRING newName, STRING newExtension) = namedFile(RAWFILE(file), newName, newExtension);
+
+// converter to the file value, that would be converted to the resource image when this file showing on a form (using IMAGE clauses / image attributes)s
+// for example IF condition(a) THEN resourceImage('fa-solid fa-star') ELSE file(a)
+resourceImage(STRING resourcePath) = file(TEXTFILE(resourcePath), 'resourceImage');
 
 loadLibrary '{system.load.library}' (path)   { 
-    downloadFile(path);
-    loadDownloadedLibrary(path);
+    INTERNAL CLIENT path;
 }
 
 loadFont '{system.load.font}' (path)   { 
-    downloadFile(path);
-    loadDownloadedFont(path);
+    INTERNAL CLIENT path;
 }
 
 beforeCanceled() = DATA LOCAL NESTED BOOLEAN ();
-requestCanceled() = DATA LOCAL NESTED BOOLEAN ();
+//requestCanceled() = DATA LOCAL NESTED BOOLEAN ();
+requestCanceled() = NATIVE BOOLEAN ();
 requestPushed() = DATA LOCAL NESTED BOOLEAN ();
 
 requestedObject = DATA LOCAL NESTED Object ();
 requestedBpString = DATA LOCAL NESTED BPSTRING[4000] ();
 requestedString = DATA LOCAL NESTED STRING[4000] ();
 requestedText = DATA LOCAL NESTED TEXT ();
+requestedRichText = DATA LOCAL NESTED RICHTEXT ();
+requestedHTMLText = DATA LOCAL NESTED HTMLTEXT ();
 requestedInteger = DATA LOCAL NESTED INTEGER ();
 requestedLong = DATA LOCAL NESTED LONG ();
 requestedDouble = DATA LOCAL NESTED DOUBLE ();
@@ -282,13 +350,20 @@ requestedZDateTime = DATA LOCAL NESTED ZDATETIME ();
 requestedIntervalDate = DATA LOCAL NESTED INTERVAL[DATE] ();
 requestedIntervalDateTime = DATA LOCAL NESTED INTERVAL[DATETIME] ();
 requestedIntervalTime = DATA LOCAL NESTED INTERVAL[TIME] ();
+requestedIntervalZDateTime = DATA LOCAL NESTED INTERVAL[ZDATETIME] ();
 requestedBoolean = DATA LOCAL NESTED BOOLEAN ();
+requestedTBoolean = DATA LOCAL NESTED TBOOLEAN ();
 requestedDate = DATA LOCAL NESTED DATE ();
 requestedTime = DATA LOCAL NESTED TIME ();
 requestedColor = DATA LOCAL NESTED COLOR ();
+requestedJSON = DATA LOCAL NESTED JSON ();
+requestedHTML = DATA LOCAL NESTED HTML ();
+requestedJSONText = DATA LOCAL NESTED JSONTEXT ();
 requestedWordFile = DATA LOCAL NESTED WORDFILE ();
 requestedImageFile = DATA LOCAL NESTED IMAGEFILE ();
 requestedPdfFile = DATA LOCAL NESTED PDFFILE ();
+requestedVideoFile = DATA LOCAL NESTED VIDEOFILE ();
+requestedDbfFile = DATA LOCAL NESTED DBFFILE ();
 requestedRawFile = DATA LOCAL NESTED RAWFILE ();
 requestedFile = DATA LOCAL NESTED FILE ();
 requestedExcelFile = DATA LOCAL NESTED EXCELFILE ();
@@ -298,9 +373,12 @@ requestedHtmlFile = DATA LOCAL NESTED HTMLFILE ();
 requestedJsonFile = DATA LOCAL NESTED JSONFILE ();
 requestedXmlFile = DATA LOCAL NESTED XMLFILE ();
 requestedTableFile = DATA LOCAL NESTED TABLEFILE ();
+requestedNamedFile = DATA LOCAL NESTED NAMEDFILE ();
 requestedWordLink = DATA LOCAL NESTED WORDLINK ();
 requestedImageLink = DATA LOCAL NESTED IMAGELINK ();
 requestedPdfLink = DATA LOCAL NESTED PDFLINK ();
+requestedVideoLink = DATA LOCAL NESTED VIDEOLINK ();
+requestedDbfLink = DATA LOCAL NESTED DBFLINK ();
 requestedRawLink = DATA LOCAL NESTED RAWLINK ();
 requestedLink = DATA LOCAL NESTED LINK ();
 requestedExcelLink = DATA LOCAL NESTED EXCELLINK ();    
@@ -309,13 +387,31 @@ requestedCsvLink = DATA LOCAL NESTED CSVLINK ();
 requestedHtmlLink = DATA LOCAL NESTED HTMLLINK ();    
 requestedJsonLink = DATA LOCAL NESTED JSONLINK ();    
 requestedXmlLink = DATA LOCAL NESTED XMLLINK ();    
-requestedTableLink = DATA LOCAL NESTED TABLELINK ();    
+requestedTableLink = DATA LOCAL NESTED TABLELINK ();
+requestedTSVectorLink = DATA LOCAL TSVECTOR ();    
 
 isActiveForm = DATA LOCAL BOOLEAN ();
 
+isDocked = NATIVE BOOLEAN();
+isEditing = NATIVE BOOLEAN();
+isAdd = NATIVE BOOLEAN();
+isManageSession = NATIVE BOOLEAN();
+isExternal = NATIVE BOOLEAN();
+showOk = NATIVE BOOLEAN();
+showDrop = NATIVE BOOLEAN();
+isDataChanged = NATIVE BOOLEAN();
+
 edit '{logics.edit}'  ABSTRACT MULTI OVERRIDE FIRST ( Object) TOOLBAR;
-edit(Object o) + {  SHOW EDIT Object =o DOCKED; } // since now SHOW fills request props, we don't need to do DIALOG, and without dialog there is no REQUEST wrapping, so group change for example will work
+// since now SHOW fills request props, we don't need to do DIALOG, and without dialog there is no REQUEST wrapping, so group change for example will work
+edit(Object o) + {  SHOW EDIT Object =o DOCKED; } OPTIMISTICASYNC; //  
 formEdit(Object o)  { edit(o); }
+
+formEditObject(Object o)  {
+    IF PREV(o IS Object) THEN 
+        NEWSESSION formEdit(o);
+    ELSE 
+        formEdit(o);
+}
 
 // private, only for interactive usage (for other purposes use operator DELETE)
 delete '{logics.delete}'  ABSTRACT MULTI OVERRIDE FIRST ( Object) IMAGE 'delete.png' CHANGEKEY 'DELETE' HIDE TOOLBAR;
@@ -348,6 +444,12 @@ loadLogicsIcon '{system.logics.icon.load}'()  { INPUT=logicsIcon() CHANGE; }
 openLogicsIcon '{system.logics.icon.open}'()  { open(logicsIcon()); }
 resetLogicsIcon '{system.logics.icon.reset}'()  { logicsIcon() <- NULL; }
 
+//PWAIcon size should be 512*512
+PWAIcon = DATA IMAGEFILE ();
+loadPWAIcon '{system.logics.pwa.icon.load}'()  { INPUT=PWAIcon() CHANGE; }
+openPWAIcon '{system.logics.pwa.icon.open}'()  { open(PWAIcon()); }
+resetPWAIcon '{system.logics.pwa.icon.reset}'()  { PWAIcon() <- NULL; }
+
 META applicationForm(sid, name)
     FORM sid name;
     
@@ -355,9 +457,11 @@ META applicationForm(sid, name)
         OBJECTS {
             NEW pane {
                 fill = 1;
-                type = TABBED;
+                width = 0;
+                tabbed = TRUE;
                 NEW commons {
                     caption = '{system.form.sid.name.caption.commons}';
+                    height = 1;
                 }
             }
         }
@@ -392,27 +496,38 @@ META defineLinkDialog (object)
     } ASON CHANGE object;
 END
 
-WINDOW root '{window.root}' TOOLBAR HORIZONTAL POSITION(0, 0, 100, 6) VALIGN (CENTER) HIDETITLE HIDESCROLLBARS;
-WINDOW toolbar '{window.toolbar}' TOOLBAR VERTICAL POSITION(0, 6, 20, 64) HIDETITLE;
-WINDOW tree '{window.tree}' TOOLBAR POSITION(0, 6, 20, 64) HIDETITLE;
+logoWindowClass = ABSTRACT STRING();
+rootWindowClass = ABSTRACT STRING();
+systemWindowClass = ABSTRACT STRING();
+formsWindowClass = ABSTRACT STRING();
+toolbarWindowClass = ABSTRACT STRING();
+logsWindowClass = ABSTRACT STRING();
+
+WINDOW logo HORIZONTAL POSITION(0, 0, 10, 6) VALIGN (CENTER) HALIGN (START) HIDETITLE HIDESCROLLBARS CLASS logoWindowClass();
+WINDOW root HORIZONTAL POSITION(10, 0, 70, 6) VALIGN (CENTER) HALIGN (CENTER) HIDETITLE HIDESCROLLBARS CLASS rootWindowClass();
+WINDOW system HORIZONTAL POSITION(80, 0, 20, 6) VALIGN (CENTER) HALIGN (END) HIDETITLE HIDESCROLLBARS CLASS systemWindowClass();
+
+WINDOW toolbar VERTICAL POSITION(0, 6, 20, 94) HIDETITLE CLASS toolbarWindowClass();
+
+WINDOW forms NATIVE POSITION(20, 6, 80, 94) CLASS formsWindowClass();
+WINDOW log NATIVE POSITION(80, 6, 20, 93) HIDETITLE CLASS logsWindowClass();
+
+isHTMLSupported() = NATIVE BOOLEAN ();
+noSystemToolbarCaptions = ABSTRACT BOOLEAN();
 
 NAVIGATOR {
-    NEW FOLDER root '{navigator.forms}' WINDOW root {
-        NEW FOLDER administration '{navigator.administration}' WINDOW toolbar IMAGE 'tools.png' {
-            NEW FOLDER application '{navigator.application}' {
-                NEW options;
-                NEW integrationData;
-                NEW migrationData;
-            }
-            
-            NEW FOLDER system '{navigator.system}' {
-                NEW FOLDER performance '{navigator.performance}';
-                NEW FOLDER notification '{navigator.notification}';    
-                NEW FOLDER scheduler '{navigator.scheduler}';    
-                NEW FOLDER logs '{navigator.logs}';            
-            }
-            
-            NEW FOLDER objects '{navigator.objects}' WINDOW tree; 
+    NEW FOLDER administration '{navigator.administration}' HEADER '{navigator.administration}' IF NOT noSystemToolbarCaptions() LAST WINDOW system PARENT IMAGE 'tools.png' {
+        NEW FOLDER application '{navigator.application}' WINDOW toolbar PARENT {
+            NEW options;
+            NEW integrationData;
+            NEW migrationData;
+        }
+        
+        NEW FOLDER system '{navigator.system}' WINDOW toolbar PARENT {
+            NEW FOLDER performance '{navigator.performance}';
+            NEW FOLDER notification '{navigator.notification}';    
+            NEW FOLDER scheduler '{navigator.scheduler}';    
+            NEW FOLDER logs '{navigator.logs}';            
         }
     }
 }
@@ -476,13 +591,14 @@ META defineLog (object, caption, container)
 END
 META defineLog (object, dateProp)
     clearApplicationLog () + { 
-	NEWSESSION {
-	        IF countDaysClear##object() THEN {
-	            DELETE object d WHERE d IS object AND dateProp(d)<= subtract(currentDate(), countDaysClear##object());
-	        }
-	        apply();
+        IF countDaysClear##object() THEN {
+            NEWSESSION {
+                APPLY {
+                    DELETE object d WHERE d IS object AND dateProp(d) <= subtract(currentDate(), countDaysClear##object());
+                }
+            }
 	    }
-}   
+    }   
 END
 META defineLog (object, caption, container, dateProp)
     @defineLog (object, caption, container);
@@ -492,6 +608,7 @@ END
 DESIGN options {
     pane {
         NEW log {
+            height = 1;
             caption = '{service.form.options.caption.logging}';
         }
     }

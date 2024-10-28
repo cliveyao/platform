@@ -1,13 +1,14 @@
 package lsfusion.client.form.design;
 
 import lsfusion.base.BaseUtils;
+import lsfusion.base.file.AppImage;
 import lsfusion.client.form.controller.remote.serialization.ClientSerializationPool;
 import lsfusion.client.form.object.ClientGroupObject;
 import lsfusion.client.form.object.ClientGroupObjectValue;
 import lsfusion.client.form.object.table.controller.TableController;
+import lsfusion.client.form.property.ClientPropertyDraw;
 import lsfusion.client.form.property.ClientPropertyReader;
 import lsfusion.interop.base.view.FlexAlignment;
-import lsfusion.interop.form.design.ContainerType;
 import lsfusion.interop.form.property.PropertyReadType;
 
 import java.io.DataInputStream;
@@ -17,20 +18,42 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-import static lsfusion.interop.form.design.ContainerType.*;
-
 public class ClientContainer extends ClientComponent {
 
     public String caption;
+    public String name;
+    public AppImage image;
 
-    private ContainerType type = ContainerType.CONTAINERH;
+    public String captionClass;
+    public String valueClass;
+
+    public boolean collapsible;
+    public boolean popup;
+
+    public boolean border;
+
+    public boolean horizontal;
+    public boolean tabbed;
+
+    public String path;
+    public String creationPath;
 
     public FlexAlignment childrenAlignment = FlexAlignment.START;
 
-    public int columns = 4;
+    public boolean grid;
+    public boolean wrap;
+    public Boolean alignCaptions;
+
+    public Boolean resizeOverflow;
+
+    public int lines = 1;
+    public Integer lineSize = null;
+    public Integer captionLineSize = null;
+    public boolean lineShrink = false;
+    public String customDesign = null;
 
     public List<ClientComponent> children = new ArrayList<>();
-
+    
     public ClientContainer() {
     }
 
@@ -41,12 +64,27 @@ public class ClientContainer extends ClientComponent {
         pool.serializeCollection(outStream, children);
 
         pool.writeString(outStream, caption);
+        
+        outStream.writeBoolean(collapsible);
+        outStream.writeBoolean(popup);
 
-        pool.writeObject(outStream, type);
+        pool.writeBoolean(outStream, horizontal);
+        pool.writeBoolean(outStream, tabbed);
 
         pool.writeObject(outStream, childrenAlignment);
+        
+        outStream.writeBoolean(grid);
+        outStream.writeBoolean(wrap);
+        outStream.writeBoolean(alignCaptions);
 
-        outStream.writeInt(columns);
+        outStream.writeInt(lines);
+        pool.writeInt(outStream, lineSize);
+        pool.writeInt(outStream, captionLineSize);
+        outStream.writeBoolean(lineShrink);
+
+        outStream.writeBoolean(isCustomDesign());
+        if (isCustomDesign())
+            pool.writeString(outStream, customDesign);
     }
 
     @Override
@@ -56,17 +94,49 @@ public class ClientContainer extends ClientComponent {
         children = pool.deserializeList(inStream);
 
         caption = pool.readString(inStream);
+        name = pool.readString(inStream);
+        image = pool.readImageIcon(inStream);
 
-        type = pool.readObject(inStream);
+        captionClass = pool.readString(inStream);
+        valueClass = pool.readString(inStream);
+
+        collapsible = inStream.readBoolean();
+        popup = inStream.readBoolean();
+
+        border = inStream.readBoolean();
+
+        horizontal = pool.readBoolean(inStream);
+        tabbed = pool.readBoolean(inStream);
+
+        if (pool.readBoolean(inStream)) {
+            path = pool.readString(inStream);
+            creationPath = pool.readString(inStream);
+        }
 
         childrenAlignment = pool.readObject(inStream);
+        
+        grid = inStream.readBoolean();
+        wrap = inStream.readBoolean();
+        alignCaptions = pool.readObject(inStream);
 
-        columns = inStream.readInt();
+        resizeOverflow = inStream.readBoolean() ? inStream.readBoolean() : null;
+
+        lines = inStream.readInt();
+        lineSize = pool.readInt(inStream);
+        captionLineSize = pool.readInt(inStream);
+        lineShrink = inStream.readBoolean();
+
+        if (inStream.readBoolean())
+            customDesign = pool.readString(inStream);
     }
 
     @Override
     public String toString() {
         return caption + " (" + getID() + ")" + "[sid:" + getSID() + "]";
+    }
+
+    public FlexAlignment getFlexJustify() {
+        return childrenAlignment;
     }
 
     public void removeFromChildren(ClientComponent component) {
@@ -77,88 +147,59 @@ public class ClientContainer extends ClientComponent {
     }
 
     public void add(ClientComponent component) {
-        add(children.size(), component);
-    }
-
-    public void add(int index, ClientComponent component) {
         if (component.container != null) {
             component.container.removeFromChildren(component);
         }
-        children.add(index, component);
+        children.add(component);
         component.container = this;
     }
 
     @Override
     public String getCaption() {
-        return caption;
+        return getNotNullCaption();
     }
-
-    public ContainerType getType() {
-        return type;
-    }
-
-    public void setType(ContainerType type) {
-        this.type = type;
-        updateDependency(this, "type");
-    }
-
-    public int getColumns() {
-        return columns;
-    }
-
-    public void setColumns(int columns) {
-        this.columns = columns;
-        updateDependency(this, "columns");
-    }
-
-    public boolean isTabbed() {
-        return type == TABBED_PANE;
+    
+    public String getNotNullCaption() {
+        return BaseUtils.nullToString(caption);
     }
 
     public boolean main;
 
-    public boolean isSplit() {
-        return isSplitHorizontal() || isSplitVertical();
+    public Boolean isResizeOverflow() {
+        return resizeOverflow;
     }
 
-    public boolean isSplitVertical() {
-        return type == VERTICAL_SPLIT_PANE;
+    public boolean isAlignCaptions() {
+        if (alignCaptions != null) {
+            return alignCaptions;
+        }
+        
+        if(horizontal) // later maybe it makes sense to support align captions for horizontal containers, but with no-wrap it doesn't make much sense
+            return false;
+
+        int notActions = 0;
+        // only simple property draws
+        for(ClientComponent child : children) {
+            if(!(child instanceof ClientPropertyDraw) || ((ClientPropertyDraw) child).hasColumnGroupObjects() || (((ClientPropertyDraw)child).valueHeight == -1 && ((ClientPropertyDraw) child).isAutoDynamicHeight()) || child.flex > 0 || ((ClientPropertyDraw) child).captionVertical)
+                return false;
+
+            if(!((ClientPropertyDraw)child).isAction())
+                notActions++;
+        }
+
+        return notActions > 1;
     }
 
-    public boolean isSplitHorizontal() {
-        return type == HORIZONTAL_SPLIT_PANE;
+    public Integer getLineSize() {
+        return lineSize;
     }
 
-    public boolean isVertical() {
-        return isLinearVertical() || isSplitVertical();
+    public Integer getCaptionLineSize() {
+        return captionLineSize;
     }
 
-    public boolean isHorizontal() {
-        return isLinearHorizontal() || isSplitHorizontal();
-    }
-
-    public boolean isLinearVertical() {
-        return type == CONTAINERV;
-    }
-
-    public boolean isLinearHorizontal() {
-        return type == CONTAINERH;
-    }
-
-    public boolean isLinear() {
-        return isLinearVertical() || isLinearHorizontal();
-    }
-
-    public boolean isColumns() {
-        return type == COLUMNS;
-    }
-
-    public boolean isScroll() {
-        return type == SCROLL;
-    }
-
-    public boolean isFlow() {
-        return type == FLOW;
+    public boolean isCustomDesign() {
+        return customDesign != null;
     }
 
     public ClientContainer findContainerBySID(String sID) {
@@ -183,6 +224,19 @@ public class ClientContainer extends ClientComponent {
         return null;
     }
 
+    public ClientComponent findComponentByID(int id) {
+        if (id == this.ID) return this;
+        for (ClientComponent comp : children) {
+            if (comp instanceof ClientContainer) {
+                ClientComponent result = ((ClientContainer) comp).findComponentByID(id);
+                if (result != null) return result;
+            } else if(id == comp.ID)
+                return comp;
+        }
+        return null;
+
+    }
+
     public ClientContainer findParentContainerBySID(ClientContainer parent, String sID) {
         if (sID.equals(this.sID)) return parent;
         for (ClientComponent comp : children) {
@@ -205,7 +259,8 @@ public class ClientContainer extends ClientComponent {
 
         public void update(Map<ClientGroupObjectValue, Object> readKeys, boolean updateKeys, TableController controller) {
             assert BaseUtils.singleKey(readKeys).isEmpty();
-            controller.getFormController().setContainerCaption(ClientContainer.this, BaseUtils.nullToString(BaseUtils.singleValue(readKeys)));
+            Object containerCaption = BaseUtils.singleValue(readKeys);
+            controller.getFormController().setContainerCaption(ClientContainer.this, containerCaption != null ? containerCaption.toString() : null);
         }
 
         public int getID() {
@@ -216,4 +271,92 @@ public class ClientContainer extends ClientComponent {
             return PropertyReadType.CONTAINER_CAPTION;
         }
     };
+
+    public final ClientPropertyReader imageReader = new ClientPropertyReader() {
+        public ClientGroupObject getGroupObject() {
+            return null;
+        }
+
+        public void update(Map<ClientGroupObjectValue, Object> readKeys, boolean updateKeys, TableController controller) {
+            assert BaseUtils.singleKey(readKeys).isEmpty();
+            Object containerCaption = BaseUtils.singleValue(readKeys);
+//            controller.getFormController().setContainerImage(ClientContainer.this, containerCaption != null ? containerCaption.toString() : null);
+        }
+
+        public int getID() {
+            return ClientContainer.this.getID();
+        }
+
+        public byte getType() {
+            return PropertyReadType.CONTAINER_IMAGE;
+        }
+    };
+
+    public final ClientPropertyReader captionClassReader = new ClientPropertyReader() {
+        public ClientGroupObject getGroupObject() {
+            return null;
+        }
+
+        public void update(Map<ClientGroupObjectValue, Object> readKeys, boolean updateKeys, TableController controller) {
+            assert BaseUtils.singleKey(readKeys).isEmpty();
+            Object containerCaption = BaseUtils.singleValue(readKeys);
+//            controller.getFormController().setContainerImage(ClientContainer.this, containerCaption != null ? containerCaption.toString() : null);
+        }
+
+        public int getID() {
+            return ClientContainer.this.getID();
+        }
+
+        public byte getType() {
+            return PropertyReadType.CONTAINER_CAPTIONCLASS;
+        }
+    };
+
+    public final ClientPropertyReader valueClassReader = new ClientPropertyReader() {
+        public ClientGroupObject getGroupObject() {
+            return null;
+        }
+
+        public void update(Map<ClientGroupObjectValue, Object> readKeys, boolean updateKeys, TableController controller) {
+            assert BaseUtils.singleKey(readKeys).isEmpty();
+            Object containerCaption = BaseUtils.singleValue(readKeys);
+//            controller.getFormController().setContainerImage(ClientContainer.this, containerCaption != null ? containerCaption.toString() : null);
+        }
+
+        public int getID() {
+            return ClientContainer.this.getID();
+        }
+
+        public byte getType() {
+            return PropertyReadType.CONTAINER_VALUECLASS;
+        }
+    };
+
+    public final ClientPropertyReader customPropertyDesignReader = new ClientPropertyReader() {
+        public ClientGroupObject getGroupObject() {
+            return null;
+        }
+
+        public void update(Map<ClientGroupObjectValue, Object> readKeys, boolean updateKeys, TableController controller) {
+        }
+
+        public int getID() {
+            return ClientContainer.this.getID();
+        }
+
+        public byte getType() {
+            return PropertyReadType.CUSTOM;
+        }
+    };
+
+    public int getFlexCount() {
+        if(tabbed)
+            return 0;
+
+        int count = 0;
+        for(ClientComponent child : children)
+            if(child.getFlex() > 0)
+                count++;
+        return count;
+    }
 }

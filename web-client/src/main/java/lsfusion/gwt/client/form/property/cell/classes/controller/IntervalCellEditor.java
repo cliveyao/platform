@@ -1,113 +1,68 @@
 package lsfusion.gwt.client.form.property.cell.classes.controller;
 
-import com.google.gwt.dom.client.Element;
-import com.google.gwt.user.client.Event;
+import com.google.gwt.core.client.JsDate;
+import lsfusion.gwt.client.base.GwtClientUtils;
+import lsfusion.gwt.client.classes.data.GFormatType;
 import lsfusion.gwt.client.classes.data.GIntervalType;
-import lsfusion.gwt.client.form.property.cell.controller.CellEditor;
+import lsfusion.gwt.client.form.property.GPropertyDraw;
+import lsfusion.gwt.client.form.property.PValue;
 import lsfusion.gwt.client.form.property.cell.controller.EditManager;
 
-import java.math.BigDecimal;
-import java.util.Date;
+public class IntervalCellEditor  extends DateRangePickerBasedCellEditor {
 
-public class IntervalCellEditor implements CellEditor {
-
-    private final EditManager editManager;
     private final String intervalType;
+    private final GIntervalType type;
 
-    public IntervalCellEditor(EditManager editManager, String intervalType) {
-        this.editManager = editManager;
+    public IntervalCellEditor(EditManager editManager, GPropertyDraw property, String intervalType, GIntervalType type) {
+        super(editManager, property);
         this.intervalType = intervalType;
-    }
-
-    public void validateAndCommit(Long dateFrom, Long dateTo) {
-        if (dateFrom != null && dateTo != null)
-            editManager.commitEditing(new BigDecimal(dateFrom + "." + dateTo));
-        else if (dateFrom == null && dateTo == null)
-            editManager.commitEditing(null);
-        else
-            editManager.cancelEditing();
+        this.type = type;
     }
 
     @Override
-    public void startEditing(Event event, Element parent, Object oldValue) {
-        createPicker(parent, getObjectDate(oldValue, true), getObjectDate(oldValue, false), intervalType, false);
+    public GFormatType getFormatType() {
+        return type;
     }
 
-    private Date getObjectDate(Object oldValue, boolean from) {
-        String object = String.valueOf(oldValue);
-        int indexOfDecimal = object.indexOf(".");
-
-        return indexOfDecimal < 0 ? new Date() : GIntervalType.getTimestamp(from ? object.substring(0, indexOfDecimal) : object.substring(indexOfDecimal + 1));
+    @Override
+    protected String getSinglePattern() {
+        return replaceUnsupportedSymbols(type.getSingleFormat(pattern).getPattern());
     }
 
-    protected native void createPicker(Element parent, Date startDate, Date endDate, String intervalType, boolean singleDatePicker)/*-{
-        window.$ = $wnd.jQuery;
-        var parentEl = $(parent);
-        var thisObj = this;
-        var time = intervalType === 'TIME';
-        var date = intervalType === 'DATE';
+    @Override
+    protected boolean isTimeEditor() {
+        return intervalType.equals("TIME");
+    }
 
-        parentEl.daterangepicker({
-            locale: {
-                applyLabel: @lsfusion.gwt.client.base.GwtClientUtils::getLocalizedString(*)("applyLabel"),
-                cancelLabel: @lsfusion.gwt.client.base.GwtClientUtils::getLocalizedString(*)("cancelLabel"),
-                customRangeLabel: @lsfusion.gwt.client.base.GwtClientUtils::getLocalizedString(*)("customRangeLabel"),
-                daysOfWeek: [
-                    @lsfusion.gwt.client.base.GwtClientUtils::getLocalizedString(*)("daysOfWeekSU"),
-                    @lsfusion.gwt.client.base.GwtClientUtils::getLocalizedString(*)("daysOfWeekMO"),
-                    @lsfusion.gwt.client.base.GwtClientUtils::getLocalizedString(*)("daysOfWeekTU"),
-                    @lsfusion.gwt.client.base.GwtClientUtils::getLocalizedString(*)("daysOfWeekWE"),
-                    @lsfusion.gwt.client.base.GwtClientUtils::getLocalizedString(*)("daysOfWeekTH"),
-                    @lsfusion.gwt.client.base.GwtClientUtils::getLocalizedString(*)("daysOfWeekFR"),
-                    @lsfusion.gwt.client.base.GwtClientUtils::getLocalizedString(*)("daysOfWeekSA")
-                ],
-                monthNames: [
-                    @lsfusion.gwt.client.base.GwtClientUtils::getLocalizedString(*)("monthJanuary"),
-                    @lsfusion.gwt.client.base.GwtClientUtils::getLocalizedString(*)("monthFebruary"),
-                    @lsfusion.gwt.client.base.GwtClientUtils::getLocalizedString(*)("monthMarch"),
-                    @lsfusion.gwt.client.base.GwtClientUtils::getLocalizedString(*)("monthApril"),
-                    @lsfusion.gwt.client.base.GwtClientUtils::getLocalizedString(*)("monthMay"),
-                    @lsfusion.gwt.client.base.GwtClientUtils::getLocalizedString(*)("monthJune"),
-                    @lsfusion.gwt.client.base.GwtClientUtils::getLocalizedString(*)("monthJuly"),
-                    @lsfusion.gwt.client.base.GwtClientUtils::getLocalizedString(*)("monthAugust"),
-                    @lsfusion.gwt.client.base.GwtClientUtils::getLocalizedString(*)("monthSeptember"),
-                    @lsfusion.gwt.client.base.GwtClientUtils::getLocalizedString(*)("monthOctober"),
-                    @lsfusion.gwt.client.base.GwtClientUtils::getLocalizedString(*)("monthNovember"),
-                    @lsfusion.gwt.client.base.GwtClientUtils::getLocalizedString(*)("monthDecember")
-                ],
-                "firstDay": 1
-            },
-            startDate: new Date(startDate),
-            endDate: new Date(endDate),
-            timePicker: !date,
-            timePicker24Hour: true,
-            autoApply: false,
-            ranges: !time ? $wnd.getRanges($wnd, @lsfusion.gwt.client.base.GwtClientUtils::getLocalizedString(*)("today"),
-                @lsfusion.gwt.client.base.GwtClientUtils::getLocalizedString(*)("yesterday"),
-                @lsfusion.gwt.client.base.GwtClientUtils::getLocalizedString(*)("last7Days"),
-                @lsfusion.gwt.client.base.GwtClientUtils::getLocalizedString(*)("last30Days"),
-                @lsfusion.gwt.client.base.GwtClientUtils::getLocalizedString(*)("thisMonth"),
-                @lsfusion.gwt.client.base.GwtClientUtils::getLocalizedString(*)("lastMonth"),
-                @lsfusion.gwt.client.base.GwtClientUtils::getLocalizedString(*)("clear")): undefined,
-            singleDatePicker: singleDatePicker,
-            alwaysShowCalendars: true // need to use with ranges
-        });
+    @Override
+    protected boolean isDateEditor() {
+        return intervalType.equals("DATE");
+    }
 
-        //show only time picker
-        if (time) {
-            parentEl.on('show.daterangepicker', function (ev, picker) {
-                picker.container.find(".calendar-table").hide();
-                picker.container.find(".drp-selected").hide();
-            })
-        }
 
-        parentEl.on('hide.daterangepicker', function (ev, picker) {
-            var startDate = picker.startDate;
-            var endDate = picker.endDate;
-            var dateFrom = startDate.isValid() ? startDate.unix() : null;
-            var dateTo = endDate.isValid() != null ? endDate.unix() : null;
-            thisObj.@lsfusion.gwt.client.form.property.cell.classes.controller.IntervalCellEditor::validateAndCommit(*)(dateFrom, dateTo);
-        });
+    @Override
+    protected boolean isSinglePicker() {
+        return false;
+    }
 
-    }-*/;
+//    @Override
+//    public PValue getDefaultNullValue() {
+//        return type.fromDate(new Date(), new Date());
+//    }
+
+    @Override
+    protected JsDate getStartDate(PValue oldValue) {
+        return GwtClientUtils.toJsDate(type.toDate(oldValue, true));
+    }
+
+    @Override
+    protected JsDate getEndDate(PValue oldValue) {
+        return GwtClientUtils.toJsDate(type.toDate(oldValue, false));
+    }
+
+    @Override
+    protected PValue getValue(JsDate startDate, JsDate endDate) {
+        return startDate != null ? type.fromDate(GwtClientUtils.fromJsDate(startDate), GwtClientUtils.fromJsDate(endDate)) : null;
+    }
+
 }

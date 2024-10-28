@@ -1,53 +1,153 @@
 package lsfusion.gwt.client.form.property.panel.view;
 
-import com.google.gwt.core.client.Scheduler;
-import com.google.gwt.dom.client.*;
+import com.google.gwt.dom.client.Element;
 import com.google.gwt.user.client.Event;
-import com.google.gwt.user.client.ui.FocusWidget;
-import com.google.gwt.user.client.ui.Panel;
 import com.google.gwt.user.client.ui.Widget;
+import lsfusion.gwt.client.base.AppBaseImage;
+import lsfusion.gwt.client.base.FocusUtils;
+import lsfusion.gwt.client.base.GwtClientUtils;
+import lsfusion.gwt.client.base.size.GSize;
 import lsfusion.gwt.client.base.view.*;
 import lsfusion.gwt.client.base.view.grid.DataGrid;
 import lsfusion.gwt.client.form.controller.GFormController;
+import lsfusion.gwt.client.form.design.GComponent;
 import lsfusion.gwt.client.form.design.GFont;
+import lsfusion.gwt.client.form.object.GGroupObjectValue;
 import lsfusion.gwt.client.form.property.GPropertyDraw;
+import lsfusion.gwt.client.form.property.PValue;
+import lsfusion.gwt.client.form.property.cell.classes.view.InputBasedCellRenderer;
 import lsfusion.gwt.client.form.property.cell.controller.EditContext;
+import lsfusion.gwt.client.form.property.cell.view.CellRenderer;
 import lsfusion.gwt.client.form.property.cell.view.RenderContext;
 import lsfusion.gwt.client.form.property.cell.view.UpdateContext;
+import lsfusion.gwt.client.view.ColorThemeChangeListener;
+import lsfusion.gwt.client.view.MainFrame;
 
-import java.text.ParseException;
-
-import static lsfusion.gwt.client.base.GwtClientUtils.setupFillParent;
-import static lsfusion.gwt.client.base.GwtClientUtils.stopPropagation;
-import static lsfusion.gwt.client.base.view.ColorUtils.getDisplayColor;
+import static lsfusion.gwt.client.view.MainFrame.v5;
 
 // property value renderer with editing
-public abstract class ActionOrPropertyValue extends FocusWidget implements EditContext, RenderContext, UpdateContext {
+public abstract class ActionOrPropertyValue extends Widget implements EditContext, RenderContext, UpdateContext, ColorThemeChangeListener {
 
-    private Object value;
+    protected PValue value;
+    protected boolean loading;
+    private AppBaseImage image;
+    private String valueElementClass;
+    private GFont font;
+    private String background;
+    private Object foreground;
+    protected Boolean readOnly;
+    private String placeholder;
+    private String pattern;
+    private String regexp;
+    private String regexpMessage;
+    private String valueTooltip;
 
-    public Object getValue() {
+    public PValue getValue() {
         return value;
     }
 
-    public void setValue(Object value) {
-        this.value = value;
+    // editing set value (in EditContext), changes model and value itself
+    public void setValue(PValue value) {
+        this.value = value; // updating inner model
+
+        controller.setValue(columnKey, value); // updating outer model - controller
+    }
+
+    @Override
+    public boolean isLoading() {
+        return loading;
+    }
+
+    @Override
+    public boolean isSelectedRow() {
+        return true;
+    }
+
+    @Override
+    public AppBaseImage getImage() {
+        return image;
+    }
+
+    @Override
+    public Boolean isPropertyReadOnly() {
+        if(readOnly != null && !readOnly && property.isAction() && MainFrame.disableActionsIfReadonly)
+            return true;
+        return readOnly;
+    }
+
+    @Override
+    public boolean isTabFocusable() {
+        return isFocusable();
+    }
+
+    @Override
+    public boolean isNavigateInput() {
+        return true;
+    }
+
+    @Override
+    public GFont getFont() {
+        return font;
+    }
+
+    @Override
+    public String getBackground() {
+        return background;
+    }
+
+    @Override
+    public String getPlaceholder() {
+        return placeholder;
+    }
+
+    @Override
+    public String getPattern() {
+        return pattern;
+    }
+
+    @Override
+    public String getRegexp() {
+        return regexp;
+    }
+
+    @Override
+    public String getRegexpMessage() {
+        return regexpMessage;
+    }
+
+    @Override
+    public String getValueTooltip() {
+        return valueTooltip;
+    }
+
+    @Override
+    public String getForeground() {
+        return foreground != null ? foreground.toString() : null;
+    }
+
+    @Override
+    public String getValueElementClass() {
+        return valueElementClass;
     }
 
     protected GPropertyDraw property;
+    protected GGroupObjectValue columnKey;
 
     protected GFormController form;
+    protected ActionOrPropertyValueController controller;
 
-    public ActionOrPropertyValue(GPropertyDraw property, GFormController form) {
-        setElement(Document.get().createDivElement());
+    private boolean globalCaptionIsDrawn;
 
-        DataGrid.initSinkEvents(this);
-
+    public ActionOrPropertyValue(GPropertyDraw property, GGroupObjectValue columnKey, GFormController form, boolean globalCaptionIsDrawn, ActionOrPropertyValueController controller) {
         this.property = property;
+        this.columnKey = columnKey;
 
         this.form = form;
+        this.controller = controller;
 
-        getRenderElement().setPropertyObject("groupObject", property.groupObject);
+        this.globalCaptionIsDrawn = globalCaptionIsDrawn;
+
+        MainFrame.addColorThemeChangeListener(this);
     }
 
     public Element getRenderElement() {
@@ -55,97 +155,132 @@ public abstract class ActionOrPropertyValue extends FocusWidget implements EditC
     }
 
     @Override
+    public Element getEditElement() {
+        return getRenderElement();
+    }
+
+    @Override
     public Element getFocusElement() {
-        return getElement();
+        Element element = getRenderElement();
+
+        Object focusElement = CellRenderer.getFocusElement(element);
+        if(focusElement != null) {
+            return focusElement == CellRenderer.NULL ? null : (Element) focusElement;
+        }
+
+        return element;
     }
 
-    protected void finalizeInit() {
-        this.form.render(this.property, getRenderElement(), this);
+    protected void render() {
+        Element renderElement = property.getCellRenderer(getRendererType()).createRenderElement(getRendererType());
+        this.form.render(this.property, renderElement, this);
+        setElement(renderElement);
+
+        DataGrid.initSinkEvents(this);
+        DataGrid.initSinkFocusEvents(this);
+
+        GFormController.setBindingGroupObject(this,  property.groupObject);
+
+        Element focusElement = getFocusElement();
+        if(focusElement != null)
+            focusElement.setTabIndex(isFocusable() ? 0 : -1);
+
+       GwtClientUtils.addClassName(this, "panel-renderer-value", "panelRendererValue", v5);
     }
 
-    private Widget borderWidget;
-
-    // when we don't want property value (it's content) to influence on layouting, and in particular flex - basis
-    // so we use absolute positioning for that (and not width 100%, or writing to div itself)
-    public void setStatic(ResizableMainPanel panel, boolean isProperty) { // assert that panel is resizable, panel and not resizable simple panel, since we want to append corners also to that panel (and it is not needed for it to be simple)
-        panel.setMain(this);
-        setupFillParent(getElement());
-        borderWidget = panel.getPanelWidget();
-
-        setBaseSize(isProperty);
-    }
-    public void setDynamic(ResizableMainPanel panel, boolean isProperty) {
-        panel.setMain(this);
-        com.google.gwt.dom.client.Element element = getElement();
-        element.getStyle().setWidth(100, Style.Unit.PCT);
-        element.getStyle().setHeight(100, Style.Unit.PCT);
-        borderWidget = panel.getPanelWidget();
-
-        setBaseSize(isProperty);
-    }
-    public void setDynamic(boolean isProperty) {
-        borderWidget = this;
-
-        setBaseSize(isProperty);
+    public void focus(FocusUtils.Reason reason) {
+        Element focusElement = getFocusElement();
+        if(focusElement != null)
+            FocusUtils.focus(focusElement, reason);
     }
 
-    public void setBaseSize(boolean isProperty) {
-        // we have to set border for border element and not element itself, since absolute positioning include border INSIDE div, and default behaviour is OUTSIDE
-        borderWidget.addStyleName("panelRendererValue");
-        if(isProperty)
-            borderWidget.addStyleName("propertyPanelRendererValue");
-        else
-            borderWidget.addStyleName("actionPanelRendererValue");
+    public SizedWidget getSizedWidget(boolean needNotNull) {
+        boolean globalCaptionIsDrawn = this.globalCaptionIsDrawn;
+        GFont font = getFont();
+        GSize valueWidth = property.getValueWidth(font, needNotNull, globalCaptionIsDrawn);
+        GSize valueHeight = property.getValueHeight(font, needNotNull, globalCaptionIsDrawn);
 
-        // if widget is wrapped into absolute positioned simple panel, we need to include paddings (since borderWidget doesn't include them)
-        boolean isStatic = borderWidget != this;
-        FlexPanel.setBaseSize(borderWidget,
-                isStatic ? property.getValueWidthWithPadding(null) : property.getValueWidth(null),
-                isStatic ? property.getValueHeightWithPadding(null ) : property.getValueHeight(null));
+        Element renderElement = getRenderElement();
+        Element sizeElement = InputBasedCellRenderer.getSizeElement(renderElement);
+        GwtClientUtils.addClassName(sizeElement, "prop-size-value");
+
+        if(sizeElement != renderElement) {
+            FlexPanel.setPanelWidth(sizeElement, valueWidth);
+            FlexPanel.setPanelHeight(sizeElement, valueHeight);
+
+            valueWidth = null;
+            valueHeight = null;
+        }
+
+        return new SizedWidget(this, valueWidth, valueHeight);
     }
 
     @Override
     public void onBrowserEvent(Event event) {
-        Element target = DataGrid.getTargetAndCheck(getElement(), event);
+        Element target = form.getTargetAndPreview(getElement(), event);
         if(target == null)
-            return;
-        if(!form.previewEvent(target, event))
             return;
 
         super.onBrowserEvent(event);
 
-        if(!DataGrid.checkSinkEvents(event))
-            return;
-
-        EventHandler eventHandler = createEventHandler(event);
-
-        if(BrowserEvents.FOCUS.equals(event.getType())) {
-            onFocus(eventHandler);
-        } else if(BrowserEvents.BLUR.equals(event.getType())) {
-            onBlur(eventHandler);
-        }
+        EventHandler eventHandler = new EventHandler(event);
+        DataGrid.dispatchFocusAndCheckSinkEvents(eventHandler, target, getElement(), this::onFocus, this::onBlur);
         if(eventHandler.consumed)
             return;
 
-        form.onPropertyBrowserEvent(eventHandler, getRenderElement(), getFocusElement(),
+        form.onPropertyBrowserEvent(eventHandler, getRenderElement(), true, getFocusElement(), // we don't need to focus unfocusable element (because the focus will be returned immediately)
                 handler -> {}, // no outer context
                 this::onEditEvent,
                 handler -> {}, // no outer context
                 //ctrl-c ctrl-v from excel adds \n in the end, trim() removes it
-                handler -> CopyPasteUtils.putIntoClipboard(getRenderElement()), handler -> CopyPasteUtils.getFromClipboard(handler, line -> pasteValue(line.trim())), true);
+                handler -> CopyPasteUtils.putIntoClipboard(getRenderElement()), handler -> CopyPasteUtils.getFromClipboard(handler, line -> pasteValue(line.trim())),
+                true, property.getCellRenderer(getRendererType()).isCustomRenderer(), isFocusable());
     }
 
-    protected void onFocus(EventHandler handler) {
-        DataGrid.sinkPasteEvent(getFocusElement());
-        borderWidget.addStyleName("panelRendererValueFocused");
+    protected boolean isFocused;
+    protected void onFocus(Element target, EventHandler handler) {
+        if(isFocused)
+            return;
+
+        Element renderElement = getRenderElement();
+        Object focusElement = CellRenderer.getFocusElement(renderElement);
+        if(focusElement == null || focusElement == CellRenderer.NULL)
+            DataGrid.sinkPasteEvent(renderElement);
+
+        isFocused = true;
+        focusedChanged();
     }
 
-    protected void onBlur(EventHandler handler) {
-        borderWidget.removeStyleName("panelRendererValueFocused");
+    private void focusedChanged() {
+        form.checkFocusElement(isFocused, getRenderElement());
+
+        if(isFocused)
+           GwtClientUtils.addClassName(this, "panel-renderer-value-focused", "panelRendererValueFocused", v5);
+        else
+           GwtClientUtils.removeClassName(this, "panel-renderer-value-focused", "panelRendererValueFocused", v5);
+        update();
     }
 
-    public EventHandler createEventHandler(Event event) {
-        return new EventHandler(event);
+    protected void onBlur(Element target, EventHandler handler) {
+        if(!isFocused)
+            return;
+        //if !isFocused should be replaced to assert; isFocused must be true, but sometimes is not (related to BusyDialogDisplayer)
+        //assert isFocused;
+        isFocused = false;
+        focusedChanged();
+    }
+
+    public boolean isEditing;
+    @Override
+    public void startEditing() {
+        isEditing = true;
+        GwtClientUtils.addClassName(this, "panel-renderer-value-edited", "panelRendererValueEdited", v5);
+    }
+
+    @Override
+    public void stopEditing() {
+        isEditing = false;
+        GwtClientUtils.removeClassName(this, "panel-renderer-value-edited", "panelRendererValueEdited", v5);
     }
 
     protected abstract void onEditEvent(EventHandler handler);
@@ -155,55 +290,71 @@ public abstract class ActionOrPropertyValue extends FocusWidget implements EditC
         return property;
     }
 
+    @Override
+    public GGroupObjectValue getColumnKey() {
+        return columnKey;
+    }
+
+    @Override
+    public GGroupObjectValue getRowKey() {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public Widget getPopupOwnerWidget() {
+        return this;
+    }
+
     public RenderContext getRenderContext() {
         return this;
     }
 
     @Override
-    public Integer getStaticHeight() {
-        return null;
-    }
-
-    @Override
-    public boolean isAlwaysSelected() {
-        return true;
-    }
-
-    @Override
     public boolean globalCaptionIsDrawn() {
-        return false;
-    }
-
-    @Override
-    public GFont getFont() {
-        return null;
-    }
-
-    @Override
-    public boolean isStaticHeight() {
-        return false;
+        return globalCaptionIsDrawn;
     }
 
     public UpdateContext getUpdateContext() {
         return this;
     }
-    protected abstract void onPaste(Object objValue, String stringValue);
 
-    public void pasteValue(final String value) {
-        Scheduler.get().scheduleDeferred(() -> {
-            Object objValue = null;
-            try {
-                objValue = property.baseType.parseString(value, property.pattern);
-            } catch (ParseException ignored) {}
-            updateValue(objValue);
+    public abstract void pasteValue(final String value);
 
-            onPaste(objValue, value);
-        });
+    public void update(PValue value, boolean loading, AppBaseImage image, String valueElementClass,
+                       GFont font, String background, String foreground, Boolean readOnly, String placeholder, String pattern,
+                       String regexp, String regexpMessage, String valueTooltip) {
+        this.value = value;
+        this.loading = loading;
+        this.image = image;
+        this.valueElementClass = valueElementClass;
+        this.font = font;
+        this.background = background;
+        this.foreground = foreground;
+        this.readOnly = readOnly;
+        this.placeholder = placeholder;
+        this.pattern = pattern;
+        this.regexp = regexp;
+        this.regexpMessage = regexpMessage;
+        this.valueTooltip = valueTooltip;
+
+        update();
     }
 
-    public void updateValue(Object value) {
-        setValue(value);
-
-        form.update(property, getRenderElement(), getValue(), this);
+    @Override
+    public void colorThemeChanged() {
+        update();
     }
+
+    @Override
+    public GFormController getForm() {
+        return form;
+    }
+
+    protected void update() {
+        // RERENDER IF NEEDED : we have the previous state
+
+        form.update(property, getRenderElement(), this);
+    }
+
+    protected abstract GComponent getComponent();
 }

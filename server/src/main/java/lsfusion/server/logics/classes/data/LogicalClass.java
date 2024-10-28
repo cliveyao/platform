@@ -6,11 +6,16 @@ import lsfusion.interop.classes.DataType;
 import lsfusion.interop.form.property.ExtInt;
 import lsfusion.server.data.sql.syntax.SQLSyntax;
 import lsfusion.server.data.stat.Stat;
+import lsfusion.server.data.type.DBType;
+import lsfusion.server.data.type.Type;
 import lsfusion.server.data.type.exec.TypeEnvironment;
+import lsfusion.server.logics.classes.data.integral.IntegerClass;
+import lsfusion.server.logics.form.interactive.controller.remote.serialization.FormInstanceContext;
 import lsfusion.server.logics.form.stat.print.design.ReportDrawField;
 import lsfusion.server.logics.form.stat.struct.export.plain.dbf.OverJDBField;
 import lsfusion.server.logics.form.stat.struct.export.plain.xls.ExportXLSWriter;
 import lsfusion.server.logics.form.stat.struct.imports.plain.dbf.CustomDbfRecord;
+import lsfusion.server.physics.admin.Settings;
 import lsfusion.server.physics.dev.i18n.LocalizedString;
 import net.sf.jasperreports.engine.type.HorizontalTextAlignEnum;
 import org.apache.poi.ss.usermodel.Cell;
@@ -25,13 +30,21 @@ import java.sql.SQLException;
 
 public class LogicalClass extends DataClass<Boolean> {
 
-    public static final LogicalClass instance = new LogicalClass();
+    public static final LogicalClass instance = new LogicalClass(false);
+    
+    public static final LogicalClass threeStateInstance = new LogicalClass(true);
 
     static {
         DataClass.storeClass(instance);
+        DataClass.storeClass(threeStateInstance);
     }
 
-    private LogicalClass() { super(LocalizedString.create("{classes.logical}"));}
+    public final boolean threeState;
+    
+    private LogicalClass(boolean threeState) { 
+        super(LocalizedString.create("{classes.logical}"));
+        this.threeState = threeState;
+    }
 
     public int getReportPreferredWidth() { return 50; }
 
@@ -39,6 +52,7 @@ public class LogicalClass extends DataClass<Boolean> {
         return Boolean.class;
     }
 
+    @Override
     public void fillReportDrawField(ReportDrawField reportField) {
         super.fillReportDrawField(reportField);
 
@@ -46,19 +60,20 @@ public class LogicalClass extends DataClass<Boolean> {
     }
 
     public byte getTypeID() {
-        return DataType.LOGICAL;
+        return threeState ? DataType.TLOGICAL : DataType.LOGICAL;
     }
 
     public DataClass getCompatible(DataClass compClass, boolean or) {
-        return compClass instanceof LogicalClass ?this:null;
+        return compClass instanceof LogicalClass && threeState == ((LogicalClass) compClass).threeState ? this : null;
     }
 
     public Boolean getDefaultValue() {
         return true;
     }
 
-    public String getDB(SQLSyntax syntax, TypeEnvironment typeEnv) {
-        return syntax.getBitType();
+    @Override
+    public DBType getDBType() {
+        return IntegerClass.instance;
     }
 
     public String getDotNetType(SQLSyntax syntax, TypeEnvironment typeEnv) {
@@ -81,10 +96,28 @@ public class LogicalClass extends DataClass<Boolean> {
     }
 
     public Boolean read(Object value) {
-        if(value instanceof Boolean)
-            return (Boolean)value ? true : null;
-        if(value!=null) return true;
+        if (threeState) {
+            if (value instanceof Boolean)
+                return (Boolean) value;
+            else if (value != null)
+                return value.equals(1);
+        } else {
+            if (value instanceof Boolean)
+                return (Boolean) value ? true : null;
+            else if (value != null)
+                return true;
+        }
         return null;
+    }
+
+    @Override
+    public boolean useInputTag(boolean isPanel, boolean useBootstrap, Type changeType) {
+        return true; // see LogicalCellRenderer constructor assertion (isTagInput)
+    }
+
+    @Override
+    public boolean hasToolbar(boolean isInputPanel) {
+        return !Settings.get().isNoToolbarForBoolean();
     }
 
     @Override
@@ -96,13 +129,12 @@ public class LogicalClass extends DataClass<Boolean> {
         return true;
     }
     public String getString(Object value, SQLSyntax syntax) {
-        assert (Boolean)value;
-        return syntax.getBitString(true);
+        return syntax.getBitString((Boolean) value);
     }
 
     public void writeParam(PreparedStatement statement, int num, Object value, SQLSyntax syntax) throws SQLException {
-        assert (Boolean)value;
-        statement.setByte(num, (byte)1);
+        assert threeState || (Boolean)value;
+        statement.setByte(num, (byte) (threeState ? ((Boolean) value ? 1 : 0) : 1));
     }
 
 /*    public boolean isSafeString(Object value) {
@@ -123,7 +155,7 @@ public class LogicalClass extends DataClass<Boolean> {
     }
 
     @Override
-    public FlexAlignment getValueAlignment() {
+    public FlexAlignment getValueAlignmentHorz() {
         return FlexAlignment.CENTER;
     }
 
@@ -155,7 +187,15 @@ public class LogicalClass extends DataClass<Boolean> {
 
     @Override
     public Object formatJSON(Boolean object) {
-        return object != null;
+        return formatBoolean(object);
+    }
+
+    @Override
+    public String formatJSONSource(String valueSource, SQLSyntax syntax) {
+        if(threeState)
+            return "CASE WHEN " + valueSource + " IS NOT NULL THEN " +
+                    "CASE WHEN " + valueSource + "=1 THEN TRUE ELSE FALSE END" + " ELSE NULL END";
+        return "CASE WHEN " + valueSource + " IS NOT NULL THEN TRUE ELSE NULL END";
     }
 
     @Override
@@ -165,27 +205,30 @@ public class LogicalClass extends DataClass<Boolean> {
 
     @Override
     public void formatXLS(Boolean object, Cell cell, ExportXLSWriter.Styles styles) {
-        cell.setCellValue(object != null);
-    }
-
-    public Boolean parseString(String s) throws ParseException {
-        try {
-            boolean b = Boolean.parseBoolean(s);
-            if(b)
-                return true;
-            return null;
-        } catch (Exception e) {
-            throw ParseException.propagateWithMessage("Error parsing boolean: " + s, e);
+        Boolean result = formatBoolean(object);
+        if(result != null) {
+            cell.setCellValue(result);
         }
     }
 
-    @Override
-    public String formatString(Boolean value) {
-        return value == null ? null : String.valueOf(value);
+    private Boolean formatBoolean(Boolean object) {
+        if (threeState)
+            return object;
+        return object != null && object ? true : null;
+    }
+
+    public Boolean parseString(String s) throws ParseException {
+        if (s != null) {
+            if (s.equalsIgnoreCase("true"))
+                return true;
+            else if (threeState && s.equalsIgnoreCase("false"))
+                return false;
+        }
+        return null;
     }
 
     public String getSID() {
-        return "BOOLEAN";
+        return threeState ? "TBOOLEAN" : "BOOLEAN";
     }
 
     @Override
@@ -195,10 +238,15 @@ public class LogicalClass extends DataClass<Boolean> {
 
     @Override
     public OverJDBField formatDBF(String fieldName) throws JDBFException {
-        return new OverJDBField(fieldName, 'L', 1, 0);
+        return OverJDBField.createField(fieldName, 'L', 1, 0);
     }
 
     public boolean calculateStat() {
         return false;
+    }
+
+    @Override
+    public String getInputType(FormInstanceContext context) {
+        return "checkbox";
     }
 }

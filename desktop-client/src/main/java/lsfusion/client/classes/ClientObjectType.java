@@ -1,9 +1,11 @@
 package lsfusion.client.classes;
 
+import lsfusion.base.BaseUtils;
 import lsfusion.client.ClientResourceBundle;
 import lsfusion.client.base.view.SwingDefaults;
 import lsfusion.client.classes.data.ClientLongClass;
 import lsfusion.client.form.controller.ClientFormController;
+import lsfusion.client.form.design.view.flex.LinearCaptionContainer;
 import lsfusion.client.form.object.ClientGroupObjectValue;
 import lsfusion.client.form.property.ClientPropertyDraw;
 import lsfusion.client.form.property.cell.EditBindingMap;
@@ -13,6 +15,7 @@ import lsfusion.client.form.property.cell.classes.view.IntegralPropertyRenderer;
 import lsfusion.client.form.property.cell.view.PropertyRenderer;
 import lsfusion.client.form.property.panel.view.DataPanelView;
 import lsfusion.client.form.property.panel.view.PanelView;
+import lsfusion.client.form.property.table.view.AsyncChangeInterface;
 import lsfusion.interop.classes.DataType;
 import lsfusion.interop.form.property.Compare;
 
@@ -39,7 +42,7 @@ public class ClientObjectType implements ClientType, ClientTypeClass {
 
     @Override
     public int getDefaultWidth(FontMetrics fontMetrics, ClientPropertyDraw property) {
-        return getFullWidthString("0000000", fontMetrics, property);
+        return getFullWidthString(BaseUtils.replicate('0', 13), fontMetrics, property);
     }
 
     @Override
@@ -51,16 +54,18 @@ public class ClientObjectType implements ClientType, ClientTypeClass {
         return new IntegralPropertyRenderer(property);
     }
 
-    public PanelView getPanelView(ClientPropertyDraw key, ClientGroupObjectValue columnKey, ClientFormController form) {
-        return new DataPanelView(form, key, columnKey);
+    public PanelView getPanelView(ClientPropertyDraw key, ClientGroupObjectValue columnKey, ClientFormController form, LinearCaptionContainer captionContainer) {
+        return new DataPanelView(form, key, columnKey, captionContainer);
     }
 
-    public PropertyEditor getChangeEditorComponent(Component ownerComponent, ClientFormController form, ClientPropertyDraw property, Object value) {
+    @Override
+    public PropertyEditor getChangeEditorComponent(Component ownerComponent, ClientFormController form, ClientPropertyDraw property, AsyncChangeInterface asyncChange, Object value) {
         assert false:"shouldn't be used anymore";
         return null;
     }
 
-    public PropertyEditor getValueEditorComponent(ClientFormController form, ClientPropertyDraw property, Object value) {
+    @Override
+    public PropertyEditor getValueEditorComponent(ClientFormController form, ClientPropertyDraw property, AsyncChangeInterface asyncChange, Object value) {
         return new IntegerPropertyEditor(value, ClientLongClass.instance.getDefaultFormat(), null, Long.class);
     }
 
@@ -82,18 +87,9 @@ public class ClientObjectType implements ClientType, ClientTypeClass {
         return ClientResourceBundle.getString("logics.object");
     }
 
-    public ClientType getDefaultType() {
-        return this;
-    }
-
     @Override
     public Compare[] getFilterCompares() {
-        return new Compare[] {EQUALS, GREATER, LESS, GREATER_EQUALS, LESS_EQUALS, NOT_EQUALS};
-    }
-
-    @Override
-    public Compare getDefaultCompare() {
-        return EQUALS;
+        return new Compare[] {EQUALS, GREATER, LESS, GREATER_EQUALS, LESS_EQUALS};
     }
 
     @Override

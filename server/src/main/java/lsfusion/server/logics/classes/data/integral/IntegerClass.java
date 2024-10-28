@@ -49,7 +49,7 @@ public class IntegerClass extends IntClass<Integer> {
         return value > 0;
     }
 
-    public String getDB(SQLSyntax syntax, TypeEnvironment typeEnv) {
+    public String getDBString(SQLSyntax syntax, TypeEnvironment typeEnv) {
         return syntax.getIntegerType();
     }
 
@@ -108,7 +108,8 @@ public class IntegerClass extends IntClass<Integer> {
 
     @Override
     public OverJDBField formatDBF(String fieldName) throws JDBFException {
-        return new OverJDBField(fieldName, 'N', Math.min(getWhole(), 253), getScale());
+        //values below zero need +1 for minus sign
+        return OverJDBField.createField(fieldName, 'N', getWhole() + 1, getScale());
     }
 
     @Override

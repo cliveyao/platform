@@ -6,7 +6,9 @@ title: 'Оператор EVAL'
 
 ### Синтаксис
 
-    EVAL [ACTION] expression [PARAMS paramExpr1, ..., paramExprN]
+```
+EVAL [ACTION] expression [PARAMS paramExpr1, ..., paramExprN]
+```
 
 ### Описание
 
@@ -31,8 +33,12 @@ title: 'Оператор EVAL'
 ### Примеры
 
 ```lsf
-addProperty  { EVAL ACTION 'MESSAGE \'Hello World\''; }  // исходный код, состоящий из одной инструкции, задается строковой константой
+// исходный код, состоящий из одной инструкции, задается строковой константой
+addProperty  { EVAL ACTION 'MESSAGE \'Hello World\''; }  
 
-code 'Исходные код' = DATA BPSTRING[2000] ();              // свойство, в которое пользователь может ввести исходный код
-execute 'Выполнить код'  { EVAL code(); }      // действие, выполняющее этот код
+// свойство, в которое пользователь может ввести исходный код
+code 'Исходные код' = DATA BPSTRING[2000] ();
+
+// действие, выполняющее этот код
+execute 'Выполнить код'  { EVAL code(); }
 ```

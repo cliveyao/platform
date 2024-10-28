@@ -1,15 +1,12 @@
 package lsfusion.gwt.client.form.classes.view;
 
-import com.google.gwt.dom.client.Style;
-import com.google.gwt.event.dom.client.ClickEvent;
-import com.google.gwt.event.dom.client.ClickHandler;
-import com.google.gwt.user.client.ui.*;
 import lsfusion.gwt.client.ClientMessages;
-import lsfusion.gwt.client.base.view.ResizableSystemModalWindow;
-import lsfusion.gwt.client.base.view.ResizableVerticalPanel;
+import lsfusion.gwt.client.base.view.DialogModalWindow;
+import lsfusion.gwt.client.base.view.FormButton;
+import lsfusion.gwt.client.base.view.PopupOwner;
 import lsfusion.gwt.client.classes.GObjectClass;
 
-public class GClassDialog extends ResizableSystemModalWindow {
+public class GClassDialog extends DialogModalWindow {
     private static final ClientMessages messages = ClientMessages.Instance.get();
 
     private final boolean concreate;
@@ -17,20 +14,15 @@ public class GClassDialog extends ResizableSystemModalWindow {
 
     private ClassTreePanel classPanel;
 
-    private Button btnOk;
-    private Button btnCancel;
-
     private GObjectClass chosenClass;
 
     public GClassDialog(GObjectClass baseClass, GObjectClass defaultClass, boolean concreate, final ClassChosenHandler classChosenHandler) {
-        super(messages.choosingClass());
+        super(messages.choosingClass(), false, null);
 
         this.concreate = concreate;
         this.classChosenHandler = classChosenHandler;
 
         configureLayout(baseClass, defaultClass);
-
-        bindUIHandlers();
     }
 
     private void configureLayout(GObjectClass baseClass, GObjectClass defaultClass) {
@@ -41,39 +33,13 @@ public class GClassDialog extends ResizableSystemModalWindow {
             }
         };
 
-        btnOk = new Button(messages.ok());
-        btnCancel = new Button(messages.cancel());
+        setBodyWidget(classPanel);
 
-        FlowPanel bottomPanel = new FlowPanel();
-        bottomPanel.add(btnOk);
-        bottomPanel.add(btnCancel);
+        FormButton btnOk = new FormButton(messages.ok(), FormButton.ButtonStyle.PRIMARY, event -> okPressed());
+        addFooterWidget(btnOk);
 
-        ResizableVerticalPanel bottomAlignedPanel = new ResizableVerticalPanel();
-        bottomAlignedPanel.setWidth("100%");
-        bottomAlignedPanel.add(bottomPanel);
-        bottomAlignedPanel.setCellHorizontalAlignment(bottomPanel, HasAlignment.ALIGN_RIGHT);
-
-        DockLayoutPanel centerPanel = new DockLayoutPanel(Style.Unit.PX);
-        centerPanel.addSouth(bottomAlignedPanel, 36);
-        centerPanel.add(classPanel);
-
-        ResizeLayoutPanel mainPanel = new ResizeLayoutPanel();
-        mainPanel.setPixelSize(500, 500);
-        mainPanel.add(centerPanel);
-
-        setContentWidget(mainPanel);
-    }
-
-    private void bindUIHandlers() {
-        btnOk.addClickHandler(new ClickHandler() {
-            @Override
-            public void onClick(ClickEvent event) {
-                okPressed();
-            }
-        });
-
-        btnCancel.addClickHandler(event -> chooseClass(null));
-        setWindowHiddenHandler(() -> classChosenHandler.onClassChosen(chosenClass));
+        FormButton btnCancel = new FormButton(messages.cancel(), FormButton.ButtonStyle.SECONDARY, event -> chooseClass(null));
+        addFooterWidget(btnCancel);
     }
 
     private void okPressed() {
@@ -90,9 +56,13 @@ public class GClassDialog extends ResizableSystemModalWindow {
         }
     }
 
-    public static GClassDialog showDialog(GObjectClass baseClass, GObjectClass defaultClass, boolean concreate, ClassChosenHandler classChosenHandler) {
-        GClassDialog classDlg = new GClassDialog(baseClass, defaultClass, concreate, classChosenHandler);
-        classDlg.show();
-        return classDlg;
+    public static void showDialog(GObjectClass baseClass, GObjectClass defaultClass, boolean concreate, ClassChosenHandler classChosenHandler, PopupOwner popupOwner) {
+        new GClassDialog(baseClass, defaultClass, concreate, classChosenHandler).show(popupOwner);
+    }
+
+    @Override
+    public void hide() {
+        super.hide();
+        classChosenHandler.onClassChosen(chosenClass);
     }
 }

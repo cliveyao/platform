@@ -59,7 +59,11 @@ public class LA<T extends PropertyInterface> extends LAP<T, Action<T>> {
     }
 
     public void execute(ExecutionEnvironment session, ExecutionStack stack, ObjectValue... objects) throws SQLException, SQLHandledException {
-        action.execute(getMapValues(objects), session, stack, null);
+        execute(session, stack, null, objects);
+    }
+
+    public void execute(ExecutionEnvironment session, ExecutionStack stack, FormEnvironment<T> formEnv, ObjectValue... objects) throws SQLException, SQLHandledException {
+        action.execute(getMapValues(objects), session, stack, formEnv);
     }
 
     public FlowResult execute(ExecutionContext<?> context, ObjectValue... objects) throws SQLException, SQLHandledException {
@@ -68,10 +72,6 @@ public class LA<T extends PropertyInterface> extends LAP<T, Action<T>> {
 
     public <X extends PropertyInterface> FlowResult execute(ExecutionContext<X> context) throws SQLException, SQLHandledException {
         return action.execute(BaseUtils.immutableCast(context.override(MapFact.EMPTY())));
-    }
-
-    public <P extends PropertyInterface> void setEventAction(LogicsModule lm, IncrementType type, Event event, LP<P> lp, Integer... mapping) {
-        lm.addEventAction(action, new PropertyMapImplement<>(lp.property.getChanged(type, event.getScope()), lp.getRevMap(listInterfaces, mapping)), MapFact.EMPTYORDER(), false, event, false, null);
     }
 
     public ValueClass[] getInterfaceClasses() { // obsolete
@@ -102,15 +102,15 @@ public class LA<T extends PropertyInterface> extends LAP<T, Action<T>> {
         mainProperty.getActionOrProperty().setEventAction(actionSID, actionImplement);
     }
 
-    public void addOperand(boolean hasWhen, List<ResolveClassSet> signature, Version version, Object... params) {
+    public void addOperand(boolean hasWhen, List<ResolveClassSet> signature, boolean optimisticAsync, Version version, Object... params) {
         ImList<ActionOrPropertyInterfaceImplement> readImplements = ActionOrPropertyUtils.readImplements(listInterfaces, params);
         ActionMapImplement<?, PropertyInterface> actImpl = (ActionMapImplement<?, PropertyInterface>)readImplements.get(0);
         if (action instanceof ListAction) {
             ((ListAction) action).addAction(actImpl, version);
         } else if (hasWhen) {
-            ((CaseAction) action).addCase((PropertyMapImplement<?, PropertyInterface>)readImplements.get(1), actImpl, version);
+            ((CaseAction) action).addCase((PropertyMapImplement<?, PropertyInterface>)readImplements.get(1), actImpl, optimisticAsync, version);
         } else {
-            ((CaseAction) action).addOperand(actImpl, signature, version);
+            ((CaseAction) action).addOperand(actImpl, signature, optimisticAsync, version);
         }
     }
 }

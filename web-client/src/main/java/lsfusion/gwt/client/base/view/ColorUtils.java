@@ -1,6 +1,7 @@
 package lsfusion.gwt.client.base.view;
 
-import lsfusion.gwt.client.base.GwtClientUtils;
+import lsfusion.gwt.client.base.GwtSharedUtils;
+import lsfusion.gwt.client.form.design.GFont;
 import lsfusion.gwt.client.view.StyleDefaults;
 
 import static java.lang.Math.max;
@@ -11,6 +12,12 @@ public class ColorUtils {
     public static int toRGB(String color) {
         if (color != null) {
             try {
+                //transform short form to full form: #00f -> #0000ff
+                if(color.startsWith("#") && color.length() == 4) {
+                    color = "#" + color.charAt(1) + color.charAt(1)
+                            + color.charAt(2) + color.charAt(2)
+                            + color.charAt(3) + color.charAt(3);
+                }
                 return Integer.decode(color);
             } catch (NumberFormatException e) {
                 return -1;
@@ -22,7 +29,7 @@ public class ColorUtils {
     public static String toHexString(int colorComponent) {
         String c = Integer.toHexString(colorComponent);
         if (c.length() < 2) {
-            c = GwtClientUtils.replicate('0', 2 - c.length()) + c;
+            c = GwtSharedUtils.replicate('0', 2 - c.length()) + c;
         }
         return c;
     }
@@ -31,23 +38,8 @@ public class ColorUtils {
         return "#" + toHexString(iR) + toHexString(iG) + toHexString(iB);
     }
 
-    public static String toColorString(int iA, int iR, int iG, int iB) {
-        return toHexString(iA) + toHexString(iR) + toHexString(iG) + toHexString(iB);
-    }
-
     public static String toColorString(int iColor) {
         return toColorString(getRed(iColor), getGreen(iColor), getBlue(iColor));
-    }
-
-    public static String mixColors(String color1, String color2) {
-        int rgb1 = toRGB(color1);
-        int rgb2 = toRGB(color2);
-        if (rgb1 == -1) {
-            return rgb2 != -1 ? color2 : null;
-        } else if (rgb2 == -1) {
-            return color1;
-        }
-        return toColorString(rgb1 & rgb2);
     }
 
     public static int getRed(int color) {
@@ -62,19 +54,19 @@ public class ColorUtils {
         return color & 0xFF;
     }
 
-    public static String getDisplayColor(String baseColor) {
+    public static String getThemedColor(String baseColor) {
         if (!colorTheme.isDefault() && baseColor != null) {
             int baseRGB = toRGB(baseColor);
-            return getDisplayColor(getRed(baseRGB), getGreen(baseRGB), getBlue(baseRGB));
+            return getThemedColor(getRed(baseRGB), getGreen(baseRGB), getBlue(baseRGB));
         }
         return baseColor;
     }
 
-    public static String getDisplayColor(int baseRed, int baseGreen, int baseBlue) {
+    public static String getThemedColor(int baseRed, int baseGreen, int baseBlue) {
         if (!colorTheme.isDefault()) {
             int baseBackgroundColor = toRGB(StyleDefaults.getDefaultComponentBackground());
-            int newBackgroundColor = toRGB(StyleDefaults.getComponentBackground(colorTheme));
-            int customLimitColor = toRGB(StyleDefaults.getTextColor(colorTheme));
+            int newBackgroundColor = toRGB(StyleDefaults.getComponentBackground());
+            int customLimitColor = toRGB(StyleDefaults.getTextColor());
 
             float[] hsb = RGBtoHSB(
                     max(min(getRed(baseBackgroundColor) - baseRed + getRed(newBackgroundColor), getRed(customLimitColor)), 0),
@@ -173,13 +165,91 @@ public class ColorUtils {
     }
     
 
-    public static String correctSB(String color, float saturation_factor, float brightness_factor) {
+    public static String darkenColor(String color) {
         int rgb = toRGB(color);
-        float[] hsb = RGBtoHSB(getRed(rgb), getGreen(rgb), getBlue(rgb));
-        return toColorString(HSBtoRGB(
-                hsb[0], 
-                max(min(hsb[1] * saturation_factor, 1.0f), 0), 
-                max(min(hsb[2] * brightness_factor, 1.0f), 0))
-        );
+        int r = getRed(rgb);
+        int g = getGreen(rgb);
+        int b = getBlue(rgb);
+        double opacity = Math.max((255f - Math.min(Math.min(r, g), b)) / 255, 0.5);
+        return rgbToRgba(getThemedColor(darkenComp(r, opacity), darkenComp(g, opacity), darkenComp(b, opacity)), opacity);
     }
+
+    private static int darkenComp(int comp, double opacity) {
+        int darken = (int) ((comp - 255 * opacity) / (1 - opacity));
+        return darken > 0 ? darken : (int) (comp * opacity);
+    }
+
+    private static String rgbToRgba(String rgb, double a) {
+        int color = toRGB(rgb);
+        return "rgba(" + getRed(color) + ", " + getGreen(color) + ", " + getBlue(color) + ", " + a + ")";
+    }
+
+    //copy of FontInfoConverter.convertToFontInfo
+    public static GFont convertToFontInfo(String value) {
+        if(value == null)
+            return null;
+
+        String name = null;
+
+        // Название шрифта состоит из нескольких слов
+        if(value.contains("\"")) {
+            int start = value.indexOf('"');
+            int end = value.indexOf('"', start + 1) + 1;
+            name = value.substring(start + 1, end - 1);
+            value = value.substring(0, start) + value.substring(end);
+        }
+
+        int size = 0;
+        boolean bold = false;
+        boolean italic = false;
+        for (String part : value.split(" ")) {
+            if (part.isEmpty()) {
+                continue;
+            }
+
+            if (part.equalsIgnoreCase("italic")) {
+                italic = true;
+            } else if (part.equalsIgnoreCase("bold")) {
+                bold = true;
+            } else {
+                int sz = toInt(part, -1);
+                if (sz != -1) {
+                    //числовой токен
+
+                    if (sz <= 0) {
+                        throw new RuntimeException("Size must be > 0");
+                    }
+                    if (size != 0) {
+                        //уже просетали size
+                        throw new RuntimeException("Incorrect format: several number tokens specified");
+                    }
+
+                    size = sz;
+                } else {
+                    //текстовый токен
+                    if (name != null) {
+                        //уже просетали name
+                        throw new RuntimeException("Incorrect format: several name tokens specified");
+                    }
+
+                    name = part;
+                }
+            }
+        }
+
+        return new GFont(name, size, bold, italic);
+    }
+
+    //copy from NumberUtils that is not available in gwt
+    private static int toInt(final String str, final int defaultValue) {
+        if(str == null) {
+            return defaultValue;
+        }
+        try {
+            return Integer.parseInt(str);
+        } catch (final NumberFormatException nfe) {
+            return defaultValue;
+        }
+    }
+
 }

@@ -1,6 +1,5 @@
 package lsfusion.base.col.interfaces.immutable;
 
-import lsfusion.base.BaseUtils;
 import lsfusion.base.Result;
 import lsfusion.base.col.interfaces.mutable.AddValue;
 import lsfusion.base.col.interfaces.mutable.mapvalue.*;
@@ -9,10 +8,7 @@ import lsfusion.base.lambda.set.SFunctionSet;
 
 import java.util.Comparator;
 import java.util.Map;
-import java.util.function.BiFunction;
-import java.util.function.Function;
-import java.util.function.IntFunction;
-import java.util.function.Supplier;
+import java.util.function.*;
 
 public interface ImMap<K, V> {
 
@@ -77,6 +73,11 @@ public interface ImMap<K, V> {
         return filterFnValues((FunctionSet<V>) filter);
     }
 
+    boolean containsFnValue(FunctionSet<V> filter);
+    default boolean containsFnValue(SFunctionSet<V> filter) {
+        return containsFnValue((FunctionSet<V>) filter);
+    }
+
     ImMap<K, V> filterFn(BiFunction<K, V, Boolean> filter);
     
     ImMap<K, V> splitKeys(BiFunction<K, V, Boolean> keys, Result<ImMap<K, V>> rest);
@@ -102,6 +103,7 @@ public interface ImMap<K, V> {
 
     ImMap<K, V> replaceValues(V value);
     ImMap<K, V> override(K key, V value);
+    ImMap<K, V> merge(K key, V value, AddValue<K, V> addValue);
     ImMap<K, V> replaceValue(K key, V value);
     ImMap<K, V> replaceValues(ImMap<? extends V, ? extends V> map);
     ImMap<K,V> override(ImMap<? extends K,? extends V> map); // перекрываем this, значениями из map, replace в BaseUtils !!! тут важно разделить те которые добавляют и нет
@@ -113,6 +115,7 @@ public interface ImMap<K, V> {
     <M> ImMap<K,M> mapItValues(Function<V, M> getter); // with aftereffect
     <M> ImMap<K,M> mapItValues(BiFunction<K, V, M> getter); // with aftereffect
     <E1 extends Exception, E2 extends Exception> ImMap<K,V> mapItIdentityValuesEx(ThrowingFunction<V, V, E1,E2> getter) throws E1, E2; // with aftereffect, identity optimization
+    void iterate(BiConsumer<K, V> consumer);
 
     // "функциональщина"
     <M> ImMap<K,M> mapValues(Function<V, M> getter);
@@ -126,6 +129,8 @@ public interface ImMap<K, V> {
     <MK, MV> ImMap<MK,MV> mapKeyValues(Function<K, MK> getterKey, BiFunction<K, V, MV> getterValue);
     <MK, MV> ImMap<MK,MV> mapKeyValues(BiFunction<K, V, MK> getterKey, BiFunction<K, V, MV> getterValue);
 
+    <MK, MV, E1 extends Exception, E2 extends Exception> ImMap<MK, MV> mapKeyValuesEx(ThrowingFunction<K, MK, E1,E2> getterKey, ThrowingFunction<V, MV, E1,E2> getterValue) throws E1, E2;
+    <MK, MV, E1 extends Exception, E2 extends Exception> ImMap<MK, MV> mapKeyValuesEx(ThrowingFunction<K, MK, E1,E2> getterKey, ThrowingBiFunction<K, V, MV, E1,E2> getterValue) throws E1, E2;
     <M, E1 extends Exception, E2 extends Exception> ImMap<K,M> mapKeyValuesEx(ThrowingFunction<K, M, E1,E2> getter) throws E1, E2;
     <M, E1 extends Exception, E2 extends Exception> ImMap<K,M> mapValuesEx(ThrowingFunction<V, M, E1,E2> getter) throws E1, E2;
 

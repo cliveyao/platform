@@ -1,12 +1,21 @@
 package lsfusion.gwt.client.form.design;
 
-import com.google.gwt.dom.client.Style;
+import com.google.gwt.dom.client.*;
 import com.google.gwt.user.client.DOM;
-import com.google.gwt.user.client.Element;
 import com.google.gwt.user.client.ui.RootPanel;
+import lsfusion.gwt.client.base.GwtClientUtils;
 import lsfusion.gwt.client.base.GwtSharedUtils;
+import lsfusion.gwt.client.base.Pair;
+import lsfusion.gwt.client.base.size.GFixedSize;
+import lsfusion.gwt.client.base.size.GSize;
+import lsfusion.gwt.client.form.controller.GFormController;
 
 import java.util.HashMap;
+import java.util.Map;
+import java.util.function.Function;
+
+import static lsfusion.gwt.client.base.GwtClientUtils.getDoubleOffsetHeight;
+import static lsfusion.gwt.client.base.GwtClientUtils.getDoubleOffsetWidth;
 
 public class GFontMetrics {
     //    private static final HashMap<MetricsCallback, Integer> calculationsInProgress = new HashMap<>();
@@ -109,8 +118,10 @@ public class GFontMetrics {
 //        }
 //    }
 //
-    private static final HashMap<GFontWidthString, FontMeasure> calculatedMeasures = new HashMap<>();
     private static final HashMap<GFont, HashMap<Integer, Integer>> calculatedCharWidth = new HashMap<>();
+
+    public static String widthChar = "0";
+    public static String heightChar = "0";
 
     public static int getCharWidthString(GFont font, int pixelWidth) {
         HashMap<Integer, Integer> widthMap = calculatedCharWidth.getOrDefault(font, new HashMap<>());
@@ -122,7 +133,7 @@ public class GFontMetrics {
             int delta = 1;
 
             while (delta >= 1) {
-                while (getCalcMeasure(new GFontWidthString(font, GwtSharedUtils.replicate('0', charWidth + delta * 2))).width < pixelWidth) {
+                while (getCalcMeasure(new GFontWidthString(font, GwtSharedUtils.replicate(widthChar, charWidth + delta * 2))).first.getPivotSize() < pixelWidth) {
                     delta = delta * 2;
                 }
                 charWidth += delta;
@@ -134,65 +145,180 @@ public class GFontMetrics {
         }
     }
 
-    private static FontMeasure getCalcMeasure(GFontWidthString font) {
-        FontMeasure measure = calculatedMeasures.get(font);
+    private static final HashMap<GFontWidthString, Pair<GSize, GSize>> calculatedMeasures = new HashMap<>();
+    private static Pair<GSize, GSize> getCalcMeasure(GFontWidthString fontWidth) {
+        Pair<GSize, GSize> measure = calculatedMeasures.get(fontWidth);
         if(measure != null)
             return measure;
 
-        final Element element = DOM.createSpan();
+        final Element element = DOM.createDiv();
 
         Style style = element.getStyle();
 
-        style.setDisplay(Style.Display.INLINE);
+        double fontSize = -1;
+        GFont font = fontWidth.font;
+        if(font != null) {
+            fontSize = font.size;
+            GFormController.setFont(element, font);
+        }
+        if (fontSize <= 0) {
+            fontSize = getPixelSize(GFixedSize.Type.EM);
+        }
+
+        style.setDisplay(Style.Display.INLINE_BLOCK);
+        style.setPadding(0, Style.Unit.PX);
+        style.setPosition(Style.Position.ABSOLUTE);
+        style.setVisibility(Style.Visibility.HIDDEN);
+
+        // just in case
         style.setMargin(0, Style.Unit.PX);
         style.setBorderWidth(0, Style.Unit.PX);
-        style.setPadding(0, Style.Unit.PX);
-        style.setVisibility(Style.Visibility.HIDDEN);
-        style.setPosition(Style.Position.ABSOLUTE);
-        style.setWhiteSpace(Style.WhiteSpace.PRE);
 
-        font.font.apply(style);
+//        style.setProperty("lineHeight", "normal");
 
-        final String text = font.widthString == null ? "0" : font.widthString;
-        element.setInnerText(text);
+        // commented as it's not clear what it is for
+        // but leads to replacing every defined font size with 12px
+//        // we're setting convertSize to get relevant pixelSize
+//        if(GFixedSize.VALUE_TYPE != GFixedSize.Type.PX)
+//            style.setFontSize(GFixedSize.convertFontSize, Style.Unit.PX);
 
-        final com.google.gwt.dom.client.Element body = RootPanel.getBodyElement();
+        String string = fontWidth.sampleString;
+        element.setInnerText(string);
+        style.setWhiteSpace(string.contains("\n") ? Style.WhiteSpace.PRE_WRAP : Style.WhiteSpace.PRE);
+
+        double fFontSize = fontSize;
+        measure = calcSize(element, size -> GSize.getCalcValueSize(size, fFontSize));
+        calculatedMeasures.put(fontWidth, measure);
+        return measure;
+    }
+
+    private static <T> Pair<T, T> calcSize(Element element, Function<Integer, T> sizeCalc) {
+        final Element body = RootPanel.getBodyElement();
         DOM.appendChild(body, element);
 
         try {
             final int width = element.getOffsetWidth();
             final int height = element.getOffsetHeight();
 
-            measure = new FontMeasure((int) Math.round((double) width), (int) Math.round((double) height));
+            int roundedWidth = (int) Math.round((double) width);
+            int roundedHeight = (int) Math.round((double) height);
+
+            return new Pair<>(sizeCalc.apply(roundedWidth), sizeCalc.apply(roundedHeight));
         } finally {
             element.getParentElement().removeChild(element);
         }
-        calculatedMeasures.put(font, measure);
+    }
+
+    private static <T> Pair<T, T> calcSizeDouble(Element element, Function<Double, T> sizeCalc) {
+        final Element body = RootPanel.getBodyElement();
+        DOM.appendChild(body, element);
+
+        try {
+            final double width = getDoubleOffsetWidth(element);
+            final double height = getDoubleOffsetHeight(element);
+
+            return new Pair<>(sizeCalc.apply(width), sizeCalc.apply(height));
+        } finally {
+            element.getParentElement().removeChild(element);
+        }
+    }
+
+
+    public static GSize getStringWidth(GFont font, String widthString) {
+        return getCalcMeasure(new GFontWidthString(font, widthString)).first;
+    }
+
+    public static GSize getStringHeight(GFont font, int charHeight) {
+        return getStringHeight(font, getDefaultHeightString(charHeight));
+    }
+
+    public static GSize getStringHeight(GFont font, String heightString) {
+        return getCalcMeasure(new GFontWidthString(font, heightString)).second;
+    }
+
+    public static String getDefaultWidthString(int length) {
+        return GwtSharedUtils.replicate(GFontMetrics.widthChar, length);
+    }
+
+    public static String getDefaultHeightString(int charHeight) {
+        return GFontMetrics.heightChar + GwtSharedUtils.replicate("\n" + GFontMetrics.heightChar, charHeight - 1);
+    }
+
+    private static class GridParams {
+
+        private final int lineCount;
+        private final int columnCount;
+        private final boolean hasHeaders;
+        private final boolean hasFooters;
+
+        public GridParams(int lineCount, int columnCount, boolean hasHeaders, boolean hasFooters) {
+            this.lineCount = lineCount;
+            this.columnCount = columnCount;
+            this.hasHeaders = hasHeaders;
+            this.hasFooters = hasFooters;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            return this == o || o instanceof GridParams && lineCount == ((GridParams) o).lineCount &&
+                    columnCount == ((GridParams) o).columnCount &&
+                    hasHeaders == ((GridParams) o).hasHeaders &&
+                    hasFooters == ((GridParams) o).hasFooters;
+        }
+
+        @Override
+        public int hashCode() {
+            return (31 * lineCount + columnCount) + (hasHeaders ? 13 : 0) + (hasFooters ? 5 : 0);
+        }
+    }
+    private static final HashMap<GridParams, Pair<GSize, GSize>> calculatedPaddings = new HashMap<>();
+    public static Pair<GSize, GSize> getGridPaddings(int linesCount, int columnCount, boolean hasHeaders, boolean hasFooters) {
+        GridParams gridParams = new GridParams(linesCount, columnCount, hasHeaders, hasFooters);
+        Pair<GSize, GSize> measure = calculatedPaddings.get(gridParams);
+        if(measure != null)
+            return measure;
+
+        TableElement tableElement = Document.get().createTableElement();
+
+        tableElement.getStyle().setProperty("width", "fit-content"); // because bootstrap sets table width to 100%
+        tableElement.getStyle().setProperty("display", "block"); //in firefox width does not calculate correctly because in firefox "width: fit-content" does not work without "display: block".
+        GwtClientUtils.addClassName(tableElement, "table");
+
+        if(hasHeaders) {
+            TableSectionElement headerElement = tableElement.createTHead();
+            addCells(headerElement.insertRow(-1), columnCount);
+        }
+
+        TableSectionElement bodyElement = GwtClientUtils.createTBody(tableElement);
+        for(int i = 0; i < linesCount; i++)
+            addCells(bodyElement.insertRow(-1), columnCount);
+
+        if(hasFooters) {
+            TableSectionElement headerElement = tableElement.createTHead();
+            addCells(headerElement.insertRow(-1), columnCount);
+        }
+
+        double remSize = getPixelSize(GFixedSize.Type.REM);
+        measure = calcSize(tableElement, size -> GSize.getCalcComponentSize(size, remSize));
+        calculatedPaddings.put(gridParams, measure);
         return measure;
     }
 
-    public static int getStringWidth(GFontWidthString fontWidthString) {
-        return getCalcMeasure(fontWidthString).width;
+    private static void addCells(TableRowElement headerRow, int cellsCount) {
+        for(int i = 0; i< cellsCount; i++)
+            headerRow.insertCell(-1);
     }
 
-    public static int getSymbolHeight(GFont font) {
-        FontMeasure measure = getCalcMeasure(font == null ? GFontWidthString.DEFAULT_FONT : new GFontWidthString(font));
-        return measure != null ? measure.height : 0;
-    }
-
-    public static int getSymbolWidth(GFont font) {
-        FontMeasure measure = getCalcMeasure(font == null ? GFontWidthString.DEFAULT_FONT : new GFontWidthString(font));
-        return measure != null ? measure.width : 0;
-    }
-
-    private static class FontMeasure {
-        final int width;
-        final int height;
-
-        private FontMeasure(int width, int height) {
-            this.width = width;
-            this.height = height;
+    private static Map<GFixedSize.Type, Double> calculatedSizes = new HashMap<>();
+    public static double getPixelSize(GFixedSize.Type type) {
+        Double calculatedSize = calculatedSizes.get(type);
+        if (calculatedSize == null) {
+            final Element element = DOM.createDiv();
+            element.getStyle().setProperty("width", "1" + type.name().toLowerCase());
+            calculatedSize = calcSizeDouble(element, size -> size).first;
+            calculatedSizes.put(type, calculatedSize);
         }
+        return calculatedSize;
     }
 
 //    public interface MetricsCallback {

@@ -1,21 +1,25 @@
 package lsfusion.gwt.client.base.view;
 
-import com.google.gwt.user.client.DOM;
-import com.google.gwt.user.client.Element;
+import com.google.gwt.dom.client.Document;
+import com.google.gwt.dom.client.Element;
+import com.google.gwt.dom.client.Style;
 import com.google.gwt.user.client.ui.Widget;
+import lsfusion.gwt.client.base.GwtClientUtils;
+
+import static lsfusion.gwt.client.view.MainFrame.v5;
 
 /**
  * A widget that displays progress on an arbitrary scale.
  *
  * <h3>CSS Style Rules</h3>
  * <ul class='css'>
- * <li>.gwt-ProgressBar-shell { primary style } </li>
- * <li>.gwt-ProgressBar-shell .gwt-ProgressBar-bar { the actual progress bar }
+ * <li>.progress { primary style } </li>
+ * <li>.progress .progress-bar { the actual progress bar }
  * </li>
- * <li>.gwt-ProgressBar-shell .gwt-ProgressBar-text { text on the bar } </li>
- * <li>.gwt-ProgressBar-shell .gwt-ProgressBar-text-firstHalf { applied to text
+ * <li>.progress .progress { text on the bar } </li>
+ * <li>.progress .progress-text-firstHalf { applied to text
  * when progress is less than 50 percent } </li>
- * <li>.gwt-ProgressBar-shell .gwt-ProgressBar-text-secondHalf { applied to
+ * <li>.progress .progress-text-secondHalf { applied to
  * text when progress is greater than 50 percent } </li>
  * </ul>
  */
@@ -128,23 +132,23 @@ public class ProgressBar extends Widget implements ResizableWidget {
         setTextFormatter(textFormatter);
 
         // Create the outer shell
-        setElement(DOM.createDiv());
-        DOM.setStyleAttribute(getElement(), "position", "relative");
-        setStyleName("gwt-ProgressBar-shell");
+        setElement(Document.get().createDivElement());
+        getElement().getStyle().setPosition(Style.Position.RELATIVE);
+       GwtClientUtils.addClassName(this, "progress");
 
         // Create the bar element
-        barElement = DOM.createDiv();
-        DOM.appendChild(getElement(), barElement);
-        DOM.setStyleAttribute(barElement, "height", "100%");
-        DOM.setElementProperty(barElement, "className", "gwt-ProgressBar-bar");
+        barElement = Document.get().createDivElement();
+        getElement().appendChild(barElement);
+        barElement.getStyle().setHeight(100, Style.Unit.PCT);
+        GwtClientUtils.addClassName(barElement, "progress-bar");
 
         // Create the text element
-        textElement = DOM.createDiv();
-        DOM.appendChild(getElement(), textElement);
-        DOM.setStyleAttribute(textElement, "position", "absolute");
-        DOM.setStyleAttribute(textElement, "top", "0px");
-        DOM.setElementProperty(textElement, "className",
-                "gwt-ProgressBar-text-firstHalf");
+        textElement = Document.get().createDivElement();
+        getElement().appendChild(textElement);
+        Style textElementStyle = textElement.getStyle();
+        textElementStyle.setPosition(Style.Position.ABSOLUTE);
+        textElementStyle.setTop(0, Style.Unit.PX);
+        GwtClientUtils.addClassNames(textElement, "progress-text", "progress-text-firstHalf");
 
         // Set the current progress
         setProgress(curProgress);
@@ -223,9 +227,9 @@ public class ProgressBar extends Widget implements ResizableWidget {
      */
     public void onResize(int width, int height) {
         if (textVisible) {
-            int textWidth = DOM.getElementPropertyInt(textElement, "offsetWidth");
+            int textWidth = textElement.getOffsetWidth();
             int left = (width / 2) - (textWidth / 2);
-            DOM.setStyleAttribute(textElement, "left", left + "px");
+            textElement.getStyle().setLeft(Math.max(left, 0), Style.Unit.PX);
         }
     }
 
@@ -234,8 +238,8 @@ public class ProgressBar extends Widget implements ResizableWidget {
      */
     public void redraw() {
         if (isAttached()) {
-            int width = DOM.getElementPropertyInt(getElement(), "clientWidth");
-            int height = DOM.getElementPropertyInt(getElement(), "clientHeight");
+            int width = getElement().getClientWidth();
+            int height = getElement().getClientHeight();
             onResize(width, height);
         }
     }
@@ -274,17 +278,16 @@ public class ProgressBar extends Widget implements ResizableWidget {
 
         // Calculate percent complete
         int percent = (int) (100 * getPercent());
-        DOM.setStyleAttribute(barElement, "width", percent + "%");
-        DOM.setElementProperty(textElement, "innerHTML", generateText(curProgress));
+        barElement.getStyle().setWidth(percent, Style.Unit.PCT);
+        String text = generateText(curProgress);
+        textElement.setInnerHTML(text);
+        textElement.setTitle(text);
 
         // Set the style depending on the size of the bar
-        if (percent < 50) {
-            DOM.setElementProperty(textElement, "className",
-                    "gwt-ProgressBar-text gwt-ProgressBar-text-firstHalf");
-        } else {
-            DOM.setElementProperty(textElement, "className",
-                    "gwt-ProgressBar-text gwt-ProgressBar-text-secondHalf");
-        }
+        if(percent < 50)
+            GwtClientUtils.addClassName(textElement, "progress-text", "progress-text-firstHalf", v5);
+        else
+            GwtClientUtils.addClassName(textElement, "progress-text", "progress-text-secondHalf", v5);
 
         // Realign the text
         redraw();
@@ -307,10 +310,10 @@ public class ProgressBar extends Widget implements ResizableWidget {
     public void setTextVisible(boolean isVisible) {
         this.textVisible = isVisible;
         if (this.textVisible) {
-            DOM.setStyleAttribute(textElement, "display", "");
+            textElement.getStyle().clearDisplay();
             redraw();
         } else {
-            DOM.setStyleAttribute(textElement, "display", "none");
+            textElement.getStyle().setDisplay(Style.Display.NONE);
         }
     }
 
@@ -355,7 +358,7 @@ public class ProgressBar extends Widget implements ResizableWidget {
     @Override
     protected void onLoad() {
         // Reset the position attribute of the parent element
-        DOM.setStyleAttribute(getElement(), "position", "relative");
+        getElement().getStyle().setPosition(Style.Position.RELATIVE);
         ResizableWidgetCollection.get().add(this);
         redraw();
     }

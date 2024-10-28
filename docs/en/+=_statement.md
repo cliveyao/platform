@@ -6,8 +6,10 @@ The `+=` statement adds an implementation (selection option) to an [abstract pro
 
 ### Syntax
 
-    propertyId (param1, ..., paramN) += implExpr;
-    propertyId (param1, ..., paramN) += WHEN whenExpr THEN implExpr;
+```
+propertyId (param1, ..., paramN) += implExpr;
+propertyId (param1, ..., paramN) += WHEN whenExpr THEN implExpr;
+```
 
 ### Description
 
@@ -48,7 +50,9 @@ name(BClass b) = 'B' + innerName(b);
 name(CClass c) = 'C' + innerName(c);
 
 name[AClass](BClass b) += name(b);
-name(CClass c) += name(c); // Here name[AClass] will be found on the left, because the search goes only among abstract properties, and on the right name[CClass] will be found
+// Here name[AClass] will be found on the left, because the search goes only among abstract properties, 
+// and on the right name[CClass] will be found
+name(CClass c) += name(c); 
 name(DClass d) += 'DClass' + innerName(d) IF d IS DClass;
 ```
 

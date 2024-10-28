@@ -2,10 +2,324 @@ MODULE SystemEvents;
 
 REQUIRE System, Reflection, Time;
 
+// some extracted from onStarted() important things needed for early [anonymous] login on server with lightStart on (first of all for tryonline logics) 
+onInit ABSTRACT LIST ();
 onStarted  ABSTRACT LIST ( );
 onClientStarted ABSTRACT LIST ();
 onDesktopClientStarted  ABSTRACT LIST ( );
 onWebClientStarted  ABSTRACT LIST ( );
+
+onWebClientInit ABSTRACT LIST ();
+onWebClientInit = DATA LOCAL INTEGER (STRING);
+
+// todo onLoginLoad = ABSTRACT CASE INTEGER(STRING) IS DEPECATED! DO NOT USE! Only for backward compatibility
+onLoginLoad = ABSTRACT CASE INTEGER(STRING);
+onLoginInit ABSTRACT LIST ();
+onLoginInit = DATA LOCAL INTEGER (STRING);
+
+onLoginInit() +{
+    FOR INTEGER order = onLoginLoad(STRING s) DO {onLoginInit(s) <- order; } // for backward compatibility
+    
+    onLoginInit('disable-indexing.html') <- -1;
+}
+
+// todo onWebClientLoad DEPECATED! DO NOT USE! Only for backward compatibility
+onWebClientLoad ABSTRACT LIST ();
+onWebClientStarted () +{
+    onWebClientLoad();
+}
+
+onInitApply {
+    onInit();
+    APPLY;
+}
+
+notFirstStart = DATA BOOLEAN ();
+firstStart () = NOT notFirstStart();
+onFirstStarted ABSTRACT LIST ( );
+
+onStartedApply() {
+    onStarted();
+    IF firstStart() THEN {
+        onFirstStarted();
+        notFirstStart() <- TRUE;
+    }
+    APPLY;
+}
+
+onFinallyStarted  ABSTRACT LIST ( );
+onFinallyStartedApply() {
+    onFinallyStarted();
+    APPLY;
+}
+
+onClientStartedApply() {
+    onClientStarted();
+    APPLY;
+}
+
+isIconModuleAvailable = ABSTRACT BOOLEAN ();
+iconIfAvailable(STRING imagePath, STRING fontClasses) = imagePath + (IF isIconModuleAvailable() THEN ';' + fontClasses ELSE '');
+
+//todo logo() logic temporarily commented to use lsf-font .css class and AppImages.java
+
+defaultLogo() = iconIfAvailable('logo.png','lsfi lsfi-logo-vertical');
+//defaultLogo() = DATA IMAGEFILE ();
+//onStarted() + {
+//    IF NOT defaultLogo() THEN {
+//        readResource('/images/logo.png');
+//        defaultLogo() <- IMAGEFILE(resourceFile());
+//    }
+//}
+
+
+logo() = defaultLogo();
+//logo() = OVERRIDE logicsLogo(), defaultLogo();
+
+logoAction() {}
+logoActionClass = ABSTRACT STRING();
+logoHeader() = ABSTRACT STRING();
+
+NAVIGATOR {
+    NEW logoAction WINDOW logo PARENT HEADER logoHeader() IMAGE logo() CLASS logoActionClass();
+}
+
+CLASS Theme '{system.events.theme}' {
+    excel '{system.events.theme.excel}',
+    classic '{system.events.theme.classic}',
+    flatly '{system.events.theme.flatly}',
+    lumen '{system.events.theme.lumen}',
+    quartz '{system.events.theme.quartz}',
+    simplex '{system.events.theme.simplex}',
+    sketchy '{system.events.theme.sketchy}',
+    yeti '{system.events.theme.yeti}'
+}
+
+designEnvTheme '{system.events.theme}' = DATA Theme (DesignEnv);
+captionTheme '{system.events.theme}' (DesignEnv d) = staticCaption(designEnvTheme(d));
+serverTheme '{system.events.theme}' = DATA Theme ();
+captionServerTheme '{system.events.theme}' = staticCaption(serverTheme());
+theme '{system.events.theme}' (DesignEnv d) = OVERRIDE designEnvTheme(d), serverTheme(), Theme.classic;
+nameTheme = STRING(basicStaticName(theme(currentDesignEnv())));
+useBootstrap (DesignEnv d) = theme(d) != Theme.excel;
+useBootstrap() = useBootstrap(currentDesignEnv()) PREREAD;
+
+CLASS Size '{system.events.size}' {
+    normal '{system.events.size.normal}',
+    mini '{system.events.size.mini}',
+    tiny '{system.events.size.tiny}'
+}
+
+designEnvSize '{system.events.size}' = DATA Size (DesignEnv);
+captionSize '{system.events.size}' (DesignEnv d) = staticCaption(designEnvSize(d));
+serverSize '{system.events.size}' = DATA Size ();
+captionServerSize '{system.events.size}' = staticCaption(serverSize());
+
+heuristicSize = ABSTRACT Size();
+size '{system.events.size}' (DesignEnv d) = OVERRIDE designEnvSize(d), serverSize(), heuristicSize();
+isMini = size(currentDesignEnv()) == Size.mini;
+isTiny = size(currentDesignEnv()) == Size.tiny;
+
+CLASS Navbar '{system.events.navbar}' {
+    horizontal '{system.events.navbar.horizontal}',
+    vertical '{system.events.navbar.vertical}'
+}
+
+designEnvNavbar '{system.events.navbar}' = DATA Navbar (DesignEnv);
+captionNavbar '{system.events.navbar}' (DesignEnv d) = staticCaption(designEnvNavbar(d));
+serverNavbar '{system.events.navbar}' = DATA Navbar ();
+captionServerNavbar '{system.events.navbar}' = staticCaption(serverNavbar());
+navbar '{system.events.navbar}' (DesignEnv d) = OVERRIDE designEnvNavbar(d), serverNavbar(), Navbar.horizontal;
+verticalNavbar = navbar(currentDesignEnv()) == Navbar.vertical;
+
+colorThemeCaption = (CASE
+    WHEN currentColorTheme() == ColorTheme.light THEN '{system.events.light.mode}'
+    WHEN currentColorTheme() == ColorTheme.dark THEN '{system.events.dark.mode}'
+    ELSE '{system.events.auto.mode}') IF NOT noSystemToolbarCaptions();
+colorThemeImage = CASE 
+    WHEN currentColorTheme() == ColorTheme.light THEN 'lightMode.png' 
+    WHEN currentColorTheme() == ColorTheme.dark THEN 'darkMode.png' 
+    ELSE 'autoMode.png';
+toggleColorTheme() {
+    designEnvColorTheme(currentDesignEnv()) <- CASE
+        WHEN currentColorTheme() == ColorTheme.light THEN ColorTheme.dark
+        WHEN currentColorTheme() == ColorTheme.dark THEN NULL
+        ELSE ColorTheme.light;
+    apply();
+    formRefresh();
+}
+
+useClientNavigatorPinMode '{system.events.navigator.pin.use.client}' = DATA BOOLEAN (DesignEnv);
+designEnvNavigatorPinMode '{navigator.pin.mode}' = DATA TBOOLEAN (DesignEnv);
+serverNavigatorPinMode '{navigator.pin.mode}' = DATA TBOOLEAN ();
+navigatorPinMode '{navigator.pin.mode}' (DesignEnv d) = IF useClientNavigatorPinMode(d) THEN designEnvNavigatorPinMode(d) ELSE serverNavigatorPinMode();
+navigatorPinMode() = navigatorPinMode(currentDesignEnv());
+
+suppressOnFocusChange '{service.suppress.on.focus.change}' = DATA TBOOLEAN(DesignEnv);
+contentWordWrap '{service.content.word.wrap}' = DATA TBOOLEAN(DesignEnv);
+contentWordWrap = ABSTRACT BOOLEAN ();
+userFiltersManualApplyMode '{service.user.filters.manual.apply.mode}' = DATA TBOOLEAN (DesignEnv);
+
+navigatorPinModeCaption = (IF navigatorPinMode()
+    THEN (IF navigatorPinMode() == TFALSE
+        THEN '{system.events.navigator.pin.navbar}'
+        ELSE '{system.events.navigator.pin.all}')
+    ELSE '{system.events.navigator.pin.none}') IF NOT noSystemToolbarCaptions();
+navigatorPinModeImage = IF navigatorPinMode() 
+    THEN (IF navigatorPinMode() == TFALSE 
+        THEN iconIfAvailable('navigatorPinNavbar.png','fa-solid fa-thumbtack fa-rotate-45') 
+        ELSE iconIfAvailable('navigatorPinAll.png','fa-solid fa-thumbtack')) 
+    ELSE iconIfAvailable('navigatorPinNone.png','fa-solid fa-thumbtack fa-rotate-90');
+toggleNavigatorPinMode () {
+    designEnvNavigatorPinMode(currentDesignEnv()) <- IF navigatorPinMode() THEN (IF navigatorPinMode() == TFALSE THEN TTRUE ELSE NULL) ELSE TFALSE;
+    useClientNavigatorPinMode(currentDesignEnv()) <- TRUE;
+    apply();
+}
+navigatorPinModeClass = ABSTRACT STRING();
+
+needReload = DATA LOCAL BOOLEAN();
+WHEN LOCAL CHANGED (captionTheme(DesignEnv de)) OR CHANGED (captionNavbar(de))
+    OR CHANGED (suppressOnFocusChange(de))  OR CHANGED (contentWordWrap(de))  OR CHANGED (userFiltersManualApplyMode(de)) DO {
+    needReload() <- TRUE;
+} 
+needReloadText = '{system.events.design.need.reload}';
+
+FORM design '{system.events.design}'
+    OBJECTS de = DesignEnv PANEL
+    PROPERTIES(de) captionTheme, captionSize SHOWIF useBootstrap(de), captionNavbar, suppressOnFocusChange, contentWordWrap, userFiltersManualApplyMode
+
+    FILTERS de = currentDesignEnv()
+
+    PROPERTIES() needReloadText HEADER NULL SHOWIF needReload()
+
+    EVENTS ON APPLY { 
+        IF needReload() 
+            THEN reload();
+    }
+;
+
+DESIGN design {
+    width = -1;
+    height = -1;
+    MOVE PROPERTY(captionTheme(de));
+    MOVE PROPERTY(captionSize(de));
+    MOVE PROPERTY(captionNavbar(de));
+    MOVE PROPERTY(suppressOnFocusChange(de)) {
+        class = NULL; // Without "class = NULL", the suppressOnFocusChange property has the css-class "form-switch" because the heuristic mechanism is triggered by the "on" letters in the property name.
+    };
+    MOVE PROPERTY(contentWordWrap(de));
+    MOVE PROPERTY(userFiltersManualApplyMode(de));
+    MOVE PROPERTY(needReloadText()) {
+        class = 'alert alert-secondary';
+        autoSize = TRUE;
+    }
+    REMOVE PROPERTY(formApply());
+    REMOVE PROPERTY(formCancel());
+    MOVE TOOLBARBOX;
+}
+
+showDesign() {
+    SHOW design FLOAT;
+}
+
+designCaption = '{system.events.design}' IF NOT noSystemToolbarCaptions();
+designImage = iconIfAvailable('design.png','fa-solid fa-eye');
+
+paddingCss(Size s) = CASE
+    WHEN s == Size.mini THEN 'mini-padding.css'
+    WHEN s == Size.tiny THEN 'tiny-padding.css';
+
+fontCss(Size s) = CASE
+    WHEN s == Size.mini THEN 'mini-font.css'
+    WHEN s == Size.tiny THEN 'tiny-font.css';
+
+onWebClientInit() + {
+    IF useBootstrap() THEN {
+        onWebClientInit(nameTheme() + '/bootstrap.min.css') <- 1;
+        onWebClientInit(nameTheme() + '/bootstrap-adapter.css') <- 2;
+        onWebClientInit('bootstrap.min.js') <- 3; 
+        onWebClientInit('bootstrap-background-inherit.css') <- 4; 
+        onWebClientInit('bootstrap-ext.css') <- 5; 
+        onWebClientInit('bootstrap-dark.css') <- 6;
+        
+        onWebClientInit(paddingCss(size(currentDesignEnv()))) <- 7;
+        onWebClientInit(fontCss(size(currentDesignEnv()))) <- 8;
+        
+        onWebClientInit('selectize.bootstrap5.min.css') <- 9;
+
+        onWebClientInit('select2.js') <- 10;
+        onWebClientInit('select2.min.css') <- 11;
+        onWebClientInit('select2-bootstrap-5-theme.css') <- 12;
+
+        onWebClientInit('bootstrap-arrow-buttons.css') <- 13;
+    } ELSE {
+        onWebClientInit('table.css') <- 1;
+        onWebClientInit('table-border.css') <- 2;
+        onWebClientInit('table-sticky.css') <- 3;
+        onWebClientInit('table-container-border.css') <- 4;
+        onWebClientInit('tree.css') <- 4;
+        onWebClientInit('caption-panel-border.css') <- 5;
+        onWebClientInit('tab-panel.css') <- 6;
+        onWebClientInit('navigator.css') <- 7;
+        onWebClientInit('layout.css') <- 9;
+        onWebClientInit('panel-renderer-border.css') <- 10;
+        onWebClientInit('property-toolbar-border.css') <- 11;
+        onWebClientInit('main.css') <- 12;
+        onWebClientInit('main-border.css') <- 13;
+        onWebClientInit('popup-menu.css') <- 14;
+        onWebClientInit('resizable-window.css') <- 15;
+        onWebClientInit('property.css') <- 16;
+        onWebClientInit('button.css') <- 17;
+        onWebClientInit('filter.css') <- 18;
+        onWebClientInit('toolbar.css') <- 19;
+        onWebClientInit('pivot.css') <- 20;
+        onWebClientInit('option.css') <- 21;
+        onWebClientInit('selectize.css') <- 22;
+        onWebClientInit('select.css') <- 23;
+        onWebClientInit('multiple-select.js') <- 24;
+        onWebClientInit('multiple-select.min.css') <- 25;
+    }
+
+    onWebClientInit('scrollbar.css') <- 26;
+    onWebClientInit('input-file.js') <- 27;
+    onWebClientInit('input-quill.js') <- 28;
+    onWebClientInit('input-quill.css') <- 29;
+    onWebClientInit('select.js') <- 30;
+    onWebClientInit('selectize.js') <- 31;
+    onWebClientInit('input.js') <- 32;
+    onWebClientInit('air-datepicker.js') <- 33;
+    onWebClientInit('air-datepicker.css') <- 34;
+}
+
+readDBNames INTERNAL 'lsfusion.server.logics.action.ReadDBNamesAction' ();
+currentDBName = DATA LOCAL STRING ();
+unusedDBNames = DATA LOCAL STRING (STRING);
+onStarted() + {
+    readDBNames();    
+    readResourcePaths('/onStarted/.*\\.sql'); // get only .sql files
+    FOR STRING s = resourcePaths(s) DO {
+        LOCAL unused = BOOLEAN();
+        unused() <- NULL;
+        FOR STRING t = unusedDBNames(t) DO {
+            IF isSubstring(resourcePaths(s), '/' + unusedDBNames(t) + '/') THEN {
+                unused() <- TRUE;
+            }
+        } 
+        
+        IF NOT unused() THEN {
+            INTERNAL DB resourcePaths(s);
+        }
+    }
+}
+
+onWebClientInit() + {
+    readResourcePaths('/onStarted/.*');
+    FOR STRING s = resourcePaths(s) DO {
+        IF NOT endsWith(resourcePaths(s), '.sql') THEN {
+            onWebClientInit(resourcePaths(s)) <- 1;
+        }
+    }
+}
 
 CLASS ABSTRACT Exception '{system.events.exception}';
 CLASS ClientException '{system.events.client.exception}' : Exception;
@@ -74,6 +388,7 @@ FORM clientTypes
 
 CLASS ConnectionStatus '{system.events.connection.status}' {
     connectedConnection '{system.events.connection.status.connected}',
+    disconnectingConnection '{system.events.connection.status.disconnecting}',
     disconnectedConnection '{system.events.connection.status.disconnected}'
 }
 TABLE connectionStatus (ConnectionStatus);
@@ -91,6 +406,20 @@ computer '{system.events.computer.connection}' = DATA Computer (Connection);
 hostnameComputer '{system.events.hostname.computer.connection}'(Connection connection) = hostname(computer(connection));
 
 remoteAddress '{system.events.remote.address.connection}' = DATA STRING[40] (Connection);
+webHost '{system.events.web.host.connection}' = DATA STRING (Connection);
+webPort '{system.events.web.port.connection}' = DATA INTEGER (Connection);
+contextPath '{system.events.context.path.connection}' = DATA STRING (Connection);
+servletPath '{system.events.context.path.connection}' = DATA STRING (Connection);
+pathInfo '{system.events.path.info.connection}' = DATA STRING (Connection);
+query '{system.events.query.connection}' = DATA STRING (Connection);
+scheme '{system.events.context.path.scheme}' = DATA STRING (Connection);
+
+origin(Connection c) = scheme(c) + '://' + webHost(c) + ':' + webPort(c); 
+webPath(Connection c) = origin(c) + contextPath(c);
+
+originUrl(Connection cn, STRING relativeUrl) = origin(cn) + relativeUrl;
+contextUrl(Connection cn, STRING relativeUrl) = CONCAT '&', webPath(cn) + relativeUrl, notEmpty(query(cn));
+originUrl(Connection cn, LINK relativeLink) = LINK(originUrl(cn, STRING(relativeLink))); 
 
 user '{system.events.user.connection}' = DATA CustomUser (Connection);
 userLogin '{system.events.user.login.connection}' (Connection connection) = login(user(connection));
@@ -106,6 +435,7 @@ freeMemory '{system.events.free.memory.connection}' = DATA INTEGER (Connection);
 javaVersion '{system.events.java.version.connection}' = DATA STRING[100] (Connection);
 is64Java '{system.events.is64java.connection}' = DATA BOOLEAN (Connection);
 screenSize '{system.events.screen.size.connection}' = DATA STRING[20] (Connection);
+scale '{system.events.scale.connection}' = DATA DOUBLE (Connection);
 lastActivity '{authentication.last.activity.user}' = DATA DATETIME (Connection);
 lastActivity '{authentication.last.activity.user}' (CustomUser cu) = GROUP MAX lastActivity(Connection c) BY user(c);
 lastActivityComputer(CustomUser cu) = GROUP LAST computer(Connection c) IF user(c) == cu ORDER lastActivity(c), c;
@@ -124,17 +454,18 @@ nameConnectionStatus '{system.events.connection.status}' (Connection connection)
 connectTime '{system.events.connect.time.connection}' = DATA DATETIME (Connection);
 connectDate '{system.events.connect.date.connection}' (Connection c) = DATE(connectTime(c));
 disconnectTime '{system.events.disconnect.time.connection}' = DATA DATETIME (Connection);
-disconnectTime (Connection connection) <- currentDateTime() WHEN SET(connectionStatus(connection) == ConnectionStatus.disconnectedConnection);
+disconnectTime (Connection connection) <- currentDateTime() WHEN SET(connectionStatus(connection) = ConnectionStatus.disconnectedConnection);
 
 currentLaunch = DATA Launch();
 launch = DATA Launch(Connection);
 
 serverShutdown INTERNAL  'lsfusion.server.physics.admin.systemevents.ShutdownAction' (Connection);
-shutdown '{system.events.shutdown}' (Connection connection)  { 
-    IF connectionStatus(connection) == ConnectionStatus.connectedConnection THEN {
-            NEWSESSION { NEWTHREAD shutdown(); CONNECTION connection; }
-            serverShutdown(connection);
-        }
+shutdown '{system.events.shutdown}' (Connection c)  { 
+    IF connectionStatus(c) = ConnectionStatus.connectedConnection OR connectionStatus(c) = ConnectionStatus.disconnectingConnection THEN {
+        NEWSESSION { connectionStatus(c) <- ConnectionStatus.disconnectingConnection; APPLY; }
+        NEWSESSION { NEWTHREAD shutdown(); CONNECTION c; }
+        serverShutdown(c);
+    }
 } CONFIRM;
 
 platformVersion = DATA TEXT();
@@ -142,9 +473,14 @@ apiVersion = DATA INTEGER();
 revisionVersion = DATA INTEGER();
 synchronizeVersions ()  INTERNAL  'lsfusion.server.logics.action.SynchronizeVersionsAction' ();    
 
+resetConnections() ABSTRACT();
+
+onInit() + {
+    synchronizeVersions();
+}
+
 onStarted() + { 
     writeDefaultCredentials();
-    synchronizeVersions();
     NEW launch = Launch {
         computer(launch) <- currentComputer();
         time(launch) <- currentDateTime();
@@ -152,14 +488,13 @@ onStarted() + {
         currentLaunch() <- launch;
     }
 
-    connectionStatus(connection) <- ConnectionStatus.disconnectedConnection 
-        WHERE connectionStatus(connection) == ConnectionStatus.connectedConnection AND currentLaunch() != launch(connection);
+    resetConnections();
 }
 
 reconnect '{system.events.reconnect.custom.user}' (CustomUser user)  { 
-    FOR user(Connection conn) == user AND connectionStatus(conn) == ConnectionStatus.connectedConnection DO {
-            NEWSESSION { NEWTHREAD reconnect(); CONNECTION conn; }
-        }
+    FOR user(Connection c) == user AND connectionStatus(c) = ConnectionStatus.connectedConnection DO {
+        NEWSESSION { NEWTHREAD reconnect(); CONNECTION c; }
+    }
 } CONFIRM;
 
 shutdown '{system.events.shutdown}' (CustomUser user)  { 
@@ -174,22 +509,41 @@ EXTEND FORM customUsers PROPERTIES(u) GRID reconnect, shutdown;
 
 @defineLog (Connection, '{system.events.define.log.of.connections}', log, connectDate);
 
-currentConnection = NATIVE Connection();
+currentConnection = NATIVE Connection ();
+originUrl(STRING relativeUrl) = originUrl(currentConnection(), relativeUrl);
+contextUrl(STRING relativeUrl) = contextUrl(currentConnection(), relativeUrl);
+originUrl(LINK relativeLink) = originUrl(currentConnection(), relativeLink);
 
 clientType = DATA ClientType (Connection);
 nameClientType '{system.events.client.type}' (Connection connection) = staticCaption(clientType(connection));
 
-isNativeDesktop() = clientType(currentConnection()) == ClientType.nativeDesktop;
-isNativeMobile() = clientType(currentConnection()) == ClientType.nativeMobile;
-isWebDesktop() = clientType(currentConnection()) == ClientType.webDesktop;
-isWebMobile() = clientType(currentConnection()) == ClientType.webMobile;
+isNativeDesktop(Connection c) = clientType(c) == ClientType.nativeDesktop;
+isNativeMobile(Connection c) = clientType(c) == ClientType.nativeMobile;
+isWebDesktop(Connection c) = clientType(c) == ClientType.webDesktop;
+isWebMobile(Connection c) = clientType(c) == ClientType.webMobile;
 
-isDesktop() = isNativeDesktop() OR isWebDesktop();
-isMobile() = isNativeMobile() OR isWebMobile();
-isNative() = isNativeDesktop() OR isNativeMobile();
-isWeb() = isWebDesktop() OR isWebMobile();
+isDesktop(Connection c) = isNativeDesktop(c) OR isWebDesktop(c);
+isMobile(Connection c) = isNativeMobile(c) OR isWebMobile(c);
+isNative(Connection c) = isNativeDesktop(c) OR isNativeMobile(c);
+isWeb(Connection c) = isWebDesktop(c) OR isWebMobile(c);
 
-//backward compatibility
+isNativeDesktop() = isNativeDesktop(currentConnection());
+isNativeMobile() = isNativeMobile(currentConnection());
+isWebDesktop() = isWebDesktop(currentConnection());
+isWebMobile() = isWebMobile(currentConnection());
+
+isDesktop() = isDesktop(currentConnection());
+isMobile() = isMobile(currentConnection());
+isNative() = isNative(currentConnection());
+isWeb() = isWeb(currentConnection());
+
+noSystemToolbarCaptions() += isNativeDesktop();
+
+dontShowCloseButtonOnInactiveTab '{service.dont.show.close.button.on.inactive.tab}' = DATA BOOLEAN(DesignEnv);
+dontShowCloseButtonOnInactiveTab = dontShowCloseButtonOnInactiveTab(currentDesignEnv());
+
+userFiltersManualApplyMode = userFiltersManualApplyMode(currentDesignEnv());
+
 onClientStarted () + {
     IF isNativeDesktop() THEN {
         onDesktopClientStarted();
@@ -199,7 +553,65 @@ onClientStarted () + {
     }
 }
 
-//заменили user на customUser
+NAVIGATOR {
+    NEW showDesign WINDOW system PARENT BEFORE administration HEADER designCaption() IMAGE designImage() SHOWIF isWeb();
+    NEW toggleNavigatorPinMode WINDOW system PARENT BEFORE showDesign HEADER navigatorPinModeCaption() IMAGE navigatorPinModeImage() CLASS navigatorPinModeClass();
+    NEW toggleColorTheme WINDOW system PARENT BEFORE toggleNavigatorPinMode HEADER colorThemeCaption() IMAGE colorThemeImage();
+}
+
+currentSize = DATA Size(Connection);
+currentSize() = currentSize(currentConnection());
+size() = size(currentDesignEnv());
+saveCurrentSize(BOOLEAN updateResources) {
+    FOR Size newSize = size() DO {
+        FOR updateResources AND Size prevSize = currentSize() DO {
+            IF paddingCss(prevSize) THEN {
+                INTERNAL CLIENT 'remove ' + paddingCss(prevSize);
+                INTERNAL CLIENT 'remove ' + fontCss(prevSize);
+            }
+
+            IF paddingCss(newSize) THEN {
+                INTERNAL CLIENT paddingCss(newSize);
+                INTERNAL CLIENT fontCss(newSize);
+            }            
+        }
+
+        currentSize(currentConnection()) <- newSize; // currentSize() <- 
+    }
+}
+
+initCurrentSize() {
+    saveCurrentSize(NULL);
+}
+onWebClientStarted() + {
+    IF currentSize() != size() THEN { // check current size
+        saveCurrentSize(TRUE);
+    }
+}
+WHEN FORMS design CHANGED (size()) DO {
+    INTERNAL CLIENT 'setGlobalClassName' PARAMS NULL, 'size-' + basicStaticName(currentSize());
+    INTERNAL CLIENT 'setGlobalClassName' PARAMS TRUE, 'size-' + basicStaticName(size());
+
+    saveCurrentSize(TRUE);
+}
+
+textOnHoverClass() = IF isWebDesktop() AND NOT navigatorPinMode() THEN ' navbar-text-on-hover' ELSE '';
+verticalTextOnHoverClass() = IF isWebDesktop() AND verticalNavbar() AND NOT navigatorPinMode() THEN ' navbar-text-on-hover' ELSE '';
+
+navigatorPinModeClass() += IF isWebMobile() THEN 'navbar-hidden' ELSE NULL;
+logoActionClass() += 'navbar-icon-large' + (IF isWebMobile() AND NOT useBootstrap() THEN ' navbar-hidden' ELSE '');
+logoHeader() += IF isWebMobile() OR verticalNavbar() THEN displayName() ELSE NULL;
+logoWindowClass() += 'bg-dark-subtle' + verticalTextOnHoverClass() + 
+        IF isWebDesktop() THEN (IF verticalNavbar() THEN ' navbar-force-align-start' ELSE ' navbar-auto-icon-font-size') ELSE '';
+rootWindowClass() += 'bg-dark-subtle navbar-icon-large' + textOnHoverClass() +
+    (IF isWebDesktop() AND verticalNavbar() THEN ' navbar-force-align-start' ELSE '');
+systemWindowClass() += 'bg-dark-subtle' + (IF isWebDesktop() THEN ' navbar-icon-large' ELSE '') + verticalTextOnHoverClass() +
+    (IF isWebDesktop() AND NOT verticalNavbar() THEN ' navbar-text-hidden' ELSE '') +
+    (IF isWebDesktop() AND verticalNavbar() THEN ' navbar-force-align-start' ELSE '');
+formsWindowClass() += 'bg-body-tertiary' + (IF isWebMobile() OR dontShowCloseButtonOnInactiveTab() THEN ' dont-show-close-button' ELSE '');
+toolbarWindowClass() += 'bg-body-secondary' + (IF isWebDesktop() AND NOT navigatorPinMode() == TTRUE THEN ' navbar-popup-over-selected-hover' ELSE '');
+logsWindowClass() += 'bg-body-secondary' + (IF isWebDesktop() AND NOT navigatorPinMode() == TTRUE THEN ' navbar-popup-over-selected-hover navbar-always-hide-unpinned' ELSE '');
+
 user '{system.events.user.session}' = DATA User (Session);
 nameUser '{system.events.user.session}' (Session session) = name(user(session));
 nameContact '{system.events.user.session}' (Session session) = name[Contact](user(session));
@@ -212,6 +624,8 @@ CLASS Session '{system.events.session}';
 TABLE session(Session);
 TABLE sessionObject(Session, Object);
 
+TABLE sessionContact (Session, Contact);
+
 currentSession = DATA LOCAL Session();
 isCurrentSession(s) = s = currentSession(); 
 
@@ -220,8 +634,7 @@ quantityRemovedClasses '{system.events.quantity.removed.classes.session}' = DATA
 quantityChangedClasses '{system.events.quantity.changed.classes.session}' = DATA INTEGER (Session);
 changes '{system.events.changes.session}' = DATA TEXT (Session);
 
-dateTime '{system.events.date.time.session}' = DATA DATETIME (Session) IN id;
-date '{system.events.date.session}' (Session s) = DATE(dateTime(s));
+dateTime '{system.events.date.time.session}' = DATA DATETIME (Session) INDEXED IN id;
 dateTime(Session session) <- currentDateTime() WHEN SET (session IS Session);
 
 form '{system.events.form.session}' = DATA Form (Session);
@@ -231,7 +644,27 @@ connection '{system.events.connection.session}' = DATA Connection(Session) INDEX
 hostnameComputerConnection '{system.events.hostname.computer.connection.session}' = hostnameComputer(connection(Session session))IN id;
 userLoginConnection '{system.events.user.login.connection.session}' = userLogin(connection(Session session)) IN id;
 
-@defineLog (Session, '{system.events.define.log.of.changes}', log, date);
+@defineLog (Session, '{system.events.define.log.of.changes}', log);
+clearApplicationLog () + {
+    IF countDaysClearSession() THEN {
+        NEWSESSION {
+            APPLY {
+                DELETE Session d WHERE dateTime(d) <= sumDay(currentDateTime(), -countDaysClearSession());
+            }
+        }
+    }
+}       
+
+@defineLog (SessionDetail, '{system.events.define.log.of.changes.detail}', log);
+clearApplicationLog () + { 
+    IF countDaysClearSessionDetail() THEN {
+        NEWSESSION {
+            APPLY {
+                changes(Session d) <- NULL WHERE dateTime(d) <= sumDay(currentDateTime(), -countDaysClearSessionDetail());
+            }
+        }
+    }
+}       
 
 TABLE pingTable(Computer, DATETIME, DATETIME);
 pingFromTo '{system.events.ping.from.to}' = DATA INTEGER (Computer, DATETIME, DATETIME);
@@ -271,11 +704,44 @@ clearApplicationLog () + {
 	}
 }   
 
+showJavaStack '{eval.script.show.stack}' = DATA LOCAL BOOLEAN ();
+showStack() {
+    showJavaStack() <- NOT showJavaStack(); 
+}
+
+//Do not remove createAutoReport. Used in plugin. DesignView evalServer()
+createAutoReport (STRING formName) INTERNAL 'lsfusion.server.logics.classes.data.utils.CreateAutoReportAction' (TEXT);
+
+evalServerResult = DATA STRING(); //return value of evalServer
+evalServer(TEXT code) {
+    EVAL code;
+}
+
+//Do not remove properties showError() and openedFormId(). Used in plugin. FormDesignChangeDetector.evalClient()
+showError = DATA LOCAL BOOLEAN();
+openedFormId = DATA STRING(Connection);
+openedFormId() = openedFormId(currentConnection());
+
+userChanged(CustomUser user) {
+    user(currentConnection()) <- user;
+    userChanged() <- TRUE;
+}
+
+evalInAllCurrentConnections(TEXT code, TEXT param) {
+    FOR connectionStatus(Connection connection) == ConnectionStatus.connectedConnection DO {
+        NEWSESSION {
+            NEWTHREAD {
+                EVAL code PARAMS param;
+            } CONNECTION connection;     
+        }
+    }
+}
+
 FORM connections '{system.events.form.connections}'
 
     OBJECTS c=Connection
     PROPERTIES (c) READONLY hostnameComputer, remoteAddress, userLogin, osVersion,
-                            javaVersion, is64Java, screenSize, processor, architecture, cores, physicalMemory,
+                            javaVersion, is64Java, screenSize, scale, processor, architecture, cores, physicalMemory,
                             totalMemory, maximumMemory, freeMemory, nameClientType, nameConnectionStatus, connectTime,
                             lastActivity, disconnectTime, shutdown GRID CHANGEABLE
 
@@ -298,7 +764,7 @@ FORM connections '{system.events.form.connections}'
 DESIGN connections{
     NEW boxes BEFORE TOOLBARBOX {
         fill = 1;
-        type = CONTAINERH;
+        horizontal = TRUE;
 
         MOVE BOX(n);
         MOVE BOX(s);
@@ -318,17 +784,15 @@ DESIGN exceptions {
             fill = 1;
             MOVE BOX(e);
             NEW textContainer {
-                type = CONTAINERH;
+                horizontal = TRUE;
                 fill = 1;
 
                 MOVE PROPERTY(javaStackTrace(e)) {
                     fill = 0.5;
-                    valueSize = ( -1, 200);
                     panelCaptionVertical = TRUE;
                 }
                 MOVE PROPERTY(lsfStackTrace(e)) {
                     fill = 0.5;
-                    valueSize = ( -1, 200);
                     panelCaptionVertical = TRUE;
                 }
             }
@@ -344,24 +808,31 @@ FORM launches '{system.events.form.launches}'
 ;
 
 FORM changes '{system.events.form.changes}'
+    OBJECTS dates = (from = DATETIME, to = DATETIME ) PANEL 
+    PROPERTIES valFrom = VALUE (from), valTo = VALUE (to)
 
     OBJECTS s=Session
     PROPERTIES (s) READONLY captionForm, hostnameComputerConnection,
                             userLoginConnection, quantityAddedClasses, quantityRemovedClasses,
                             quantityChangedClasses, gChanges = changes, dateTime, pChanges = changes PANEL
+    FILTERS dateTime(s) >= from AND dateTime(s) <= to
     FILTERGROUP filtersChange
                     FILTER '{system.events.form.changes.filter.user.login.connections}' userLoginConnection(s) 'F8'
+    EVENTS 
+        ON INIT {
+            SEEK changes.dates OBJECTS from = dateTimeToDateTime(currentDate(), 00:00), to = currentDateTime();
+        }
+        
 ;
 
 DESIGN changes {
     BOX {
         NEW specContainer {
             fill = 1;
+            MOVE BOX (dates);
             MOVE BOX(s);
             NEW textContainer {
-                type = CONTAINERV;
                 fill = 1;
-
                 MOVE PROPERTY(pChanges) {
                     fill = 0.5;
                     valueSize = ( -1, 200);
@@ -410,7 +881,7 @@ FORM pings '{system.events.form.pings}'
     
     OBJECTS cn = Connection
     PROPERTIES (cn) READONLY hostnameComputer, remoteAddress, userLogin, osVersion,
-                             javaVersion, is64Java, screenSize, processor, architecture, cores, physicalMemory,
+                             javaVersion, is64Java, screenSize, scale, processor, architecture, cores, physicalMemory,
                              totalMemory, maximumMemory, freeMemory, nameClientType, nameConnectionStatus, connectTime,
                              disconnectTime
     FILTERS computer(cn) == c
@@ -426,7 +897,7 @@ DESIGN pings {
         }
         NEW options {
             fill = 1;
-            type = TABBED;
+            tabbed = TRUE;
             NEW data {
                 caption = '{system.events.form.pings.caption.data}';
                 MOVE BOX(dates);
@@ -453,3 +924,100 @@ NAVIGATOR {
         NEW SystemEvents.pings;
     }
 }
+
+// change password on login
+onClientStarted() + {
+    WHILE changePasswordOnNextLogin(currentUser()) DO {
+        changePassword();
+    } 
+}
+
+lastConnection= GROUP LAST Connection connection ORDER connection BY computer(connection), clientType(connection);
+javaVersionNativeDesktop '{system.events.java.version.connection} ({system.events.client.type.native.desktop})' (Computer c)= javaVersion(lastConnection(c, ClientType.nativeDesktop));
+javaVersionNativeMobile '{system.events.java.version.connection} ({system.events.client.type.native.mobile})' (Computer c)= javaVersion(lastConnection(c, ClientType.nativeMobile));
+javaVersionWebDesktop '{system.events.java.version.connection} ({system.events.client.type.web.desktop})' (Computer c)= javaVersion(lastConnection(c, ClientType.webDesktop));
+javaVersionWebMobile '{system.events.java.version.connection} ({system.events.client.type.web.mobile})' (Computer c)= javaVersion(lastConnection(c, ClientType.webMobile));
+
+EXTEND FORM computers
+    PROPERTIES(c) READONLY javaVersionNativeDesktop, javaVersionNativeMobile, javaVersionWebDesktop, javaVersionWebMobile
+;
+
+// NOTIFY, PUSH, SHARE actions
+
+FORM shareUrlForm
+    OBJECTS share = TEXT PANEL
+    PROPERTIES shareLink = VALUE(share), copy = copyToClipboard(share)
+;
+
+DESIGN shareUrlForm {
+    OBJECTS {
+        MOVE PROPERTY(shareLink) {
+            caption = '';
+        }
+        MOVE PROPERTY(copy) {
+            caption = '{eval.script.copy.to.clipboard}';
+        }
+    }
+    REMOVE PROPERTY(formShare());
+}
+
+share(STRING url, STRING text, STRING title) {
+    INTERNAL CLIENT 'webShare' PARAMS (JSON FROM url = url, text = text, title = title) TO exportBoolean;
+    IF NOT exportBoolean() THEN
+        SHOW shareUrlForm OBJECTS share = url POPUP;
+}
+
+shareAction(STRING relativeUrl) {
+    share(contextUrl(relativeUrl), 'The link to share the form', 'Share');
+}
+
+//VAPID key gen: https://tools.reactpwa.com/vapid
+pushPublicKey '{system.events.push.notification.public.key}' = DATA STRING();
+pushPrivateKey '{system.events.push.notification.private.key}' = DATA STRING();
+onStarted() + {
+    IF NOT pushPublicKey() THEN {
+        pushPublicKey() <- 'BHMyf7avYNkKhYajindjklo9_iAWnVCPCWRiUEmbBA-B5VEC1YKyxESfiVyHCHqLMgQ7Qv_g10yyjRU_1FPt0c0';
+        pushPrivateKey() <- 'ViyjJEUuqzAcw5uOd1lcFjLm0mIziWFVcPEFx4ZmZ7I';
+    }
+}
+
+subscription = DATA JSON (Connection);
+clientId = DATA STRING (Connection);
+push (Connection c) = JSON FROM subscription(c), query(c), clientId(c);
+
+pushConnection = GROUP LAST Connection c IF subscription(c) ORDER connectTime(c), c BY user(c);
+pushConnection = GROUP LAST Connection c IF subscription(c) ORDER connectTime(c), c BY user(c), computer(c);
+pushConnection = GROUP LAST Connection c IF subscription(c) ORDER connectTime(c), c BY computer(c);
+
+inputActions = DATA LOCAL JSON();
+getInputActions INTERNAL 'lsfusion.server.logics.classes.data.utils.GetInputActionsAction' (JSON); 
+
+notify(JSON notification, JSON action) {
+    getInputActions(action);
+    INTERNAL CLIENT 'webNotify' PARAMS notification, action, inputActions(), push(currentConnection());
+}
+push INTERNAL 'lsfusion.server.logics.classes.data.utils.PushAction' (BOOLEAN, JSON, JSON, JSON, JSON);
+push(BOOLEAN alwaysNotify, Connection connection, JSON notification, JSON action) {
+    getInputActions(action);
+    push(alwaysNotify, notification, action, inputActions(), push(connection));
+}
+push(Connection connection, JSON notification, JSON action) {
+    push(NULL, connection, notification, action);
+}
+pushNotify(Connection connection, JSON notification, JSON action) {
+    push(TRUE, connection, notification, action);
+}
+
+// shortcuts
+
+notification(STRING title, JSON options) = JSON FROM title = title, options = options;
+notification(STRING title) = notification(title, JSON('\{\}'));
+action(INTEGER id) = JSON FROM id = id;
+action(STRING url) = JSON FROM url = url;
+
+// the most commonly used cases
+
+push(Connection connection, INTEGER id) { push(connection, NULL, action(id)); }
+notify(JSON notification, INTEGER id) { notify(notification, action(id)); }
+notify(STRING title, INTEGER id) { notify(notification(title), id); }
+pushNotify(Connection connection, STRING title, INTEGER notificationId) { pushNotify(connection, notification(title), action(notificationId)); }

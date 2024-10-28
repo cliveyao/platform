@@ -1,48 +1,30 @@
 package lsfusion.gwt.client.form.property.cell.classes.view;
 
-import com.google.gwt.dom.client.Element;
-import com.google.gwt.dom.client.ImageElement;
-import com.google.gwt.dom.client.Style;
-import lsfusion.gwt.client.base.GwtClientUtils;
+import com.google.gwt.dom.client.*;
+import lsfusion.gwt.client.base.*;
+import lsfusion.gwt.client.form.controller.GFormController;
 import lsfusion.gwt.client.form.property.GPropertyDraw;
+import lsfusion.gwt.client.form.property.PValue;
 import lsfusion.gwt.client.form.property.cell.view.CellRenderer;
 import lsfusion.gwt.client.form.property.cell.view.RenderContext;
+import lsfusion.gwt.client.form.property.cell.view.RendererType;
 import lsfusion.gwt.client.form.property.cell.view.UpdateContext;
-
-import java.util.function.Consumer;
-
-import static lsfusion.gwt.client.form.property.cell.classes.view.TextBasedCellRenderer.clearBasedTextFonts;
-import static lsfusion.gwt.client.form.property.cell.classes.view.TextBasedCellRenderer.setBasedTextFonts;
-import static lsfusion.gwt.client.view.StyleDefaults.BUTTON_HORIZONTAL_PADDING;
 
 // actually extends TextBasedCellRenderer for optimization purposes, when there are no images
 public class ActionCellRenderer extends CellRenderer {
-
-    private static final String ICON_EXECUTE = "action.png";
 
     public ActionCellRenderer(GPropertyDraw property) {
         super(property);
     }
 
-    public static final String TEXT = "lsf-text-button";
-    public static final String IMAGE = "lsf-image-button";
-
-    @Override
-    protected boolean isSimpleText(RenderContext renderContext) {
-        return !hasImage(renderContext);
-    }
-
-    @Override
-    protected boolean isSimpleText(UpdateContext updateContext) {
-        return !hasImage(updateContext);
-    }
+    // since for now we want button element
+//    @Override
+//    public boolean canBeRenderedInTD() {
+//        return false;
+//    }
 
     private boolean hasImage(boolean globalCaptionIsDrawn) {
         return globalCaptionIsDrawn || property.hasStaticImage() || property.hasDynamicImage();
-    }
-
-    protected boolean hasImage(RenderContext renderContext) {
-        return hasImage(renderContext.globalCaptionIsDrawn());
     }
 
     protected boolean hasImage(UpdateContext updateContext) {
@@ -50,105 +32,73 @@ public class ActionCellRenderer extends CellRenderer {
     }
 
     @Override
-    protected Style.TextAlign getDefaultHorzAlignment() {
-        return Style.TextAlign.CENTER;
+    public boolean renderContent(Element element, RenderContext renderContext) {
+        if(property.hasChangeAction)
+            GwtClientUtils.addClassName(element, "btn");
+
+        BaseImage.initImageText(element, property.getActionHtmlOrTextType());
+
+        // we can't use text alignment for several reasons:
+        // button does not support vertical-align
+        // vertical-align doesn't work properly with images (it works really odd, and has to be aligned manually with margins)
+//        if(GwtClientUtils.isTDorTH(element)) { // otherwise we'll use flex alignment (however text alignment would also do)
+//            renderTextAlignment(property, element);
+//            return true;
+//        }
+//        }
+        return false;
     }
 
     @Override
-    public void renderStaticContent(Element element, RenderContext renderContext) {
-        element.addClassName("gwt-Button");
+    public boolean clearRenderContent(Element element, RenderContext renderContext) {
+        if(property.hasChangeAction)
+            GwtClientUtils.removeClassName(element, "btn");
 
-        String setText;
-        Element textElement;
-        if(!hasImage(renderContext)) { // optimization;
-            textElement = element;
-            setText = "...";
-        } else {
-            if(property.panelCaptionVertical)
-                element.getStyle().setProperty("flexDirection", "column");
-            textElement = GwtClientUtils.wrapAlignedFlexImg(element, imageElement -> { // assert that in renderStatic it is wrapped into wrap-center
-                element.setPropertyObject(IMAGE, imageElement);
-            });
-            setText = null;
+        BaseImage.clearImageText(element);
+        GFormController.clearFont(element);
+//        if(GwtClientUtils.isTDorTH(element)) { // otherwise we'll use flex alignment (however text alignment would also do)
+//            clearRenderTextAlignment(element);
+//            return true;
+//            }
+        return false;
+    }
+
+    @Override
+    protected boolean renderedLoadingContent(UpdateContext updateContext) {
+        return hasImage(updateContext) && property.isLoadingReplaceImage();
+    }
+    @Override
+    protected BaseImage getExtraValue(UpdateContext updateContext) {
+        if(hasImage(updateContext)) {
+            if(updateContext.isLoading() && property.isLoadingReplaceImage())
+                return StaticImage.LOADING_IMAGE_PATH;
+            else if(property.hasDynamicImage())
+                return updateContext.getImage(); // was converted in convertFileValue
+            else if(property.hasStaticImage())
+                return property.appImage;
+            else
+                return StaticImage.EXECUTE;
         }
-
-        setPadding(element.getStyle());
-        setBasedTextFonts(property, textElement, renderContext);
-
-        element.setPropertyObject(TEXT, textElement);
-        setLabelText(element, setText);
-
-        // using widgets can lead to some leaks
-        // also there is a problem with focuses (all inner elements, should be not focusable), outer borders and extra elements
-//        AppImageButton button = new AppImageButton(property.imageHolder, null);
+        return null;
     }
 
     @Override
-    public void clearRenderContent(Element element, RenderContext renderContext) {
-        element.removeClassName("gwt-Button");
-        if(property.panelCaptionVertical)
-            element.getStyle().clearProperty("flexDirection");
-        element.getStyle().clearPadding();
-        element.setPropertyObject(TEXT, null);
+    public boolean updateContent(Element element, PValue value, Object extraValue, UpdateContext updateContext) {
+        if(extraValue != null)
+            BaseImage.updateImage((BaseImage) extraValue, element);
 
-        if(!hasImage(renderContext))
-            clearBasedTextFonts(property, element.getStyle(), renderContext);
+//        boolean enabled = !updateContext.isPropertyReadOnly() && getActionValue(value);
+//        element.setPropertyBoolean("disabled", !enabled);
 
-        element.removeClassName("gwt-Button-disabled");
-    }
-
-    public static void setLabelText(Element element, String text) {
-        ((Element)element.getPropertyObject(TEXT)).setInnerText(text != null ? text : "");
-    }
-
-    public static void setImage(Element element, String absolutePath, Consumer<String> prevImage, boolean dynamicMargins) {
-        ImageElement img = (ImageElement) element.getPropertyObject(IMAGE);
-        if(prevImage != null)
-            prevImage.accept(img.getSrc());
-        if(dynamicMargins) {
-            if(absolutePath.isEmpty()) {
-                img.removeClassName("wrap-img-margins");
-            } else {
-                img.addClassName("wrap-img-margins");
-            }
-        }
-        img.setSrc(absolutePath);
+        return false;
     }
 
     @Override
-    public int getWidthPadding() {
-        return BUTTON_HORIZONTAL_PADDING;
-    }
-    @Override
-    public int getHeightPadding() {
-        return 0;
+    public String format(PValue value, RendererType rendererType, String pattern) {
+        return getActionValue(value) ? "..." : "";
     }
 
-    private static void setPadding(Style style) {
-        style.setPaddingTop(0, Style.Unit.PX);
-        style.setPaddingBottom(0, Style.Unit.PX);
-        style.setPaddingLeft(BUTTON_HORIZONTAL_PADDING, Style.Unit.PX);
-        style.setPaddingRight(BUTTON_HORIZONTAL_PADDING, Style.Unit.PX);
-    }
-
-    @Override
-    public void renderDynamicContent(Element element, Object value, UpdateContext updateContext) {
-        boolean enabled = !property.isReadOnly() && (value != null) && (Boolean) value;
-
-        boolean hasStaticImage = property.hasStaticImage();
-        if(hasStaticImage || updateContext.globalCaptionIsDrawn()) {
-            setImage(element, hasStaticImage ?
-                    GwtClientUtils.getAppImagePath(property.getImage(enabled).url) :
-                    GwtClientUtils.getModuleImagePath(ICON_EXECUTE), null, false);
-        }
-        if(!enabled)
-            element.addClassName("gwt-Button-disabled");
-        else
-            element.removeClassName("gwt-Button-disabled");
-    }
-
-    @Override
-    public String format(Object value) {
-        return (value != null) && ((Boolean) value) ? "..." : "";
+    private boolean getActionValue(PValue value) {
+        return PValue.getBooleanValue(value);
     }
 }

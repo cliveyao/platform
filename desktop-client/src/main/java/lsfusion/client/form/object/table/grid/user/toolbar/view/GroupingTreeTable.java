@@ -1,12 +1,18 @@
 package lsfusion.client.form.object.table.grid.user.toolbar.view;
 
+import lsfusion.base.BaseUtils;
 import lsfusion.base.col.heavy.OrderedMap;
+import lsfusion.base.file.AppFileDataImage;
 import lsfusion.base.file.RawFileData;
 import lsfusion.client.base.view.SwingDefaults;
 import lsfusion.client.classes.data.*;
 import lsfusion.client.classes.data.link.ClientImageLinkClass;
+import lsfusion.client.classes.data.link.ClientPDFLinkClass;
+import lsfusion.client.classes.data.link.ClientVideoLinkClass;
 import lsfusion.client.form.property.ClientPropertyDraw;
 import lsfusion.client.form.property.cell.classes.view.ImagePropertyRenderer;
+import lsfusion.client.form.property.cell.classes.view.PDFPropertyRenderer;
+import lsfusion.client.form.property.cell.classes.view.VideoPropertyRenderer;
 import lsfusion.client.form.property.cell.classes.view.link.ImageLinkPropertyRenderer;
 import lsfusion.client.view.MainFrame;
 import org.jdesktop.swingx.JXTreeTable;
@@ -54,21 +60,21 @@ public class GroupingTreeTable extends JXTreeTable {
         setDefaultRenderer(LocalTime.class, new DefaultTableCellRenderer() {
             @Override
             protected void setValue(Object value) {
-                super.setValue(value != null ? MainFrame.timeFormat.format(localTimeToSqlTime((LocalTime) value)) : null);
+                super.setValue(value != null ? MainFrame.tFormats.time.format(localTimeToSqlTime((LocalTime) value)) : null);
             }
         });
 
         setDefaultRenderer(LocalDateTime.class, new DefaultTableCellRenderer() {
             @Override
             protected void setValue(Object value) {
-                super.setValue(value != null ? MainFrame.dateTimeFormat.format(localDateTimeToSqlTimestamp((LocalDateTime) value)) : null);
+                super.setValue(value != null ? MainFrame.tFormats.dateTime.format(localDateTimeToSqlTimestamp((LocalDateTime) value)) : null);
             }
         });
 
         setDefaultRenderer(Instant.class, new DefaultTableCellRenderer() {
             @Override
             protected void setValue(Object value) {
-                super.setValue(value != null ? MainFrame.dateTimeFormat.format(instantToSqlTimestamp((Instant) value)) : null);
+                super.setValue(value != null ? MainFrame.tFormats.dateTime.format(instantToSqlTimestamp((Instant) value)) : null);
             }
         });
         
@@ -85,8 +91,14 @@ public class GroupingTreeTable extends JXTreeTable {
                 if (e.getClickCount() == 2 ) {
                     int columnClicked = columnAtPoint(e.getPoint());
                     ClientPropertyDraw columnProperty = treeTableModel.getColumnProperty(columnClicked);
-                    if (columnProperty != null && (columnProperty.baseType instanceof ClientImageClass || columnProperty.baseType instanceof ClientImageLinkClass)) {
-                        ImagePropertyRenderer.expandImage((RawFileData) getValueAt(rowAtPoint(e.getPoint()), columnClicked));
+                    if(columnProperty != null) {
+                        if (columnProperty.baseType instanceof ClientImageClass || columnProperty.baseType instanceof ClientImageLinkClass) {
+                            ImagePropertyRenderer.expandImage((AppFileDataImage) getValueAt(rowAtPoint(e.getPoint()), columnClicked));
+                        } else if (columnProperty.baseType instanceof ClientPDFClass || columnProperty.baseType instanceof ClientPDFLinkClass) {
+                            PDFPropertyRenderer.expandImage((AppFileDataImage) getValueAt(rowAtPoint(e.getPoint()), columnClicked));
+                        } else if (columnProperty.baseType instanceof ClientVideoClass || columnProperty.baseType instanceof ClientVideoLinkClass) {
+                            VideoPropertyRenderer.expandImage((AppFileDataImage) getValueAt(rowAtPoint(e.getPoint()), columnClicked));
+                    }
                     }
                 }
             }
@@ -239,7 +251,7 @@ public class GroupingTreeTable extends JXTreeTable {
 
         private boolean containsAll(java.util.List<Object> parent, java.util.List<Object> child) {
             for (int i = 0; i < parent.size(); i++) {
-                if (!parent.get(i).equals(child.get(i))) {
+                if (!BaseUtils.nullEquals(parent.get(i), child.get(i))) {
                     return false;
                 }
             }
@@ -449,7 +461,7 @@ public class GroupingTreeTable extends JXTreeTable {
             if (value != null) {
                 ImageIcon icon = null;
                 if (value instanceof RawFileData) {
-                    icon = new ImageIcon(((RawFileData) value).getBytes());
+                    icon = ((RawFileData) value).getImageIcon();
                 }
                 if (icon != null) {
                     Dimension scaled = ImagePropertyRenderer.getIconScale(icon, getColumn(column).getWidth(), getRowHeight());

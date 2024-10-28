@@ -1,173 +1,668 @@
 package lsfusion.gwt.client.form.property.cell.view;
 
-import com.google.gwt.dom.client.Element;
-import com.google.gwt.dom.client.Style;
+import com.google.gwt.core.client.JavaScriptObject;
+import com.google.gwt.dom.client.*;
 import lsfusion.gwt.client.ClientMessages;
-import lsfusion.gwt.client.base.GwtClientUtils;
+import lsfusion.gwt.client.base.*;
+import lsfusion.gwt.client.base.view.ColorUtils;
+import lsfusion.gwt.client.base.view.GFlexAlignment;
+import lsfusion.gwt.client.base.view.PopupOwner;
+import lsfusion.gwt.client.form.controller.GFormController;
+import lsfusion.gwt.client.form.design.GFont;
+import lsfusion.gwt.client.form.event.GKeyStroke;
+import lsfusion.gwt.client.form.object.table.grid.view.GSimpleStateTableView;
+import lsfusion.gwt.client.form.object.table.view.GToolbarView;
 import lsfusion.gwt.client.form.property.GPropertyDraw;
-import lsfusion.gwt.client.form.property.table.view.GPropertyTableBuilder;
+import lsfusion.gwt.client.form.property.PValue;
+import lsfusion.gwt.client.form.property.cell.GEditBindingMap;
+import lsfusion.gwt.client.form.property.cell.classes.view.InputBasedCellRenderer;
+import lsfusion.gwt.client.view.GColorTheme;
+import lsfusion.gwt.client.view.MainFrame;
 
-public abstract class CellRenderer<T> {
+import static lsfusion.gwt.client.base.GwtClientUtils.nvl;
+import static lsfusion.gwt.client.view.MainFrame.v5;
+
+public abstract class CellRenderer {
 
     protected final GPropertyDraw property;
 
+    TooltipManager.TooltipHelper valueTooltipHelper;
+
     public CellRenderer(GPropertyDraw property) {
         this.property = property;
+
+        if(property.valueTooltip != null) {
+            valueTooltipHelper = new TooltipManager.TooltipHelper() {
+                @Override
+                public String getTooltip(String dynamicTooltip) {
+                    return nvl(dynamicTooltip, property.valueTooltip);
+                }
+            };
+        }
+
     }
 
     private static final ClientMessages messages = ClientMessages.Instance.get();
     protected final String EMPTY_VALUE = messages.formRendererEmpty();
-    protected final String NOT_DEFINED_VALUE = messages.formRendererNotDefined();
     protected final String REQUIRED_VALUE = messages.formRendererRequired();
 
-    public void render(Element element, Object value, RenderContext renderContext, UpdateContext updateContext) {
-        renderStatic(element, renderContext);
-        renderDynamic(element, value, updateContext);
+    private final static String focusElementProp = "focusElement";
+    public static Object getFocusElement(Element parent) {
+        return parent.getPropertyObject(focusElementProp);
+    }
+    public static void setFocusElement(Element parent, Element element) {
+        parent.setPropertyObject(focusElementProp, element == null ? NULL : element);
+    }
+    public static void clearFocusElement(Element parent) {
+        parent.setPropertyObject(focusElementProp, null);
+    }
+    private final static String customElementProp = "customElement";
+    public static boolean isCustomElement(Element parent) {
+        return parent.getPropertyObject(customElementProp) != null;
+    }
+    public static void setCustomElement(Element parent) {
+        parent.setPropertyObject(customElementProp, true);
+    }
+    public static void clearCustomElement(Element parent) {
+        parent.setPropertyObject(customElementProp, null);
     }
 
-    protected boolean isSimpleText(RenderContext renderContext) {
+    private final static String readonlyFncProp = "readonlyFnc";
+    public final static String NULL = "NULL"; // none / manual
+    public static Object getReadonlyFnc(Element parent) {
+        return parent.getPropertyObject(readonlyFncProp);
+    }
+    // null means that readonly will be set "manually"
+    public static void setReadonlyFnc(Element parent, JavaScriptObject fnc) {
+        parent.setPropertyObject(readonlyFncProp, fnc == null ? NULL : fnc);
+    }
+    public static void clearReadonlyFnc(Element parent) {
+        parent.setPropertyObject(readonlyFncProp, null);
+    }
+
+
+    public static void removeAllPMB(Element parent, Element element) {
+        GwtClientUtils.addClassName(element, "remove-all-pmb");
+    }
+    public static void setIsEditing(Element parent, Element element, boolean set) {
+        if(set)
+            GwtClientUtils.addClassName(element, "is-editing");
+        else
+            GwtClientUtils.removeClassName(element, "is-editing");
+    }
+    public static boolean isEditing(Element parent, Element element) {
+        return element.hasClassName("is-editing");
+    }
+
+    protected boolean isTagInput() {
+        return property.isTagInput();
+    }
+
+    protected String getTag() {
+        return property.tag;
+    }
+
+    public Element createRenderElement(RendererType rendererType) {
+        assert !isTagInput();
+
+        Element renderElement;
+
+        String tag = getTag();
+        if(tag != null)
+            renderElement = GwtClientUtils.createFocusElementType(tag);
+        else
+            renderElement = Document.get().createDivElement();
+
+        return renderElement;
+    }
+    public boolean canBeRenderedInTD() {
         return false;
     }
-    protected boolean isSimpleText(UpdateContext updateContext) {
-        return false;
-    }
 
-    protected Style.TextAlign getDefaultHorzAlignment() {
-        return Style.TextAlign.LEFT;
-    }
-    protected String getDefaultVertAlignment() {
-        return "center";
-    }
+    public void render(Element element, RenderContext renderContext) {
+        boolean renderedAlignment = renderContent(element, renderContext);
+        GFormController.setFont(element, GFormController.getFont(property, renderContext));
 
-    private static String getFlexAlign(Style.TextAlign textAlign) {
-        switch (textAlign) {
-            case LEFT:
-                return "flex-start"; // left/start somewhy doesn't work with text
-            case RIGHT:
-                return "flex-end"; // rigt/end somewhy doesn't work with text
-            default:
-                return textAlign.getCssName();
+//        BaseImage.setClasses(element, getValueElementClass());
+
+        // ? getSizeElement ?
+        GwtClientUtils.renderValueOverflow(element, property.getValueOverflowHorz(), property.getValueOverflowVert());
+        GwtClientUtils.renderValueShrinkHorz(element, property.getValueShrinkHorz(), property.getValueShrinkVert());
+
+        //GwtClientUtils.addXClassName(SimpleTextBasedCellRenderer.getSizeElement(element), "prop-value-shrink");
+
+        if(!renderedAlignment) {
+            assert !GwtClientUtils.isTDorTH(element);
+//            assert !InputBasedCellRenderer.isToolbarContainer(element); // broken when isInputStretchText
+            renderFlexAlignment(element, property.getHorzTextAlignment(), property.getVertTextAlignment());
         }
-    }
-
-    // should be consistent with getWidthPadding and getHeightPadding
-    // and with TextBasedCellEditor.renderDOM
-    public void renderStatic(Element element, RenderContext renderContext) {
-        Style.TextAlign textAlign = property.getTextAlignStyle();
-        if (textAlign == null)
-            textAlign = getDefaultHorzAlignment();
-
-        String vertAlignment = getDefaultVertAlignment();
-
-        if(renderContext.isAlwaysSelected())
-            renderEditSelected(element, property);
-
-        Integer staticHeight = renderContext.getStaticHeight();
-        // is simple text renderer (SINGLE LINE (!)) && has static height (otherwise when div is expanded line-height will not work)
-        // maybe later it makes sense to add optimization for ActionOrPropertyValue to look at the upper container if it's has static height
-        if(staticHeight != null && isSimpleText(renderContext)) // optimization
-            renderSimpleStatic(element, textAlign, vertAlignment, staticHeight);
-        else {
-            String horzAlignment = getFlexAlign(textAlign);
-            element = renderFlexStatic(element, horzAlignment, vertAlignment, staticHeight);
-        }
-
-        renderStaticContent(element, renderContext);
     }
 
     public static void renderEditSelected(Element element, GPropertyDraw property) {
         if(property.hasEditObjectAction)
-            element.addClassName("selectedCellHasEdit");
+            GwtClientUtils.addClassName(element, "selected-cell-has-edit", "selectedCellHasEdit", v5);
     }
     public static void clearEditSelected(Element element, GPropertyDraw property) {
         if(property.hasEditObjectAction)
-            element.removeClassName("selectedCellHasEdit");
+            GwtClientUtils.removeClassName(element, "selected-cell-has-edit", "selectedCellHasEdit", v5);
     }
 
-    private Element renderFlexStatic(Element element, String horzAlignment, String vertAlignment, Integer staticHeight) {
-        int paddings = 0;
-        if(GwtClientUtils.isTDorTH(element)) { // we need to wrap into div, at list because we cannot set display:flex to div
-            element = wrapTD(element);
-            if(staticHeight != null) // we need to remove paddings when setting maximum height (maybe in future margins might be used, and that will not be needed)
-                paddings = getHeightPadding() * 2;
+    public static void renderFlexAlignment(Element element, GFlexAlignment horzTextAlignment, GFlexAlignment vertAlignment) {
+        GwtClientUtils.addClassName(element, "prop-display-flex");
+
+        switch(horzTextAlignment) {
+            case START:
+                GwtClientUtils.addClassName(element, "prop-flex-horz-start");
+                break;
+            case CENTER:
+                GwtClientUtils.addClassName(element, "prop-flex-horz-center");
+                break;
+            case STRETCH:
+                GwtClientUtils.addClassName(element, "prop-flex-horz-stretch");
+                break;
+            case END:
+                GwtClientUtils.addClassName(element, "prop-flex-horz-end");
+                break;
         }
-        GwtClientUtils.setAlignedFlexCenter(element, vertAlignment, horzAlignment);
 
-        if(staticHeight != null) // setting maxHeight for div ??? if inner context is too big, for example multi-line text (strictly speaking for now it seems that it is used only for multi-line text)
-            GwtClientUtils.setMaxHeight(element, staticHeight, paddings);
-        return element;
+        switch (vertAlignment) {
+            case START:
+                GwtClientUtils.addClassName(element, "prop-flex-vert-start");
+                break;
+            case CENTER:
+                GwtClientUtils.addClassName(element, "prop-flex-vert-center");
+                break;
+            case STRETCH:
+                GwtClientUtils.addClassName(element, "prop-flex-vert-stretch");
+                break;
+            case END:
+                GwtClientUtils.addClassName(element, "prop-flex-vert-end");
+                break;
+        }
     }
 
-    private static Element wrapTD(Element element) {
-        assert GwtClientUtils.isTDorTH(element);
-        return GwtClientUtils.wrapDiv(element);
-    }
-    public static Element unwrapTD(Element element) {
-        assert GwtClientUtils.isTDorTH(element);
-        return element.getFirstChildElement();
+    // we need this if text is wrapped or there are line breaks, and we render alignment with flex
+    public static void renderWrapTextAlignment(Element element, GFlexAlignment horzAlignment, GFlexAlignment vertAlignment) {
+        renderTextAlignment(element, horzAlignment, vertAlignment);
     }
 
-    private static void renderSimpleStatic(Element element, Style.TextAlign horzAlignment, String vertAlignment, Integer staticHeight) {
-        GPropertyTableBuilder.setLineHeight(element, staticHeight);
+    public static void renderTextAlignment(Element element, GFlexAlignment horzAlignment, GFlexAlignment vertAlignment) {
+        switch(horzAlignment) {
+            case STRETCH:
+            case START:
+                GwtClientUtils.addClassName(element, "prop-text-horz-start");
+                break;
+            case CENTER:
+                GwtClientUtils.addClassName(element, "prop-text-horz-center");
+                break;
+            case END:
+                GwtClientUtils.addClassName(element, "prop-text-horz-end");
+                break;
+        }
 
-        assert vertAlignment.equals("center");
-        element.getStyle().setTextAlign(horzAlignment);
+        switch (vertAlignment) {
+            case STRETCH:
+            case START:
+                GwtClientUtils.addClassName(element, "prop-text-vert-start");
+                break;
+            case CENTER:
+                GwtClientUtils.addClassName(element, "prop-text-vert-center");
+                break;
+            case END:
+                GwtClientUtils.addClassName(element, "prop-text-vert-end");
+                break;
+        }
     }
 
-    // of course without optimization of using the same render element this drops won't be needed, but it is important optimization
     public void clearRender(Element element, RenderContext renderContext) {
         GwtClientUtils.removeAllChildren(element);
 
-        if(renderContext.isAlwaysSelected())
-            clearEditSelected(element, property);
+        boolean renderedAlignment = clearRenderContent(element, renderContext);
 
-        Integer staticHeight = renderContext.getStaticHeight();
-        // is simple text renderer (SINGLE LINE (!)) && has static height (otherwise when div is expanded line-height will not work)
-        boolean sameElement = true;
-        if(staticHeight != null && isSimpleText(renderContext)) // optimization
-            clearRenderSimpleStatic(element);
-        else
-            sameElement = clearRenderFlexStatic(element, staticHeight);
-
-        if(sameElement)
-            clearRenderContent(element, renderContext);
-    }
-    private void clearRenderSimpleStatic(Element element) {
-        GPropertyTableBuilder.clearLineHeight(element);
-
-        element.getStyle().clearTextAlign();
-    }
-    private boolean clearRenderFlexStatic(Element element, Integer staticHeight) {
-        if(!GwtClientUtils.isTDorTH(element)) {
-            GwtClientUtils.clearAlignedFlexCenter(element);
-            element.getStyle().clearProperty("alignItems");
-            element.getStyle().clearProperty("justifyContent");
-
-            if(staticHeight != null)
-                GwtClientUtils.clearMaxHeight(element);
-
-            return true;
+        if(valueTooltipHelper != null) {
+            JavaScriptObject valueTippy = (JavaScriptObject) element.getPropertyObject("valueTippy");
+            if(valueTippy != null) {
+                GwtClientUtils.hideAndDestroyTippyPopup(valueTippy);
+            } else
+                assert false;
         }
+
+        //GwtClientUtils.removeXClassName(SimpleTextBasedCellRenderer.getSizeElement(element), "prop-value-shrink");
+        /* ? getSizeElement */
+        GwtClientUtils.clearValueOverflow(element, property.getValueOverflowHorz(), property.getValueOverflowVert());
+        GwtClientUtils.clearValueShrinkHorz(element, property.getValueShrinkHorz(), property.getValueShrinkVert());
+
+        if (!renderedAlignment)
+            clearRenderFlexAlignment(element, property.getHorzTextAlignment(), property.getVertTextAlignment());
+
+        // update
+        GFormController.clearColors(element);
+        GFormController.clearFont(element);
+
+        clearEditSelected(element, property);
+
+        if(needToRenderToolbarContent()) {
+            RenderedState renderedState = (RenderedState) element.getPropertyObject(RENDERED);
+            if(renderedState.toolbar != null) {
+                clearRenderToolbarContent(element);
+            }
+        }
+        element.setPropertyObject(RENDERED, null);
+    }
+
+    public static void clearRenderTextAlignment(Element element, GFlexAlignment horzTextAlignment, GFlexAlignment vertAlignment) {
+        switch(horzTextAlignment) {
+            case START:
+                GwtClientUtils.removeClassName(element, "prop-text-horz-start");
+                break;
+            case CENTER:
+            case STRETCH:
+                GwtClientUtils.removeClassName(element, "prop-text-horz-center");
+                break;
+            case END:
+                GwtClientUtils.removeClassName(element, "prop-text-horz-end");
+                break;
+        }
+
+        switch (vertAlignment) {
+            case START:
+                GwtClientUtils.removeClassName(element, "prop-text-vert-start");
+                break;
+            case CENTER:
+            case STRETCH:
+                GwtClientUtils.removeClassName(element, "prop-text-vert-center");
+                break;
+            case END:
+                GwtClientUtils.removeClassName(element, "prop-text-vert-end");
+                break;
+        }
+    }
+
+    public static void clearRenderFlexAlignment(Element element, GFlexAlignment horzTextAlignment, GFlexAlignment vertAlignment) {
+        GwtClientUtils.removeClassName(element, "prop-display-flex");
+
+        switch(horzTextAlignment) {
+            case START:
+                GwtClientUtils.removeClassName(element, "prop-flex-horz-start");
+                break;
+            case CENTER:
+                GwtClientUtils.removeClassName(element, "prop-flex-horz-center");
+                break;
+            case STRETCH:
+                GwtClientUtils.removeClassName(element, "prop-flex-horz-stretch");
+                break;
+            case END:
+                GwtClientUtils.removeClassName(element, "prop-flex-horz-end");
+                break;
+        }
+
+        switch (vertAlignment) {
+            case START:
+                GwtClientUtils.removeClassName(element, "prop-flex-vert-start");
+                break;
+            case CENTER:
+                GwtClientUtils.removeClassName(element, "prop-flex-vert-center");
+                break;
+            case STRETCH:
+                GwtClientUtils.removeClassName(element, "prop-flex-vert-stretch");
+                break;
+            case END:
+                GwtClientUtils.removeClassName(element, "prop-flex-vert-end");
+                break;
+        }
+    }
+
+    protected boolean renderedLoadingContent(UpdateContext updateContext) {
         return false;
     }
-
-    public void renderDynamic(Element element, Object value, UpdateContext updateContext) {
-        if(!(updateContext.isStaticHeight() && isSimpleText(updateContext)) && GwtClientUtils.isTDorTH(element)) // there is another unwrapping in GPropertyTableBuilder, so it also should be kept consistent
-            element = unwrapTD(element);
-
-        renderDynamicContent(element, value, updateContext);
+    protected Object getExtraValue(UpdateContext updateContext) {
+        return null;
     }
 
-    public abstract void renderStaticContent(Element element, RenderContext renderContext);
-    public abstract void renderDynamicContent(Element element, Object value, UpdateContext updateContext);
-    public abstract void clearRenderContent(Element element, RenderContext renderContext);
-
-    public int getWidthPadding() {
-        return 0;
-    }
-    public int getHeightPadding() {
-        return 0;
+    protected boolean needToRenderToolbarContent() {
+        return property.toolbar;
     }
 
-    public abstract String format(T value);
+    // in theory in most case we can get previous state without storing it in Element, but for now it's the easiest way
+    private static class RenderedState {
+        public PValue value;
+        public Object extraValue;
+        public GColorTheme colorTheme; // for action and color cell renderer
+
+        public GFont font;
+        public String foreground;
+        public String background;
+
+        public Boolean readonly;
+
+        public String valueElementClass;
+
+        public String valueTooltip;
+
+        public boolean rerender;
+
+        public ToolbarState toolbar;
+    }
+    private static boolean equalsDynamicState(RenderedState state, PValue value, Object extraValue, GColorTheme colorTheme) {
+        return GwtClientUtils.nullEquals(state.value, value) && GwtClientUtils.nullEquals(state.extraValue, extraValue) && state.colorTheme == colorTheme && !state.rerender;
+    }
+    private static boolean equalsFontColorState(RenderedState state, GFont font, String background, String foreground) {
+        return GwtClientUtils.nullEquals(state.font, font) && GwtClientUtils.nullEquals(state.background, background) && GwtClientUtils.nullEquals(state.foreground, foreground);
+    }
+    private static boolean equalsReadonlyState(RenderedState state, Boolean readonly) {
+        return GwtClientUtils.nullEquals(state.readonly, readonly);
+    }
+    private static boolean equalsValueElementClassState(RenderedState state, String elementClass) {
+        return GwtClientUtils.nullEquals(state.valueElementClass, elementClass);
+    }
+    private static boolean equalsValueTooltipState(RenderedState state, String valueTooltip) {
+        return GwtClientUtils.nullEquals(state.valueTooltip, valueTooltip);
+    }
+
+    private static final String RENDERED = "rendered";
+
+    protected String getBackground(UpdateContext updateContext) {
+        return ColorUtils.getThemedColor(updateContext.getBackground());
+    }
+
+    protected static void rerenderState(Element element, boolean set) {
+        RenderedState renderedState = (RenderedState) element.getPropertyObject(RENDERED);
+        if(renderedState != null) // since element can be already dead
+            renderedState.rerender = set;
+    }
+    
+    public void update(Element element, UpdateContext updateContext) {
+        boolean selected = updateContext.isSelectedLink();
+        if(selected)
+            renderEditSelected(element, property);
+        else
+            clearEditSelected(element, property);
+
+        PValue value = updateContext.getValue();
+        Object extraValue = getExtraValue(updateContext); // in action we also use isLoading and getImage
+
+        RenderedState renderedState = (RenderedState) element.getPropertyObject(RENDERED);
+        boolean isNew = false;
+        if(renderedState == null) {
+            renderedState = new RenderedState();
+            element.setPropertyObject(RENDERED, renderedState);
+
+            isNew = true;
+        }
+
+        Boolean readonly = updateContext.isPropertyReadOnly();
+        if(isNew || !equalsReadonlyState(renderedState, readonly)) {
+            renderedState.readonly = readonly;
+
+            updateReadonly(element, readonly);
+        }
+
+        String valueElementClass = updateContext.getValueElementClass();
+        if(isNew || !equalsValueElementClassState(renderedState, valueElementClass)) {
+            renderedState.valueElementClass = valueElementClass;
+
+            BaseImage.updateClasses(InputBasedCellRenderer.getMainElement(element), valueElementClass, "value");
+        }
+
+        if(valueTooltipHelper != null) {
+            String valueTooltip = updateContext.getValueTooltip();
+            if (isNew || !equalsValueTooltipState(renderedState, valueTooltip)) {
+                renderedState.valueTooltip = valueTooltip;
+                JavaScriptObject valueTippy;
+                if (isNew) {
+                    valueTippy = TooltipManager.initTooltip(new PopupOwner(updateContext.getPopupOwnerWidget(), InputBasedCellRenderer.getMainElement(element)), valueTooltipHelper);
+                    element.setPropertyObject("valueTippy", valueTippy);
+                } else {
+                    valueTippy = (JavaScriptObject) element.getPropertyObject("valueTippy");
+                }
+                TooltipManager.updateContent(valueTippy, valueTooltipHelper, valueTooltip);
+            }
+        }
+
+        // already themed colors expected
+        GFont font = updateContext.getFont();
+        String background = getBackground(updateContext);
+        String foreground = ColorUtils.getThemedColor(updateContext.getForeground());
+        if(isNew || !equalsFontColorState(renderedState, font, background, foreground)) {
+            renderedState.font = font;
+            renderedState.background = background;
+            renderedState.foreground = foreground;
+
+            GFormController.updateFontColors(InputBasedCellRenderer.getMainElement(element), font, background, foreground);
+        }
+
+        boolean cleared = false;
+        if(isNew || !equalsDynamicState(renderedState, value, extraValue, MainFrame.colorTheme)) {
+            // there might be stack overflow, if this is done after renderDynamicContent, and this is a custom cell render, which calls changeProperty in its update method
+            // setting value earlier breaks the recursion
+            renderedState.value = value;
+            renderedState.extraValue = extraValue;
+            renderedState.colorTheme = MainFrame.colorTheme;
+            renderedState.rerender = false;
+
+            cleared = updateContent(element, value, extraValue, updateContext);
+        }
+
+        if(needToRenderToolbarContent())
+            renderToolbarContent(element, updateContext, renderedState, cleared);
+    }
+
+    private void updateReadonly(Element element, Boolean readonly) {
+        Object readonlyFnc = getReadonlyFnc(element);
+        if(readonlyFnc != null) {
+            if(readonlyFnc != CellRenderer.NULL)
+                GwtClientUtils.call((JavaScriptObject) readonlyFnc, GSimpleStateTableView.fromObject(readonly));
+        } else
+            setDefaultReadonlyFnc(element, readonly);
+    }
+
+    private static native JavaScriptObject setDefaultReadonlyFnc(Element element, Boolean readonly)/*-{
+        $wnd.setDisabledType(element, readonly != null && readonly);
+        $wnd.setReadonlyType(element, readonly != null && !readonly);
+    }-*/;
+
+    // in theory in most case we can get previous state without storing it in Element, but for now it's the easiest way
+    private static class ToolbarState {
+        public final boolean loading;
+        public final ToolbarAction[] toolbarActions;
+
+        public Element element;
+
+        public ToolbarState(boolean loading, ToolbarAction[] toolbarActions) {
+            this.loading = loading;
+            this.toolbarActions = toolbarActions;
+        }
+    }
+
+    private boolean equalsState(ToolbarState stateA, ToolbarState stateB) {
+        if(stateA == null)
+            return stateB == null;
+        if(stateB == null)
+            return false;
+
+        if(!(stateA.loading == stateB.loading))
+            return false;
+
+        if(stateA.toolbarActions != stateB.toolbarActions) {
+            if (stateA.toolbarActions.length != stateB.toolbarActions.length)
+                return false;
+            for(int i = 0; i<stateA.toolbarActions.length; i++)
+                if(!stateA.toolbarActions[i].matches(stateB.toolbarActions[i]))
+                    return false;
+        }
+
+        return true;
+    }
+
+    public interface ToolbarAction {
+
+        boolean isHover();
+        GKeyStroke getKeyStroke();
+        BaseStaticImage getImage();
+
+        boolean matches(ToolbarAction action);
+
+        // there are to ways of working with toolbar actions
+        // 1 is setting some mark for the target element (s) and then checking it in regular event handler (this  is more flexible, for example in changeOnSingleClick scenario, however needs some assertions)
+        // 2 setting onMouseDown and stopping propagation (this way the row change won't be handled, when using ALL, and maybe some mor things)
+        default void setToolbarAction(Element actionImgElement, Object value) {
+            // we're setting TOOLBAR_ACTION for all containers to avoid recursive run in getToolbarAction (optimization)
+            actionImgElement.setPropertyObject(GEditBindingMap.TOOLBAR_ACTION, value);
+            Element parentElement = actionImgElement.getParentElement();
+            parentElement.setPropertyObject(GEditBindingMap.TOOLBAR_ACTION, value);
+        }
+        default void setToolbarAction(ImageElement actionImgElement, Runnable run) {
+            // it has to be mouse down, since all other handlers use mousedown
+            GwtClientUtils.setOnMouseDown(actionImgElement.getParentElement(), nativeEvent -> {
+                nativeEvent.stopPropagation(); // need to stop, otherwise editing will be started
+                nativeEvent.preventDefault(); // preventing default stops button from focusing (this way we make this button unfocusable, which is important since onClick will lead to rerender, removing component and in this case focus will go south)
+                run.run();
+            });
+        }
+
+        void setOnPressed(Element actionImgElement, UpdateContext updateContext);
+    }
+
+    public final static GPropertyDraw.QuickAccessAction[] noToolbarActions = new GPropertyDraw.QuickAccessAction[0];
+    // cleared - cleared with setInnerText / setInnerHTML
+    private void renderToolbarContent(Element element, UpdateContext updateContext, RenderedState renderedState, boolean cleared) {
+        boolean loading = updateContext.isLoading() && !renderedLoadingContent(updateContext);
+        ToolbarAction[] toolbarActions = updateContext.getToolbarActions();
+
+        boolean needToolbar = loading || toolbarActions.length > 0;
+
+        ToolbarState toolbarState = needToolbar ? new ToolbarState(loading, toolbarActions) : null;
+        ToolbarState prevState = renderedState.toolbar;
+        if (equalsState(toolbarState, prevState)) { // already rendered
+            if(!(cleared && needToolbar)) // if cleared we still need to rerender the toolbar
+                return;
+
+            toolbarState = prevState; // to keep toolbar element
+        } else {
+            if(prevState != null && toolbarState != null)
+                toolbarState.element = prevState.element;
+
+            renderedState.toolbar = toolbarState;
+        }
+
+        if(needToolbar) {
+            Element toolbarElement = cleared ? null : toolbarState.element;
+            boolean start = !property.getHorzTextAlignment().equals(GFlexAlignment.START);
+            if(toolbarElement == null) {
+                toolbarElement = Document.get().createDivElement();
+                GwtClientUtils.addClassName(toolbarElement, start ? "property-toolbar-start" : "property-toolbar-end");
+                GwtClientUtils.addClassName(toolbarElement, "property-toolbar");
+                GToolbarView.styleToolbar(toolbarElement);
+                // we need background-inherit for hover components because of transition (toolbar gets all the width immediately which leads to some annoying blinking)
+//                GwtClientUtils.addXClassName(toolbarElement, "background-inherit");
+                element.appendChild(toolbarElement);
+
+                GwtClientUtils.setupEdgeStretchParent(toolbarElement, true, start);
+
+                toolbarState.element = toolbarElement;
+            } else
+                GwtClientUtils.removeAllChildren(toolbarElement);
+
+            if(loading) {
+                Element loadingImage = StaticImage.LOADING_IMAGE_PATH.createImage();
+                GwtClientUtils.addClassName(loadingImage, "property-toolbar-loading");
+
+                //We don't need the background-inherit class because when we use it, the loading spinner has a visible square background
+//                GwtClientUtils.addXClassName(loadingImage, "background-inherit");
+
+                addToToolbar(toolbarElement, start, loadingImage);
+            }
+
+            if (toolbarActions.length > 0) {
+                Element propertyToolbarItemGroup = null;
+                Element verticalSeparator = GwtClientUtils.createVerticalStretchSeparator().getElement();
+                GwtClientUtils.addClassName(verticalSeparator, "background-inherit");
+                if(allHover(toolbarActions)) {
+                    propertyToolbarItemGroup = wrapPropertyToolbarItemGroup(null, toolbarElement, verticalSeparator, start);
+                } else {
+                    addToToolbar(toolbarElement, start, verticalSeparator);
+                }
+
+                int hoverCount = 0;
+                for (ToolbarAction toolbarAction : toolbarActions) {
+                    // there is an assertion that the DOM structure will be exactly like that in setOnPressed / for optimization reasons
+                    Element actionDivElement = GwtClientUtils.createFocusElement("button");
+                    GwtClientUtils.addClassName(actionDivElement, "btn");
+
+                    Element actionImgElement = toolbarAction.getImage().createImage();
+
+                    actionDivElement.appendChild(actionImgElement);
+                    GwtClientUtils.addClassName(actionDivElement, "property-toolbar-item"); // setting paddings
+                    GToolbarView.styleToolbarItem(actionDivElement);
+                    GwtClientUtils.addClassName(actionDivElement, "background-inherit");
+
+                    toolbarAction.setOnPressed(actionImgElement, updateContext);
+
+                    GKeyStroke keyStroke = toolbarAction.getKeyStroke();
+                    actionDivElement.setTitle(keyStroke != null ? keyStroke.toString() : "");
+
+                    if (toolbarAction.isHover()) {
+                        propertyToolbarItemGroup = wrapPropertyToolbarItemGroup(propertyToolbarItemGroup, toolbarElement, actionDivElement, start);
+                        hoverCount++;
+                    } else {
+                        propertyToolbarItemGroup = null;
+                        addToToolbar(toolbarElement, start, actionDivElement);
+                    }
+                }
+
+                if (hoverCount > 0) {
+                    GwtClientUtils.addClassName(element, "property-toolbar-on-hover");
+                }
+            }
+        } else {
+            if (!cleared)
+                element.removeChild(prevState.element);
+
+            clearRenderToolbarContent(element);
+        }
+    }
+
+    private boolean allHover(ToolbarAction[] toolbarActions) {
+        for (ToolbarAction toolbarAction : toolbarActions) {
+            if (!toolbarAction.isHover()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private Element wrapPropertyToolbarItemGroup(Element propertyToolbarItemGroup, Element toolbarElement, Element element, boolean start) {
+        if(propertyToolbarItemGroup == null)
+            propertyToolbarItemGroup = Document.get().createDivElement();
+        GwtClientUtils.addClassName(propertyToolbarItemGroup, start ? "property-toolbar-item-hover-start" : "property-toolbar-item-hover-end");
+        GwtClientUtils.addClassName(propertyToolbarItemGroup, "property-toolbar-item-hover");
+
+        addToToolbar(toolbarElement, start, propertyToolbarItemGroup);
+
+        addToToolbar(propertyToolbarItemGroup, start, element);
+
+        return propertyToolbarItemGroup;
+    }
+
+    private void addToToolbar(Element toolbarElement, boolean start, Element element) {
+        if(start)
+            toolbarElement.insertFirst(element);
+        else
+            toolbarElement.appendChild(element);
+    }
+
+    protected void clearRenderToolbarContent(Element element) {
+        GwtClientUtils.clearFillParentElement(element);
+        GwtClientUtils.removeClassName(element, "property-toolbar-on-hover");
+    }
+
+    public abstract boolean renderContent(Element element, RenderContext renderContext);
+    public abstract boolean updateContent(Element element, PValue value, Object extraValue, UpdateContext updateContext);
+    public abstract boolean clearRenderContent(Element element, RenderContext renderContext);
+
+    public abstract String format(PValue value, RendererType rendererType, String pattern);
+
+    public boolean isCustomRenderer() {
+        return false;
+    }
 }

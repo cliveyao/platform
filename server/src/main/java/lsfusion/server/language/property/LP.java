@@ -1,33 +1,41 @@
 package lsfusion.server.language.property;
 
-import lsfusion.base.BaseUtils;
 import lsfusion.base.col.ListFact;
-import lsfusion.base.col.interfaces.immutable.ImList;
-import lsfusion.base.col.interfaces.immutable.ImMap;
-import lsfusion.base.col.interfaces.immutable.ImOrderSet;
-import lsfusion.base.col.interfaces.immutable.ImRevMap;
+import lsfusion.base.col.MapFact;
+import lsfusion.base.col.SetFact;
+import lsfusion.base.col.interfaces.immutable.*;
 import lsfusion.base.file.FileData;
 import lsfusion.base.file.RawFileData;
 import lsfusion.server.base.version.Version;
 import lsfusion.server.data.QueryEnvironment;
 import lsfusion.server.data.expr.Expr;
 import lsfusion.server.data.expr.key.KeyExpr;
+import lsfusion.server.data.query.build.Join;
+import lsfusion.server.data.query.build.QueryBuilder;
 import lsfusion.server.data.sql.SQLSession;
 import lsfusion.server.data.sql.exception.SQLHandledException;
 import lsfusion.server.data.value.DataObject;
 import lsfusion.server.data.value.ObjectValue;
 import lsfusion.server.data.where.Where;
+import lsfusion.server.language.action.LA;
 import lsfusion.server.language.property.oraction.LAP;
+import lsfusion.server.logics.BaseLogicsModule;
 import lsfusion.server.logics.LogicsModule;
 import lsfusion.server.logics.action.controller.context.ExecutionContext;
 import lsfusion.server.logics.action.controller.context.ExecutionEnvironment;
 import lsfusion.server.logics.action.session.DataSession;
 import lsfusion.server.logics.action.session.change.PropertyChange;
 import lsfusion.server.logics.action.session.change.modifier.Modifier;
+import lsfusion.server.logics.action.session.changed.IncrementType;
+import lsfusion.server.logics.action.session.table.SingleKeyPropertyUsage;
+import lsfusion.server.logics.action.session.table.SingleKeyTableUsage;
+import lsfusion.server.logics.action.session.table.SinglePropertyTableUsage;
+import lsfusion.server.logics.classes.ConcreteClass;
 import lsfusion.server.logics.classes.ValueClass;
 import lsfusion.server.logics.classes.user.set.ResolveClassSet;
 import lsfusion.server.logics.event.Event;
 import lsfusion.server.logics.event.PrevScope;
+import lsfusion.server.logics.navigator.controller.env.ChangesController;
 import lsfusion.server.logics.property.Property;
 import lsfusion.server.logics.property.UnionProperty;
 import lsfusion.server.logics.property.cases.CaseUnionProperty;
@@ -36,9 +44,7 @@ import lsfusion.server.logics.property.implement.PropertyImplement;
 import lsfusion.server.logics.property.implement.PropertyInterfaceImplement;
 import lsfusion.server.logics.property.implement.PropertyMapImplement;
 import lsfusion.server.logics.property.oraction.PropertyInterface;
-import lsfusion.server.physics.admin.log.form.LogFormEntity;
 import lsfusion.server.physics.admin.monitor.SystemEventsLogicsModule;
-import lsfusion.server.physics.dev.i18n.LocalizedString;
 import lsfusion.server.physics.dev.id.name.DBNamingPolicy;
 
 import java.math.BigDecimal;
@@ -46,7 +52,7 @@ import java.sql.SQLException;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.List;
+import java.util.*;
 
 import static lsfusion.server.logics.property.oraction.ActionOrPropertyUtils.readCalcImplements;
 
@@ -82,16 +88,20 @@ public class LP<T extends PropertyInterface> extends LAP<T, Property<T>> {
         return property.readAllClasses(env).mapKeys(value -> listInterfaces.mapList(value));
     }
 
-    public Object read(SQLSession session, Modifier modifier, QueryEnvironment env, ObjectValue... objects) throws SQLException, SQLHandledException {
+    public Object read(DataSession session, Modifier modifier, QueryEnvironment env, ObjectValue... objects) throws SQLException, SQLHandledException {
         return property.read(session, getMapValues(objects), modifier, env);
     }
 
+    public Object read(SQLSession session, Modifier modifier, ChangesController changesController, QueryEnvironment env, ObjectValue... objects) throws SQLException, SQLHandledException {
+        return property.read(session, getMapValues(objects), modifier, env, changesController);
+    }
+
     public Object read(ExecutionContext context, ObjectValue... objects) throws SQLException, SQLHandledException {
-        return read(context.getSession().sql, context.getModifier(), context.getQueryEnv(), objects);
+        return read(context.getSession(), context.getModifier(), context.getQueryEnv(), objects);
     }
 
     public Object read(DataSession session, ObjectValue... objects) throws SQLException, SQLHandledException {
-        return read(session.sql, session.getModifier(), session.env, objects);
+        return read(session, session.getModifier(), session.env, objects);
     }
 
     public ObjectValue readClasses(DataSession session, Modifier modifier, QueryEnvironment env, ObjectValue... objects) throws SQLException, SQLHandledException {
@@ -134,10 +144,16 @@ public class LP<T extends PropertyInterface> extends LAP<T, Property<T>> {
         change((Object)value, context, objects);
     }
     public void change(Boolean value, DataSession session, DataObject... objects) throws SQLException, SQLHandledException {
-        change((Object)value, session, objects);
+        change(value, false, session, objects);
+    }
+    public void change(Boolean value, boolean threeState, DataSession session, DataObject... objects) throws SQLException, SQLHandledException {
+        change(value, threeState, (ExecutionEnvironment) session, objects);
     }
     public void change(Boolean value, ExecutionContext context, DataObject... objects) throws SQLException, SQLHandledException {
-        change((Object)value, context, objects);
+        change(value, false, context, objects);
+    }
+    public void change(Boolean value, boolean threeState, ExecutionContext context, DataObject... objects) throws SQLException, SQLHandledException {
+        change(value, threeState, context.getEnv(), objects);
     }
     public void change(LocalDate value, DataSession session, DataObject... objects) throws SQLException, SQLHandledException {
         change((Object)value, session, objects);
@@ -196,6 +212,13 @@ public class LP<T extends PropertyInterface> extends LAP<T, Property<T>> {
         change(value, env, getMapDataValues(objects));
     }
 
+    public void change(Boolean value, boolean threeState, ExecutionEnvironment env, DataObject... objects) throws SQLException, SQLHandledException {
+        // change false to null
+        if (!threeState && value != null && !value) {
+            value = null;
+        }
+        change(value, env, objects);
+    }
     public void change(Object value, ExecutionEnvironment env, DataObject... objects) throws SQLException, SQLHandledException {
         change(value, env, getMapDataValues(objects));
     }
@@ -205,42 +228,123 @@ public class LP<T extends PropertyInterface> extends LAP<T, Property<T>> {
     }
 
     public void change(Object value, ExecutionEnvironment env, ImMap<T, DataObject> keys) throws SQLException, SQLHandledException {
-        //отдельно обрабатываем false-значения: используем null вместо false
-        if (value instanceof Boolean && !(Boolean)value) {
-            value = null;
-        }
         property.change(keys, env, value);
     }
 
-    public void makeLoggable(LogicsModule ownerModule, SystemEventsLogicsModule systemEventsLM) {
-        setupLoggable(ownerModule, systemEventsLM, null);
-        property.setLoggable(true);
+    public <K, V> void change(ExecutionContext context, ImMap<K, V> data) throws SQLException, SQLHandledException {
+        change(context.getSession(), context.getEnv(), data);
     }
 
-    public void makeUserLoggable(LogicsModule ownerModule, SystemEventsLogicsModule systemEventsLM, DBNamingPolicy namingPolicy) {
-        setupLoggable(ownerModule, systemEventsLM, namingPolicy);
-        property.setLoggable(true);
+    public interface GetLPValue<K, V> {
+        Object get(K key, V value, LP lp);
     }
 
-    private void setupLoggable(LogicsModule ownerModule, SystemEventsLogicsModule systemEventsLM, DBNamingPolicy namingPolicy) {
-        if (property.getLogValueProperty() == null) {
-            LP logValueProperty = ownerModule.addLProp(systemEventsLM, this, namingPolicy);
-            LP logDropProperty = ownerModule.addLDropProp(systemEventsLM, this, namingPolicy);
-            
-            property.setLogValueProperty(logValueProperty);
-            property.setLogWhereProperty(ownerModule.addLWhereProp(logValueProperty, logDropProperty));
+    public static <K, V> void change(ExecutionContext context, final ImOrderSet<LP> props, ImMap<K, V> data, ConcreteClass keyClass, GetLPValue<K, V> mapper) throws SQLException, SQLHandledException {
+        change(context.getSession(), context.getEnv(), props, data, keyClass, mapper);
+    }
+
+    // actually it is an "optimization" of the change for a set of properties
+    public <K, V> void change(DataSession session, ExecutionEnvironment env, ImMap<K, V> data) throws SQLException, SQLHandledException {
+
+        T propertyKey = listInterfaces.single();
+        ValueClass propertyKeyClass = property.getInterfaceClasses(ClassType.editValuePolicy).get(propertyKey);
+        ValueClass propertyValueClass = property.getValueClass(ClassType.editValuePolicy);
+
+        SingleKeyPropertyUsage table = new SingleKeyPropertyUsage("updpm:sp", propertyKeyClass.getType(), propertyValueClass.getType());
+
+        table.writeRows(session.sql, session.getOwner(), data.<DataObject, ObjectValue, SQLException, SQLHandledException>mapKeyValuesEx(
+                key -> session.getDataObject(propertyKeyClass, key), value -> session.getObjectValue(propertyValueClass, value)));
+
+        try {
+            env.change(property, SingleKeyPropertyUsage.getChange(table, propertyKey));
+        } finally {
+            table.drop(session.sql, session.getOwner());
         }
-        if (property.getLogFormAction() == null) {
-            LogFormEntity logFormEntity = new LogFormEntity(LocalizedString.create("{logics.property.log.form}"),
-                                                            this, property.getLogValueProperty(), property.getLogWhereProperty(), systemEventsLM);
-            systemEventsLM.addAutoFormEntity(logFormEntity);
-            property.setLogFormAction(ownerModule.addMFAProp(LocalizedString.create("{logics.property.log.action}"), logFormEntity, logFormEntity.params, true));
+    }
+
+    public <V> void changeList(DataSession session, ExecutionEnvironment env, ImMap<ImList<Object>, V> params) throws SQLException, SQLHandledException {
+
+        ImMap<T, ValueClass> keyClasses = property.getInterfaceClasses(ClassType.editValuePolicy);
+        ValueClass propertyValueClass = property.getValueClass(ClassType.editValuePolicy);
+
+        SinglePropertyTableUsage<T> table = new SinglePropertyTableUsage<>("updpm:sp", listInterfaces, key -> keyClasses.get(key).getType(), propertyValueClass.getType());
+
+        table.writeRows(params.<ImMap<T, DataObject>, ObjectValue, SQLException, SQLHandledException>mapKeyValuesEx(
+                keys -> listInterfaces.<DataObject, SQLException, SQLHandledException>mapOrderValuesEx((index, key) -> session.getDataObject(keyClasses.get(key), keys.get(index))),
+                value -> session.getObjectValue(propertyValueClass, value)), session.sql, session.getOwner());
+        try {
+            env.change(property, SinglePropertyTableUsage.getChange(table));
+        } finally {
+            table.drop(session.sql, session.getOwner());
         }
     }
 
-    public <D extends PropertyInterface> void setEventChange(LogicsModule lm, Event actionEvent, Object... params) {
+    public static <K, V> void change(DataSession session, ExecutionEnvironment env, final ImOrderSet<LP> props, ImMap<K, V> data, ConcreteClass keyClass, GetLPValue<K, V> mapper) throws SQLException, SQLHandledException {
+
+        ValueClass propertyKeyClass = props.get(0).getInterfaceClasses(ClassType.editValuePolicy)[0];
+        ImOrderMap<LP, ValueClass> propertyValueClasses = props.mapOrderValues((LP lp) -> ((LP<?>) lp).property.getValueClass(ClassType.editValuePolicy));
+
+        SingleKeyTableUsage<LP> importTable = new SingleKeyTableUsage<>("updpm:wr", keyClass.getType(), props, key -> propertyValueClasses.get(key).getType());
+
+        importTable.writeRows(session.sql, data.<ImMap<String, DataObject>, ImMap<LP, ObjectValue>, SQLException, SQLHandledException>mapKeyValuesEx(
+                key -> MapFact.singleton("key", session.getDataObject(propertyKeyClass, key)), (key, value) -> props.getSet().<ObjectValue, SQLException, SQLHandledException>mapValuesEx((LP lp) -> session.getObjectValue(propertyValueClasses.get(lp), mapper.get(key, value, lp)))), session.getOwner());
+
+        ImRevMap<String, KeyExpr> mapKeys = importTable.getMapKeys();
+        Join<LP> importJoin = importTable.join(mapKeys);
+        Where where = importJoin.getWhere();
+        try {
+            for (LP lp : props)
+                env.change(lp.property, new PropertyChange(MapFact.singletonRev(lp.listInterfaces.single(), mapKeys.singleValue()), importJoin.getExpr(lp), where));
+        } finally {
+            importTable.drop(session.sql, session.getOwner());
+        }
+    }
+
+    public static ImOrderMap<ImMap<Integer, Object>, ImMap<Integer, Object>> readAll(LP[] lps, ExecutionEnvironment env) throws SQLException, SQLHandledException {
+        ImOrderSet<KeyExpr> keySet = KeyExpr.getMapKeys(lps[0].listInterfaces.size());
+        KeyExpr[] keyArray = keySet.toArray(new KeyExpr[keySet.size()]);
+        QueryBuilder<Integer, Integer> readQuery = new QueryBuilder<>(keySet.toIndexedMap());
+        Where where = Where.FALSE();
+        for (int i = 0; i < lps.length; i++) {
+            Expr expr = lps[i].getExpr(env.getModifier(), keyArray);
+            readQuery.addProperty(i, expr);
+            where = where.or(expr.getWhere());
+        }
+        readQuery.and(where);
+        return readQuery.execute(env);
+
+    }
+    public <K> ImMap<String, Object> readAll(DataSession session, K[] data) throws SQLException, SQLHandledException {
+        // create a temporary table with one key (STRING type), without fields
+        ConcreteClass interfaceClass = (ConcreteClass)getInterfaceClasses(ClassType.iteratePolicy)[0];
+        SingleKeyTableUsage<Object> importTable = new SingleKeyTableUsage<>("updpm:wr", interfaceClass.getType(), SetFact.EMPTYORDER(), key -> null);
+        try {
+            // write the values from the array
+            importTable.writeRows(session.sql, SetFact.toExclSet(data).mapKeyValues(value -> MapFact.singleton("key", new DataObject(value, interfaceClass)), value -> MapFact.EMPTY()), session.getOwner());
+            // create a query
+            // with one key named key (however, it can be any name): property parameter and condition: in the created temporary table
+            KeyExpr keyExpr = new KeyExpr(0);
+            ImRevMap<String, KeyExpr> mapKeys = MapFact.singletonRev("key", keyExpr);
+            Join<Object> importJoin = importTable.join(mapKeys);
+            QueryBuilder<String, String> query = new QueryBuilder<>(mapKeys, importJoin.getWhere());
+            // with one field value (however, any name is possible): the passed property
+            query.addProperty("value", getExpr(keyExpr));
+            // execute, re-mapping back to get map: property parameter -> value
+            return query.execute(session).keys().mapKeyValues(key -> (String)key.singleValue(), value -> value.singleValue());
+        } finally {
+            importTable.drop(session.sql, session.getOwner());
+        }
+    }
+
+    public void makeUserLoggable(BaseLogicsModule LM, SystemEventsLogicsModule systemEventsLM, DBNamingPolicy namingPolicy) {
+        // assert that all LP/LA has the "same" listInterfaces
+        LA<?> logFormAction = LM.addLFAProp(this, systemEventsLM, namingPolicy);
+        property.setLogFormAction(logFormAction.getImplement(listInterfaces));
+    }
+
+    public <D extends PropertyInterface> void setWhenChange(LogicsModule lm, Event actionEvent, Object... params) {
         ImList<PropertyInterfaceImplement<T>> listImplements = readCalcImplements(listInterfaces, params);
-        property.setEventChange(lm, actionEvent, listImplements.get(0), (PropertyMapImplement<PropertyInterface, T>) listImplements.get(1));
+        property.setWhenChange(lm, actionEvent, listImplements.get(0), (PropertyMapImplement<PropertyInterface, T>) listImplements.get(1));
     }
 
     public void addOperand(boolean hasWhen, List<ResolveClassSet> signature, Version version, Object... params) {
@@ -291,14 +395,14 @@ public class LP<T extends PropertyInterface> extends LAP<T, Property<T>> {
         property.autoset = autoset;
     }
 
-    public ValueClass[] getInterfaceClasses(ClassType classType) {
-        return property.getInterfaceClasses(listInterfaces, classType);
+    public LP<T> getOld(PrevScope scope) {
+        return new LP<>(property.getOld(scope), listInterfaces);
     }
 
-    public LP<T> getOld() {
-        return new LP<>(property.getOld(PrevScope.DB), listInterfaces);
+    public LP<T> getChanged(IncrementType type, PrevScope prevScope) {
+        return new LP<>(property.getChanged(type, prevScope), listInterfaces);
     }
-    
+
     public ResolveClassSet getResolveClassSet(List<ResolveClassSet> classes) {
         return property.getResolveClassSet(listInterfaces.mapList(ListFact.fromJavaList(classes)));    
     }

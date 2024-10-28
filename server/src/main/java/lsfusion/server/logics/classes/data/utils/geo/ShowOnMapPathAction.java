@@ -4,7 +4,6 @@ import lsfusion.base.col.MapFact;
 import lsfusion.base.col.interfaces.immutable.ImMap;
 import lsfusion.base.col.interfaces.immutable.ImOrderMap;
 import lsfusion.base.col.interfaces.immutable.ImRevMap;
-import lsfusion.interop.action.MessageClientAction;
 import lsfusion.interop.action.OpenUriClientAction;
 import lsfusion.server.data.expr.key.KeyExpr;
 import lsfusion.server.data.query.build.QueryBuilder;
@@ -15,12 +14,16 @@ import lsfusion.server.language.ScriptingLogicsModule;
 import lsfusion.server.logics.action.controller.context.ExecutionContext;
 import lsfusion.server.logics.classes.ValueClass;
 import lsfusion.server.logics.property.classes.ClassPropertyInterface;
+import lsfusion.server.physics.dev.integration.external.to.file.open.OpenLinkAction;
 
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.sql.SQLException;
 import java.util.Iterator;
+
+import static lsfusion.server.base.controller.thread.ThreadLocalContext.localize;
 
 public class ShowOnMapPathAction extends GeoAction {
     private final ClassPropertyInterface mapProviderInterface;
@@ -66,13 +69,12 @@ public class ShowOnMapPathAction extends GeoAction {
             }
 
             if (index <= result.values().size())
-                context.requestUserInteraction(new MessageClientAction("Не все координаты проставлены", "Ошибка"));
+                context.messageError(localize("{geo.not.all.coordinates.set}"));
             else
-                context.requestUserInteraction(new OpenUriClientAction(new URI((isYandex ?
+                OpenLinkAction.execute(isYandex ?
                         ("https://maps.yandex.ru/?rtt=auto&rtm=atm&rtext=" + uri + firstLatLong) :
-                        ("https://www.google.com/maps/dir/" + uri + firstLatLong)))));
-
-        } catch (SQLException | URISyntaxException | ScriptingErrorLog.SemanticErrorException ignored) {
+                        ("https://www.google.com/maps/dir/" + uri + firstLatLong), context, false, true);
+        } catch (SQLException | ScriptingErrorLog.SemanticErrorException | IOException ignored) {
         }
 
     }

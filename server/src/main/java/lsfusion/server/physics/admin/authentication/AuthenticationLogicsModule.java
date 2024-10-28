@@ -8,7 +8,6 @@ import lsfusion.server.language.action.LA;
 import lsfusion.server.language.property.LP;
 import lsfusion.server.logics.BaseLogicsModule;
 import lsfusion.server.logics.BusinessLogics;
-import lsfusion.server.logics.action.controller.stack.ExecutionStack;
 import lsfusion.server.logics.action.session.DataSession;
 import lsfusion.server.logics.classes.user.AbstractCustomClass;
 import lsfusion.server.logics.classes.user.ConcreteCustomClass;
@@ -28,32 +27,32 @@ public class AuthenticationLogicsModule extends ScriptingLogicsModule{
     public AbstractCustomClass user;
     public ConcreteCustomClass systemUser;
     public ConcreteCustomClass customUser;
+    public ConcreteCustomClass colorTheme;
 
     public LP firstNameContact;
     public LP lastNameContact;
     public LP emailContact;
     public LP contactEmail;
+    public LP attributes;
 
     public LP isLockedCustomUser;
     public LP<?> loginCustomUser;
     public LP customUserNormalized;
+    public LP logNameCustomUser;
     public LP sha256PasswordCustomUser;
     public LP calculatedHash;
     public LP currentUser;
     public LP currentUserName;
-    public LP nameContact;
-
-    public LP intersectingLoginsCount;
 
     public LP currentAuthToken;
     public LP secret;
+    public LP resultAuthToken;
 
     public LP hostnameComputer;
     public LP computerHostname;
     public LP currentComputer;
     public LP hostnameCurrentComputer;
 
-    public LP minHashLength;
     public LP useLDAP;
     public LP serverLDAP;
     public LP portLDAP;
@@ -84,6 +83,7 @@ public class AuthenticationLogicsModule extends ScriptingLogicsModule{
 
     public LP clientLanguage;
     public LP clientCountry;
+    public LP clientTimeZone;
     public LP clientDateFormat;
     public LP clientTimeFormat;
 
@@ -102,15 +102,16 @@ public class AuthenticationLogicsModule extends ScriptingLogicsModule{
     public LP serverTimeFormat;
 
     public LP userFontSize;
-    
-    public LP colorThemeStaticName;
+
+    public LP storeNavigatorSettingsForComputer;
+    public LP clientColorTheme;
     
     public LA deliveredNotificationAction;
     
     public LA<?> syncUsers;
 
     public AuthenticationLogicsModule(BusinessLogics BL, BaseLogicsModule baseLM) throws IOException {
-        super(AuthenticationLogicsModule.class.getResourceAsStream("/system/Authentication.lsf"), "/system/Authentication.lsf", baseLM, BL);
+        super(baseLM, BL, "/system/Authentication.lsf");
     }
 
     @Override
@@ -121,6 +122,7 @@ public class AuthenticationLogicsModule extends ScriptingLogicsModule{
         user = (AbstractCustomClass) findClass("User");
         systemUser = (ConcreteCustomClass) findClass("SystemUser");
         customUser = (ConcreteCustomClass) findClass("CustomUser");
+        colorTheme = (ConcreteCustomClass) findClass("ColorTheme");
     }
 
     @Override
@@ -139,11 +141,9 @@ public class AuthenticationLogicsModule extends ScriptingLogicsModule{
         lastNameContact = findProperty("lastName[Contact]");
         emailContact = findProperty("email[Contact]");
         contactEmail = findProperty("contact[STRING[400]]");
+        attributes = findProperty("attributes[Contact, STRING]");
 
-        nameContact = findProperty("name[Contact]");
         currentUserName = findProperty("currentUserName[]");
-
-        intersectingLoginsCount = findProperty("intersectingLoginsCount[]");
 
         // Компьютер
         hostnameComputer = findProperty("hostname[Computer]");
@@ -154,6 +154,7 @@ public class AuthenticationLogicsModule extends ScriptingLogicsModule{
 
         loginCustomUser = findProperty("login[CustomUser]");
         customUserNormalized = findProperty("customUserNormalized[ISTRING[100]]");
+        logNameCustomUser = findProperty("logName[CustomUser]");
 
         sha256PasswordCustomUser = findProperty("sha256Password[CustomUser]");
         sha256PasswordCustomUser.setEchoSymbols(true);
@@ -161,8 +162,8 @@ public class AuthenticationLogicsModule extends ScriptingLogicsModule{
         calculatedHash = findProperty("calculatedHash[]");
 
         secret = findProperty("secret[]");
+        resultAuthToken = findProperty("resultAuthToken[]");
 
-        minHashLength = findProperty("minHashLength[]");
         useLDAP = findProperty("useLDAP[]");
         serverLDAP = findProperty("serverLDAP[]");
         portLDAP = findProperty("portLDAP[]");
@@ -192,6 +193,7 @@ public class AuthenticationLogicsModule extends ScriptingLogicsModule{
 
         clientCountry = findProperty("clientCountry[CustomUser]");
         clientLanguage = findProperty("clientLanguage[CustomUser]");
+        clientTimeZone = findProperty("clientTimeZone[CustomUser]");
         clientDateFormat = findProperty("clientDateFormat[CustomUser]");
         clientTimeFormat = findProperty("clientTimeFormat[CustomUser]");
 
@@ -210,32 +212,18 @@ public class AuthenticationLogicsModule extends ScriptingLogicsModule{
         serverTimeFormat = findProperty("serverTimeFormat[]");
 
         userFontSize = findProperty("fontSize[CustomUser]");
-        colorThemeStaticName = findProperty("colorThemeStaticName[CustomUser]");
-        
+
+        storeNavigatorSettingsForComputer = findProperty("storeNavigatorSettingsForComputer[]");
+        clientColorTheme = findProperty("clientColorTheme[DesignEnv]");
+
         deliveredNotificationAction = findAction("deliveredNotificationAction[CustomUser]");
         
         syncUsers = findAction("syncUsers[ISTRING[100], JSONFILE]");
     }
-    
-    public boolean checkPassword(DataSession session, DataObject userObject, String password, ExecutionStack stack) throws SQLException, SQLHandledException {
-        boolean authenticated = true;
+
+    public boolean checkPassword(DataSession session, DataObject userObject, String password) throws SQLException, SQLHandledException {
         String hashPassword = (String) sha256PasswordCustomUser.read(session, userObject);
         String newHashInput = BaseUtils.calculateBase64Hash("SHA-256", nullTrim(password), UserInfo.salt);
-        if (hashPassword == null || !hashPassword.trim().equals(newHashInput)) {
-            //TODO: убрать, когда будем считать, что хэши у всех паролей уже перебиты
-            Integer minHashLengthValue = (Integer) minHashLength.read(session);
-            String oldHashInput = BaseUtils.calculateBase64HashOld("SHA-256", nullTrim(password), UserInfo.salt);
-            if (minHashLengthValue == null)
-                minHashLengthValue = oldHashInput.length();
-            //если совпали первые n символов, считаем пароль правильным и сохраняем новый хэш в базу
-            if (hashPassword != null &&
-                    hashPassword.trim().substring(0, Math.min(hashPassword.trim().length(), minHashLengthValue)).equals(oldHashInput.substring(0, Math.min(oldHashInput.length(), minHashLengthValue)))) {
-                sha256PasswordCustomUser.change(newHashInput, session, userObject);
-                session.applyException(BL, stack);
-            } else {
-                authenticated = false;
-            }
-        }
-        return authenticated;
+        return hashPassword != null && hashPassword.trim().equals(newHashInput);
     }
 }

@@ -1,38 +1,34 @@
 package lsfusion.client.form.object.table.tree.view;
 
 import lsfusion.client.form.controller.ClientFormController;
-import lsfusion.client.form.design.view.JComponentPanel;
+import lsfusion.client.form.design.view.FlexPanel;
+import lsfusion.client.form.design.view.widget.ScrollPaneWidget;
 import lsfusion.client.form.object.ClientGroupObject;
 import lsfusion.client.form.object.ClientGroupObjectValue;
 import lsfusion.client.form.object.table.tree.ClientTreeGroup;
+import lsfusion.client.form.object.table.tree.controller.TreeGroupController;
 import lsfusion.client.form.property.ClientPropertyDraw;
 
-import javax.swing.*;
-import java.awt.*;
 import java.util.List;
 import java.util.Map;
 
-public class TreeView extends JComponentPanel {
+public class TreeView extends FlexPanel {
     private final TreeGroupTable groupTree;
 
-    public TreeView(ClientFormController form, ClientTreeGroup treeGroup) {
-        groupTree = new TreeGroupTable(form, treeGroup);
+    public TreeView(ClientFormController form, TreeGroupController treeGroupController, ClientTreeGroup treeGroup) {
+        super(false);
+        groupTree = new TreeGroupTable(form, treeGroupController, treeGroup);
 
-        treeGroup.installMargins(this);
+//        treeGroup.installMargins(this);
 
-        add(new JScrollPane(groupTree));
-    }
-
-    @Override
-    public Dimension getMaxPreferredSize() { // ради этого вся ветка maxPreferredSize и делалась
-        return groupTree.getMaxPreferredSize(getPreferredSize());
+        addFillFlex(new ScrollPaneWidget(groupTree), null);
     }
 
     public TreeGroupTable getTree() {
         return groupTree;
     }
 
-    public void updateKeys(ClientGroupObject group, List<ClientGroupObjectValue> keys, List<ClientGroupObjectValue> keysTreePathes, Map<ClientGroupObjectValue, Boolean> expandables) {
+    public void updateKeys(ClientGroupObject group, List<ClientGroupObjectValue> keys, List<ClientGroupObjectValue> keysTreePathes, Map<ClientGroupObjectValue, Integer> expandables) {
         groupTree.updateKeys(group, keys, keysTreePathes, expandables);
     }
 

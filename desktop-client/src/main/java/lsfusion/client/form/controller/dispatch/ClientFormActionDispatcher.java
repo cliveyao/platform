@@ -1,7 +1,6 @@
 package lsfusion.client.form.controller.dispatch;
 
 import com.google.common.base.Throwables;
-import lsfusion.client.controller.MainController;
 import lsfusion.client.controller.dispatch.DispatcherListener;
 import lsfusion.client.controller.dispatch.SwingClientActionDispatcher;
 import lsfusion.client.controller.remote.RmiQueue;
@@ -10,7 +9,6 @@ import lsfusion.client.form.view.ClientFormDockable;
 import lsfusion.interop.action.*;
 import lsfusion.interop.base.remote.PendingRemoteInterface;
 import lsfusion.interop.base.remote.RemoteRequestInterface;
-import lsfusion.interop.form.ModalityType;
 
 import java.awt.*;
 import java.io.IOException;
@@ -44,11 +42,8 @@ public abstract class ClientFormActionDispatcher extends SwingClientActionDispat
     }
 
     @Override
-    public void execute(FormClientAction action) {
-        if (action.modalityType == ModalityType.DOCKED_MODAL && !getFormController().canShowDockedModal()) {
-            action.modalityType = ModalityType.MODAL;
-        }
-        super.execute(action);
+    protected boolean canShowDockedModal() {
+        return getFormController().canShowDockedModal();
     }
 
     @Override
@@ -94,7 +89,17 @@ public abstract class ClientFormActionDispatcher extends SwingClientActionDispat
     }
 
     @Override
-    public void execute(ChangeColorThemeClientAction action) {
-        MainController.changeColorTheme(action.colorTheme);
+    public void execute(OrderClientAction action) {
+        getFormController().changePropertyOrders(action.goID, action.ordersMap);
+    }
+
+    @Override
+    public void execute(FilterClientAction action) {
+        getFormController().changePropertyFilters(action.goID, action.filters);
+    }
+
+    @Override
+    public void execute(FilterGroupClientAction action) {
+        getFormController().setRegularFilterIndex(action.filterGroup, action.index);
     }
 }

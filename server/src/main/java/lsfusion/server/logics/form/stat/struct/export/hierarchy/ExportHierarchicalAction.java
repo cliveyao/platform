@@ -4,6 +4,7 @@ import lsfusion.base.col.MapFact;
 import lsfusion.base.col.interfaces.immutable.ImList;
 import lsfusion.base.col.interfaces.immutable.ImMap;
 import lsfusion.base.col.interfaces.immutable.ImOrderSet;
+import lsfusion.base.col.interfaces.immutable.ImSet;
 import lsfusion.base.file.RawFileData;
 import lsfusion.interop.session.ExternalUtils;
 import lsfusion.server.data.sql.exception.SQLHandledException;
@@ -13,6 +14,7 @@ import lsfusion.server.logics.classes.ValueClass;
 import lsfusion.server.logics.form.open.FormSelector;
 import lsfusion.server.logics.form.open.ObjectSelector;
 import lsfusion.server.logics.form.open.stat.ExportAction;
+import lsfusion.server.logics.form.stat.SelectTop;
 import lsfusion.server.logics.form.stat.StaticDataGenerator;
 import lsfusion.server.logics.form.stat.struct.FormIntegrationType;
 import lsfusion.server.logics.form.stat.struct.export.StaticExportData;
@@ -26,7 +28,6 @@ import lsfusion.server.physics.dev.i18n.LocalizedString;
 
 import java.io.*;
 import java.sql.SQLException;
-import java.util.ArrayList;
 import java.util.List;
 
 public abstract class ExportHierarchicalAction<T extends Node<T>, O extends ObjectSelector> extends ExportAction<O> {
@@ -36,26 +37,27 @@ public abstract class ExportHierarchicalAction<T extends Node<T>, O extends Obje
 
     protected final LP<?> exportFile; // nullable
 
-    private static ValueClass[] getExtraParams(ValueClass root, ValueClass tag) {
-        List<ValueClass> params = new ArrayList<>();
-        if(root != null)
+    private static ValueClass[] getExtraParams(SelectTop<ValueClass> selectTop, ValueClass root, ValueClass tag) {
+        List<ValueClass> params = selectTop.getParams();
+        if (root != null)
             params.add(root);
-        if(tag != null)
+        if (tag != null)
             params.add(tag);
-        return params.toArray(new ValueClass[params.size()]);
+        return params.toArray(new ValueClass[0]);
     }
+
     public ExportHierarchicalAction(LocalizedString caption,
                                     FormSelector<O> form,
                                     ImList<O> objectsToSet,
                                     ImList<Boolean> nulls,
                                     ImOrderSet<PropertyInterface> orderContextInterfaces,
-                                    ImList<ContextFilterSelector<?, PropertyInterface, O>> contextFilters,
+                                    ImSet<ContextFilterSelector<PropertyInterface, O>> contextFilters,
                                     FormIntegrationType staticType,
                                     LP exportFile,
-                                    Integer selectTop,
+                                    SelectTop<ValueClass> selectTop,
                                     String charset,
                                     ValueClass root, ValueClass tag) {
-        super(caption, form, objectsToSet, nulls, orderContextInterfaces, contextFilters, staticType, selectTop, charset != null ? charset : ExternalUtils.defaultXMLJSONCharset, getExtraParams(root, tag));
+        super(caption, form, objectsToSet, nulls, orderContextInterfaces, contextFilters, staticType, selectTop, charset != null ? charset : ExternalUtils.defaultXMLJSONCharset, getExtraParams(selectTop, root, tag));
 
         ImOrderSet<ClassPropertyInterface> orderInterfaces = getOrderInterfaces();
         if (tag != null)
@@ -74,10 +76,19 @@ public abstract class ExportHierarchicalAction<T extends Node<T>, O extends Obje
         parseNode.exportNode(rootNode, MapFact.EMPTY(), exportData);
 
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+
+        //pseudo charset utf-8-bom to write BOM bytes
+        if (charset.equals("UTF-8-BOM")) {
+            outputStream.write(239);
+            outputStream.write(187);
+            outputStream.write(191);
+            charset = "UTF-8";
+        }
+
         try (PrintWriter out = new PrintWriter(new BufferedWriter(new OutputStreamWriter(outputStream, charset)))) {
             writeRootNode(out, rootNode);
         }
-        writeResult(exportFile, staticType, context, new RawFileData(outputStream));
+        writeResult(exportFile, staticType, context, new RawFileData(outputStream), charset);
     }
 
     protected abstract T createRootNode(String root, String tag);

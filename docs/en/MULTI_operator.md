@@ -6,11 +6,13 @@ The `MULTI` operator creates a [property](Properties.md) that implements [select
 
 ### Syntax
 
-    MULTI expr1, ..., exprN [exclusionType]
+```
+MULTI expr1, ..., exprN [exclusionType]
+```
 
 ### Description
 
-The `MULTI` operator creates a property which value will be the value of one of the properties specified in the operator. The property selection condition is that the parameters match this property [signature](CLASS_operator.md). 
+The `MULTI` operator creates a property which value will be the value of one of the properties specified in the operator. The property selection condition is that the parameters match this property [signature](ISCLASS_operator.md). 
 
 ### Parameters
 

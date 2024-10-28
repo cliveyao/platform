@@ -1,0 +1,72 @@
+.filter-group-check.form-check {
+    margin-left: 0.25rem; /*do not clip box shadowing*/
+    margin-right: 0.125rem;
+}
+
+.filter-group-select.form-select {
+    width: auto;
+    margin: 0.25rem; /*do not clip box shadowing*/
+}
+
+
+/* ------------ User Filters ------------ */
+.filter-negation-check label {
+    vertical-align: middle;
+}
+
+.filter-label {
+    cursor: default;
+    margin: 0 0.1875rem 0 0.3125rem;
+}
+
+.filter-data-property-value, .filter-selector, .filter-button {
+    margin-left: var(--border-comp-horz-padding);
+}
+
+/* mimicry of panel-renderer-value, CELL_HORIZONTAL_PADDING (textbasedCellRenderer) */
+.filter .filter-selector {
+    cursor : default;
+    border: 1px solid var(--component-border-color);
+    margin: var(--border-comp-vert-padding) var(--border-comp-horz-padding);
+    width: unset;
+
+    /* aligning text vertically (the other way with line-height) */
+    display : flex;
+    align-items : center;
+}
+
+.filter-selector {
+    width: unset; /* is set to 100% for .form-control */
+}
+
+.filter-selector, .filter-selector .background-inherit {
+    background-color: var(--component-background-color);
+}
+
+.filter-data-property-value.filter-applied, .filter-data-property-value.filter-applied .background-inherit {
+    background-color: var(--selection-color);
+}
+
+.filter-negation-check input {
+    margin-left: 0.1875rem;
+}
+
+.filter-controls {
+    margin: var(--border-comp-vert-padding) 0;
+}
+
+.filter .filter-button,
+.filter-controls .btn.filter-button{
+    border: none;
+    background: transparent;
+}
+
+.filter .filter-separator-button {
+    margin: 0 12px 0 12px;
+    padding: 0 5px;
+}
+
+.filter-separator-button-text {
+    margin: 0 4px 0 4px;
+    padding: 5px;
+}

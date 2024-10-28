@@ -21,6 +21,7 @@ import lsfusion.server.data.type.Type;
 import lsfusion.server.data.value.ObjectValue;
 import lsfusion.server.data.where.Where;
 import lsfusion.server.logics.action.session.DataSession;
+import lsfusion.server.logics.action.session.change.PropertyChange;
 import lsfusion.server.logics.action.session.change.modifier.Modifier;
 import lsfusion.server.logics.action.session.table.SessionTableUsage;
 import lsfusion.server.logics.classes.user.BaseClass;
@@ -41,14 +42,14 @@ import java.util.function.Function;
 public abstract class StaticDataGenerator<SDP extends PropertyReaderEntity> {
     
     protected final FormDataInterface formInterface;
-    private final Hierarchy hierarchy;
+    public final Hierarchy hierarchy;
     
     private final boolean supportColumnGroups;
 
-    public StaticDataGenerator(FormDataInterface formInterface, Hierarchy hierarchy, boolean supportColumnGroups) {
+    public StaticDataGenerator(FormDataInterface formInterface, boolean isReport) {
         this.formInterface = formInterface;
-        this.hierarchy = hierarchy;
-        this.supportColumnGroups = supportColumnGroups; 
+        this.hierarchy = formInterface.getHierarchy(isReport);
+        this.supportColumnGroups = isReport;
     }
 
     public static class ReportHierarchy {
@@ -115,7 +116,7 @@ public abstract class StaticDataGenerator<SDP extends PropertyReaderEntity> {
         }
     }
 
-    public Pair<Map<GroupObjectEntity, StaticKeyData>, StaticPropertyData<SDP>> generate(int selectTop) throws SQLException, SQLHandledException {
+    public Pair<Map<GroupObjectEntity, StaticKeyData>, StaticPropertyData<SDP>> generate(SelectTop selectTop) throws SQLException, SQLHandledException {
         Map<GroupObjectEntity, StaticKeyData> keySources = new HashMap<>();
         StaticPropertyData<SDP> propSources = new StaticPropertyData<>();
         iterateChildGroup(hierarchy.getRoot(),  SetFact.EMPTYORDER(), MapFact.EMPTYORDER(), null, selectTop, keySources, propSources, hierarchy.getValueGroups());
@@ -133,19 +134,17 @@ public abstract class StaticDataGenerator<SDP extends PropertyReaderEntity> {
         return formInterface.getWhere(group, valueGroups, mapExprs).and(formInterface.getValueWhere(group, valueGroups, mapExprs));
     }
     protected ImOrderMap<CompareEntity, Boolean> getOrders(GroupObjectEntity group, ImSet<GroupObjectEntity> valueGroups) {
-        return formInterface.getOrders(group, valueGroups).mergeOrder(group.getOrderObjects().toOrderMap(false)).mapOrderKeys(new Function<CompareEntity, CompareEntity>() {
-            public CompareEntity apply(final CompareEntity value) {
-                if(value instanceof ObjectEntity) // hack, need this because in Query keys and values should not intersect (because of ClassWhere), but CompareEntity and ObjectEntity have common class ObjectEntity
-                    return new CompareEntity() {
-                        public Type getType() {
-                            return value.getType();
-                        }
-                        public Expr getEntityExpr(ImMap<ObjectEntity, ? extends Expr> mapExprs, Modifier modifier) throws SQLException, SQLHandledException {
-                            return value.getEntityExpr(mapExprs, modifier);
-                        }
-                    };
-                return value;
-            }
+        return formInterface.getOrders(group, valueGroups).mergeOrder(group.getOrderObjects().toOrderMap(false)).mapOrderKeys(value -> {
+            if(value instanceof ObjectEntity) // hack, need this because in Query keys and values should not intersect (because of ClassWhere), but CompareEntity and ObjectEntity have common class ObjectEntity
+                return new CompareEntity() {
+                    public Type getType() {
+                        return value.getType();
+                    }
+                    public Expr getEntityExpr(ImMap<ObjectEntity, ? extends Expr> mapExprs, Modifier modifier) throws SQLException, SQLHandledException {
+                        return value.getEntityExpr(mapExprs, modifier);
+                    }
+                };
+            return value;
         });
     }
 
@@ -162,14 +161,14 @@ public abstract class StaticDataGenerator<SDP extends PropertyReaderEntity> {
         return mOrders.immutableOrder();
     }
 
-    private void iterateChildGroups(ImOrderSet<GroupObjectEntity> children, ImOrderSet<GroupObjectEntity> parentGroups, ImOrderMap<CompareEntity, Boolean> parentOrders, SessionTableUsage<ObjectEntity, CompareEntity> parentTable, int selectTop, Map<GroupObjectEntity, StaticKeyData> keySources, StaticPropertyData<SDP> propSources, ImSet<GroupObjectEntity> valueGroups) throws SQLException, SQLHandledException {
+    private void iterateChildGroups(ImOrderSet<GroupObjectEntity> children, ImOrderSet<GroupObjectEntity> parentGroups, ImOrderMap<CompareEntity, Boolean> parentOrders, SessionTableUsage<ObjectEntity, CompareEntity> parentTable, SelectTop selectTop, Map<GroupObjectEntity, StaticKeyData> keySources, StaticPropertyData<SDP> propSources, ImSet<GroupObjectEntity> valueGroups) throws SQLException, SQLHandledException {
         for (GroupObjectEntity node : children) {
             iterateChildGroup(node, parentGroups, parentOrders, parentTable, selectTop, keySources, propSources, valueGroups);
         }
     }
 
     @StackMessage("{message.form.read.report.node}")
-    private void iterateChildGroup(@ParamMessage final GroupObjectEntity thisGroup, final ImOrderSet<GroupObjectEntity> parentGroups, ImOrderMap<CompareEntity, Boolean> parentOrders, SessionTableUsage<ObjectEntity, CompareEntity> parentTable, int selectTop, Map<GroupObjectEntity, StaticKeyData> keySources, StaticPropertyData<SDP> propSources, ImSet<GroupObjectEntity> valueGroups) throws SQLException, SQLHandledException {
+    private void iterateChildGroup(@ParamMessage final GroupObjectEntity thisGroup, final ImOrderSet<GroupObjectEntity> parentGroups, ImOrderMap<CompareEntity, Boolean> parentOrders, SessionTableUsage<ObjectEntity, CompareEntity> parentTable, SelectTop selectTop, Map<GroupObjectEntity, StaticKeyData> keySources, StaticPropertyData<SDP> propSources, ImSet<GroupObjectEntity> valueGroups) throws SQLException, SQLHandledException {
 
         ImSet<SDP> queryProperties = getQueryProperties(hierarchy.getProperties(thisGroup).getSet());
         
@@ -202,9 +201,10 @@ public abstract class StaticDataGenerator<SDP extends PropertyReaderEntity> {
             Modifier modifier = formInterface.getModifier();
             
             // adding filters, orders and properties for parent groups
+            Where queryWhere = Where.TRUE();
             if (parentTable != null) {
                 Join<CompareEntity> parentJoin = parentTable.join(mapExprs);
-                queryBuilder.and(parentJoin.getWhere());
+                queryWhere = queryWhere.and(parentJoin.getWhere());
                 for (CompareEntity order : parentOrders.keyIt())
                     queryBuilder.addProperty(order, parentJoin.getExpr(order));
             }
@@ -212,14 +212,22 @@ public abstract class StaticDataGenerator<SDP extends PropertyReaderEntity> {
             // adding objects for value groups 
             mapExprs = addObjectValues(valueGroups, mapExprs); // strictly speaking for current InteractiveDataInterface filters / orders implementation there's no need to add this exprs
 
+            // getting "value exprs" for filters
+            mapExprs = PropertyChange.simplifyExprs(mapExprs, queryWhere);
+
             // adding filters, orders for this group
-            queryBuilder.and(getWhere(thisGroups.getSet(), valueGroups, mapExprs));
+            queryWhere = queryWhere.and(getWhere(thisGroups.getSet(), valueGroups, mapExprs));
+
+            // getting "value exprs" for orders
+            mapExprs = PropertyChange.simplifyExprs(mapExprs, queryWhere);
+
             ImOrderMap<CompareEntity, Boolean> thisOrders = getOrders(thisGroups, valueGroups);
             for (CompareEntity order : thisOrders.keyIt())
                 queryBuilder.addProperty(order, order.getEntityExpr(mapExprs, modifier));
 
             ImOrderMap<CompareEntity, Boolean> allOrders = parentOrders.addOrderExcl(thisOrders);
 
+            queryBuilder.and(queryWhere);
             final Query<ObjectEntity, CompareEntity> query = queryBuilder.getQuery();
 
             // reading types
@@ -231,7 +239,7 @@ public abstract class StaticDataGenerator<SDP extends PropertyReaderEntity> {
             QueryEnvironment queryEnv = formInterface.getQueryEnv();
             BaseClass baseClass = formInterface.getBaseClass();
             SQLSession sql = session.sql;
-            SessionTableUsage<ObjectEntity, CompareEntity> keysTable = new SessionTableUsage<>("ichreports", sql, query, baseClass, queryEnv, keyTypes, orderTypes, selectTop);
+            SessionTableUsage<ObjectEntity, CompareEntity> keysTable = new SessionTableUsage<>("ichreports", sql, query, baseClass, queryEnv, keyTypes, orderTypes, allOrders, selectTop.get(thisGroup));
 
             try {
                 // column groups data
@@ -260,7 +268,7 @@ public abstract class StaticDataGenerator<SDP extends PropertyReaderEntity> {
                 
                 // reading property values
                 ImMap<ImSet<ObjectEntity>, ImSet<SDP>> groupObjectProps = columnGroupObjectProps.getValue(g).group(key -> {
-                    return ((PropertyObjectEntity<?>) key.getPropertyObjectEntity()).getObjectInstances().filter(allObjects.getSet()); // because of the value groups
+                    return ((PropertyObjectEntity<?>) key.getReaderProperty()).getObjectInstances().filter(allObjects.getSet()); // because of the value groups
                 });
                 for(int i=0,size=groupObjectProps.size();i<size;i++) {
                     ImSet<ObjectEntity> objects = groupObjectProps.getKey(i);
@@ -269,19 +277,23 @@ public abstract class StaticDataGenerator<SDP extends PropertyReaderEntity> {
                     QueryBuilder<ObjectEntity, SDP> propQueryBuilder = new QueryBuilder<>(objects);
                     ImMap<ObjectEntity, Expr> mapPropExprs = propQueryBuilder.getMapExprs();
 
-                    propQueryBuilder.and(keysTable.getGroupWhere(mapPropExprs));
+                    queryWhere = keysTable.getGroupWhere(mapPropExprs);
+
+                    // getting "value exprs" for properties
+                    mapPropExprs = PropertyChange.simplifyExprs(mapPropExprs, queryWhere);
 
                     // adding objects for value groups
                     mapPropExprs = addObjectValues(valueGroups, mapPropExprs);
-                    
+
                     // adding properties
                     for (SDP queryProp : props)
-                        propQueryBuilder.addProperty(queryProp, queryProp.getPropertyObjectEntity().getExpr(mapPropExprs, modifier));
+                        propQueryBuilder.addProperty(queryProp, queryProp.getReaderProperty().getExpr(mapPropExprs, modifier));
 
+                    propQueryBuilder.and(queryWhere);
                     Query<ObjectEntity, SDP> propQuery = propQueryBuilder.getQuery();
                     final ImOrderMap<ImMap<ObjectEntity, Object>, ImMap<SDP, Object>> propData = propQuery.execute(sql, formInterface.getQueryEnv());
 
-                    ImMap<SDP, Type> propTypes = propQuery.getPropertyTypes(PropertyReaderEntity::getType);
+                    ImMap<SDP, Type> propTypes = propQuery.getPropertyTypes(PropertyReaderEntity::getReaderType);
 
                     // converting from row-based to column-based (it's important to keep keys, to reduce footprint)
                     propSources.add(objects, props.mapValues(new Function<SDP, ImMap<ImMap<ObjectEntity, Object>, Object>>() {

@@ -1,0 +1,276 @@
+MODULE Icon;
+
+REQUIRE Utils, Reflection, SystemEvents;
+
+// Icon properties
+
+TABLE icon () NODEFAULT;
+type(STRING styles) = IF styles = 'bi' THEN 'bi' ELSE ('fa' IF styles IS STRING); 
+
+CLASS Icon;
+name '{icon.name}' = DATA STRING (Icon);
+explicit = DATA STRING (Icon);
+label '{icon.label}' = DATA STRING (Icon);
+terms '{icon.terms}' = DATA STRING (Icon);
+synonyms '{icon.synonyms}' = DATA STRING (Icon);
+styles '{icon.free.class}' = DATA STRING (Icon);
+
+// predefined none icon (when "selected" no icon is shown)
+EXTEND CLASS Icon {
+    null
+}
+onStarted() + {
+    name(Icon.null) <- 'null';
+    explicit(Icon.null) <- 'null';
+}
+
+isIconModuleAvailable() += TRUE;
+
+type(Icon i) = type(styles(i)) MATERIALIZED;
+INDEX name(Icon i), type(i);
+icon = GROUP AGGR Icon icn BY name(icn), type(icn) MATERIALIZED INDEXED;
+
+searchExplicit(Icon i) = toTsVector(OVERRIDE explicit(i), '' IF i IS Icon) MATERIALIZED;
+searchLabel(Icon i) = toTsVector(OVERRIDE label(i), '' IF i IS Icon) MATERIALIZED;
+searchTerms(Icon i) = toTsVector(OVERRIDE terms(i), '' IF i IS Icon) MATERIALIZED;
+searchSynonyms(Icon i) = toTsVector(OVERRIDE synonyms(i), '' IF i IS Icon) MATERIALIZED;
+searchStyles(Icon i) = IF type(i) = 'bi' THEN 'regular' // should correspond AppServerImage.createDefaultImage -> getBestIcon param
+                              ELSE IF styles(i) = 'brands' THEN '' 
+                              ELSE styles(i) MATERIALIZED;
+search '{icon.vector}' (Icon i) = toTsVector(CONCAT ' ', explicit(i), label(i), terms(i), synonyms(i)) MATERIALIZED INDEXED MATCH;
+
+iconClass(Icon i, STRING style) = IF type(i) = 'bi' THEN 'bi bi-' + name(i)
+                              ELSE ((IF styles(i) = 'brands' THEN 'fa-brands'
+                              ELSE (IF styles(i) LIKE '%' + style + '%' THEN 'fa-' + style ELSE 'fa')) + ' fa-' + name(i));
+
+splitCamelCase (STRING source, STRING delimiter) = regexpReplace(source, '([0-9a-z])([A-Z])', '\\1' + delimiter + '\\2', 'g');
+splitDashSpace (STRING source, STRING delimiter) = regexpReplace(source, '([0-9A-Za-z])(?:-| )([0-9A-Za-z])', '\\1' + delimiter + '\\2', 'g');
+splitCamelCaseDashSpace(STRING source, STRING delimiter) = lower(splitCamelCase(splitDashSpace(source, delimiter), delimiter));
+
+nameToIconQuery(STRING s) = toTsQuery(splitCamelCaseDashSpace(s, ' | '));
+lengthIconQuery(TSQUERY query) = (numNode(query) + 1) / 2;
+
+explicitRank(Icon i, TSQUERY query) = tsRank(searchExplicit(i), query) * 10 * lengthIconQuery(query);
+labelRank(Icon i, TSQUERY query) = tsRankLN(searchLabel(i), query, 4) * 8 * lengthIconQuery(query);
+termsRank(Icon i, TSQUERY query) = tsRank(searchTerms(i), query) * 6 * lengthIconQuery(query);
+synonymsRank(Icon i, TSQUERY query) = tsRankLN(searchSynonyms(i), query, 16) * 4 * lengthIconQuery(query);
+
+tsRank(Icon i, TSQUERY query, STRING style) =
+                (tsRank(searchExplicit(i), query) * 12 + // we don't want extra explicit words to decrease rank
+                tsRankLN(searchLabel(i), query, 4) * 8 + // we want shorter words to have higher rank, so we divide by length with the base 4 (we don't want that base to high. since in label it's more like and than or)
+                tsRank(searchTerms(i), query) * 6 + // we don't want extra terms to decrease rank
+                tsRankLN(searchSynonyms(i), query, 16) * 4) * // when there are to much synonyms we want to lower rank to avoid "false positives"
+                lengthIconQuery(query) + // or uses arithmetic mean calculating total mean, so to avoid decreasing rank when there are multiple words we are multiplying by the number of words used 
+                (IF searchStyles(i) LIKE '%' + style + '%' THEN 0 ELSE -0.25);
+
+// Searching the best icon
+
+bestIconNames = DATA LOCAL BOOLEAN (STRING); // input
+bestIconClasses = DATA LOCAL STRING (STRING); // output
+bestIconRanks = DATA LOCAL DOUBLE (STRING); // output
+getBestIcons() {
+    // materializing tsqueries since postgres won't do that
+    LOCAL bestIconQueries = TSQUERY (STRING);
+    bestIconQueries(STRING s) <- nameToIconQuery(splitPart(s, ',', 1)) WHERE bestIconNames(s);
+    
+    FOR STRING st = splitPart(STRING s, ',', 2) AND TSQUERY q = bestIconQueries(s) AND Icon lastIcon = (GROUP LAST Icon icn IF search(icn) MATCH q ORDER tsRank(icn, q, st)) DO {
+        bestIconClasses(s) <- iconClass(lastIcon, st);
+        bestIconRanks(s) <- tsRank(lastIcon, q, st);
+    }
+}
+ 
+
+// Icon import
+
+term = DATA LOCAL STRING(INTEGER);
+termIcon = DATA LOCAL INTEGER (INTEGER);
+synonym = DATA LOCAL STRING(INTEGER);
+synonymIcon = DATA LOCAL INTEGER (INTEGER);
+style = DATA LOCAL STRING(INTEGER);
+styleIcon = DATA LOCAL INTEGER (INTEGER);
+
+label = DATA LOCAL STRING(INTEGER);
+name = DATA LOCAL STRING(INTEGER);
+
+FORM importIcons
+    OBJECTS value = INTEGER 
+
+    PROPERTIES(value) label, name
+
+    OBJECTS terms=INTEGER
+    PROPERTIES(terms) term EXTID 'value'
+    FILTERS termIcon(terms) = value
+
+    OBJECTS synonyms=INTEGER
+    PROPERTIES (synonyms) synonym EXTID 'value'
+    FILTERS synonymIcon(synonyms) = value
+
+    OBJECTS free=INTEGER
+    PROPERTIES (free) style EXTID 'value'
+    FILTERS styleIcon(free) = value
+;
+
+terms = GROUP CONCAT term(INTEGER i), ' ' ORDER i BY termIcon(i);
+synonyms = GROUP CONCAT synonym(INTEGER i) , ' ' ORDER i BY synonymIcon(i);
+styles = GROUP CONCAT style(INTEGER i), ' ' ORDER i BY styleIcon(i);
+type (INTEGER i) = type(styles(i));
+
+importIconsHash = DATA STRING () TABLE icon; // to avoid update conflicts
+
+importIcons '{icon.import.json}' () {
+    
+    APPLY {
+        readResource('/web/icons_with_synonyms.json');
+        
+        LOCAL newHash = STRING ();
+        newHash() <- md5(resource());
+        IF NOT newHash() = importIconsHash() THEN {
+            IMPORT importIcons JSON FROM resource();
+
+            FOR name(INTEGER i) AND NOT icon(name(i), type(i)) INLINE NEW icn = Icon DO {
+                name(icn) <- name(i);
+                styles(icn) <- styles(i); // need this to fill the type
+            }
+
+            FOR name(Icon icn) = name(INTEGER i) AND type(icn) = type(i) INLINE DO {
+                label(icn) <- lower(label(i));
+                terms(icn) <- lower(terms(i));
+                synonyms(icn) <- lower(synonyms(i));
+                styles(icn) <- styles(i);
+            }
+
+            DELETE Icon icn WHERE icn IS Icon AND NOT [GROUP SUM 1 BY name(INTEGER i), type(i)](name(icn), type(icn)) AND NOT icn = Icon.null;
+
+            importIconsHash() <- newHash();
+        }
+    }
+
+    // updating properties
+    LOCAL allProperties = STRING (STRING);
+    readResourcePaths('/[^/]*Icons\\.properties');
+    FOR resourcePaths(STRING path) DO {
+        readResource(path);
+        
+        readProperties(RAWFILE(resource()));
+        
+        allProperties(STRING s) <- properties(s) WHERE properties(s);        
+    }
+
+    explicit(Icon icn) <- [GROUP CONCAT splitCamelCaseDashSpace(STRING s AS STRING, ' ') , ' ' ORDER s BY allProperties(s)](name(icn));
+
+    APPLY;
+}
+
+// Icons form
+
+search '{icon.action.name}' = DATA LOCAL STRING () CHARWIDTH 30;
+style 'Style' = DATA LOCAL STRING ();
+searchAndStyle = search() + ',' + style();
+WHEN LOCAL CHANGED(search()) OR CHANGED (style()) DO {
+    bestIconNames(searchAndStyle()) <- TRUE;
+    getBestIcons();
+}
+FORM icons '{navigator.icon}' 
+    PROPERTIES() search, style
+    PROPERTIES bestIconImage 'Best icon' = {} IMAGE bestIconClasses(searchAndStyle()), bestIconClass '{icon.best.icon.name}' = bestIconClasses(searchAndStyle())  READONLY, bestIconRank '{icon.best.icon.rank}' = bestIconRanks(searchAndStyle()) READONLY 
+    OBJECTS i = Icon 
+    PROPERTIES iconImage '{icon.icon}' = {} IMAGE iconClass(i, style()) GRID, rank '{icon.rank}' = tsRank(i, nameToIconQuery(search()), style())
+    PROPERTIES(i) READONLY name, explicit, label, terms, synonyms, styles, search
+    PROPERTIES(i) DELETE
+;
+
+DESIGN icons {
+    OBJECTS {
+        NEW iconSearch {
+            horizontal = TRUE;
+            NEW search {
+                MOVE PROPERTY(search());
+                MOVE PROPERTY(style());
+            }
+            NEW bestIcon {
+                MOVE PROPERTY(bestIconImage) {
+                    alignCaption = TRUE;
+                }
+                MOVE PROPERTY(bestIconClass);
+                MOVE PROPERTY(bestIconRank);
+            }
+        }
+        NEW icons {
+            fill = 1;
+            MOVE BOX(i);
+        }
+    }
+}
+
+NAVIGATOR {
+    system {
+        NEW icons AFTER metadata;
+    }
+}
+
+// Icons test form
+
+CLASS Query;
+text = DATA STRING (Query);
+style = DATA STRING (Query);
+
+iconRank(Query q, Icon i) = tsRank(i, nameToIconQuery(text(q)), style(q));
+bestIcon(Query q) = GROUP LAST Icon i IF search(i) MATCH nameToIconQuery(text(q)) ORDER iconRank(q, i);
+bestIconRank(Query q) = iconRank(q, bestIcon(q));
+bestIconClass(Query q) = iconClass(bestIcon(q), style(q));
+
+explicitRank(Query q, Icon i) = explicitRank(i, nameToIconQuery(text(q)));
+labelRank(Query q, Icon i) = labelRank(i, nameToIconQuery(text(q)));
+termsRank(Query q, Icon i) = termsRank(i, nameToIconQuery(text(q)));
+synonymsRank(Query q, Icon i) = synonymsRank(i, nameToIconQuery(text(q)));
+
+tsQuery(Query q) = nameToIconQuery(text(q));
+tsQueryStr(Query q) = STRING(tsQuery(q));
+
+queryValue = DATA INTEGER (Query);
+
+countCoeff(DOUBLE threshold) = GROUP SUM 1 IF Query q IS Query AND queryValue(q) > 0 AND bestIconRank(q) > threshold; 
+sumCoeff(DOUBLE threshold) = GROUP SUM queryValue(Query q) IF q IS Query AND queryValue(q) > 0 AND bestIconRank(q) > threshold;
+
+FORM icons_test 
+    OBJECTS q = Query
+    PROPERTIES 'Icon' = {} IMAGE bestIconClass(q) GRID
+    PROPERTIES(q) VALUE, text, style, bestIconRank, queryValue, tsQueryStr, NEW, DELETE 
+    
+    OBJECTS i = Icon
+    PROPERTIES iconImage '{icon.icon}' = {} IMAGE iconClass(i, style(q)) GRID, rank '{icon.rank}' = iconRank(q, i), explicitRank(q, i), labelRank(q, i), termsRank(q, i), synonymsRank(q, i) 
+    PROPERTIES(i) READONLY searchLabel, searchTerms, searchSynonyms, searchStyles, label, explicit, terms, synonyms, styles, search
+    PROPERTIES (i) DELETE
+    
+    PROPERTIES sumAll = sumCoeff(0.0), countAll = countCoeff(0.0), sum02 = sumCoeff(0.2), 
+               count02 = countCoeff(0.2), sum05 = sumCoeff(0.5), count05 = countCoeff(0.5)
+    ORDERS rank DESC
+    FILTERS iconRank(q, i) > 0
+;
+
+// for debug purposes
+//NAVIGATOR {
+//    system {
+//        NEW icons_test;
+//    }
+//}
+
+// icon utility properties
+
+badge(STRING badgeText) = HTML('$I{badge.html}');
+// usage example: imaged($M{myimage},'mytext', TRUE, TRUE)
+imaged(HTML imageHTML, STRING text, BOOLEAN vertical, BOOLEAN start, BOOLEAN wrap, BOOLEAN collapse) = HTML('$I{imaged.html}');
+badged(STRING badgeText, STRING text, BOOLEAN vertical, BOOLEAN start, BOOLEAN wrap, BOOLEAN collapse) = imaged(badge(badgeText), text, vertical, start, wrap, collapse);
+
+imaged(HTML imageHTML, STRING text, BOOLEAN vertical, BOOLEAN start, BOOLEAN collapse) = imaged(imageHTML, text, vertical, start, contentWordWrap(), collapse);
+badged(STRING badgeText, STRING text, BOOLEAN vertical, BOOLEAN start, BOOLEAN collapse) = badged(badgeText, text, vertical, start, contentWordWrap(), collapse);
+
+imaged(HTML imageHTML, STRING text) = imaged(imageHTML, text, NULL, TRUE, NULL);
+badged(STRING text, STRING badgeText) = badged(badgeText, text, NULL, NULL, NULL);
+
+badged(STRING text, INTEGER badgeNumber) = badged(text, STRING(badgeNumber));
+
+// plugin bug
+//imaged(STRING imageHTML, STRING text, BOOLEAN vertical) = '<div class = "${IF text != \'\' THEN \'wrap-text-not-empty \' ELSE \'\'}${IF imageHTML THEN \'wrap-img-\' + (IF vertical THEN \'vert\' ELSE \'horz\'})">\r\n    ${CONCAT \'\', imageHTML, text}\r\n</div>\r\n'
+
+imagedCaption(StaticObject object) = imaged(image(object), staticCaption(object));

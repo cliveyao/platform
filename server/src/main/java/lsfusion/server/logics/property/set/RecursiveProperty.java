@@ -68,10 +68,6 @@ public class RecursiveProperty<T extends PropertyInterface> extends ComplexIncre
         return PropertyFact.createCompare(interfaces, getImplement(), PropertyFact.createStatic(integralClass.div(integralClass.getSafeInfiniteValue(), 2), integralClass), Compare.GREATER).property;
     }
 
-    public LocalizedString getConstrainedMessage() {
-        return LocalizedString.createFormatted("{logics.property.cycle.detected}", caption);
-    }
-
     public RecursiveProperty(LocalizedString caption, ImOrderSet<Interface> interfaces, Cycle cycle, ImRevMap<Interface, T> mapInterfaces, ImRevMap<T, T> mapIterate, PropertyMapImplement<?, T> initial, PropertyMapImplement<?, T> step) {
         super(caption, interfaces);
         this.mapInterfaces = mapInterfaces;
@@ -93,15 +89,16 @@ public class RecursiveProperty<T extends PropertyInterface> extends ComplexIncre
         Result<ImMap<KeyExpr, Expr>> group = new Result<>();
         ImMap<T, Expr> recursiveKeys = getRecursiveKeys(joinImplement, mapIterate, group);
         
-        if(checkPrereadNull(recursiveKeys, CalcType.EXPR, propChanges))
+        if(checkPrereadNull(recursiveKeys, CalcType.EXPR, propChanges, true))
             return Where.FALSE();
 
+        PropertyChanges prevPropChanges = getPrevPropChanges(propChanges);
         WhereBuilder initialWhere = new WhereBuilder(); // cg(Pb, b) (gN(Pb, b) - gp(Pb, b))
-        Where initialChanged = initial.mapExpr(recursiveKeys, propChanges, initialWhere).getWhere().xor(initial.mapExpr(recursiveKeys).getWhere()).and(initialWhere.toWhere());
+        Where initialChanged = initial.mapExpr(recursiveKeys, propChanges, initialWhere).getWhere().xor(initial.mapExpr(recursiveKeys, prevPropChanges).getWhere()).and(initialWhere.toWhere());
 
         WhereBuilder stepWhere = new WhereBuilder(); // // cs(Pb, b) * (sN(Pb,b)-sp(Pb,b)) * f(Pb)
         Expr newStep = step.mapExpr(recursiveKeys, propChanges, stepWhere); // STEP sn(pb,b)
-        Where stepChanged = newStep.getWhere().xor(step.mapExpr(recursiveKeys).getWhere()).and(stepWhere.toWhere()).and(getExpr(mapInterfaces.replaceValues(this.mapIterate.reverse()).join(recursiveKeys)).getWhere());
+        Where stepChanged = newStep.getWhere().xor(step.mapExpr(recursiveKeys, prevPropChanges).getWhere()).and(stepWhere.toWhere()).and(getExpr(mapInterfaces.replaceValues(this.mapIterate.reverse()).join(recursiveKeys), prevPropChanges).getWhere());
         Expr changedExpr = RecursiveExpr.create(mapIterate.result, ValueExpr.get(initialChanged.or(stepChanged)), ValueExpr.get(newStep.getWhere()), isCyclePossible(), group.result);
 
         return changedExpr.getWhere();
@@ -114,20 +111,22 @@ public class RecursiveProperty<T extends PropertyInterface> extends ComplexIncre
         Result<ImMap<KeyExpr, Expr>> group = new Result<>();
         ImMap<T, Expr> recursiveKeys = getRecursiveKeys(joinImplement, mapIterate, group);
 
-        if(checkPrereadNull(recursiveKeys, CalcType.EXPR, propChanges))
+        if(checkPrereadNull(recursiveKeys, CalcType.EXPR, propChanges, true))
             return Expr.NULL();
 
+        PropertyChanges prevPropChanges = getPrevPropChanges(propChanges);
+
         WhereBuilder initialWhere = new WhereBuilder(); // cg(Pb, b) (gN(Pb, b) - gp(Pb, b))
-        Expr initialChanged = initial.mapExpr(recursiveKeys, propChanges, initialWhere).diff(initial.mapExpr(recursiveKeys)).and(initialWhere.toWhere());
+        Expr initialChanged = initial.mapExpr(recursiveKeys, propChanges, initialWhere).diff(initial.mapExpr(recursiveKeys, prevPropChanges)).and(initialWhere.toWhere());
 
         WhereBuilder stepWhere = new WhereBuilder(); // // cs(Pb, b) * (sN(Pb,b)-sp(Pb,b)) * f(Pb)
         Expr newStep = step.mapExpr(recursiveKeys, propChanges, stepWhere); // STEP sn(pb,b)
-        Expr stepChanged = newStep.diff(step.mapExpr(recursiveKeys)).and(stepWhere.toWhere()).mult(getExpr(mapInterfaces.replaceValues(this.mapIterate.reverse()).join(recursiveKeys)), (IntegralClass) getType());
+        Expr stepChanged = newStep.diff(step.mapExpr(recursiveKeys, prevPropChanges)).and(stepWhere.toWhere()).mult(getExpr(mapInterfaces.replaceValues(this.mapIterate.reverse()).join(recursiveKeys), prevPropChanges), (IntegralClass) getType());
         return RecursiveExpr.create(mapIterate.result, initialChanged.sum(stepChanged), newStep, isCyclePossible(), group.result);
     }
 
-    private boolean checkPrereadNull(ImMap<T, ? extends Expr> joinImplement, final CalcType calcType, final PropertyChanges propChanges) {
-        return JoinProperty.checkPrereadNull(joinImplement, step.property.isNotNull(calcType.getAlgInfo()), SetFact.singleton(initial), calcType, propChanges); // isExclusive ? SetFact.toSet(cCase.where, cCase.property) : SetFact.singleton(cCase.where)
+    private boolean checkPrereadNull(ImMap<T, ? extends Expr> joinImplement, final CalcType calcType, final PropertyChanges propChanges, boolean checkChange) {
+        return JoinProperty.checkPrereadNull(joinImplement, step.property.isNotNull(calcType.getAlgInfo()), SetFact.singleton(initial), calcType, propChanges, checkChange); // isExclusive ? SetFact.toSet(cCase.where, cCase.property) : SetFact.singleton(cCase.where)
     }
 
     protected Expr calculateIncrementExpr(ImMap<Interface, ? extends Expr> joinImplement, PropertyChanges propChanges, Expr prevExpr, WhereBuilder changedWhere) {
@@ -146,7 +145,7 @@ public class RecursiveProperty<T extends PropertyInterface> extends ComplexIncre
         Result<ImMap<KeyExpr, Expr>> group = new Result<>();
         ImMap<T, Expr> recursiveKeys = getRecursiveKeys(joinImplement, mapIterate, group);
 
-        if(checkPrereadNull(recursiveKeys, calcType, propChanges))
+        if(checkPrereadNull(recursiveKeys, calcType, propChanges, false))
             return Expr.NULL();
 
         return RecursiveExpr.create(mapIterate.result, initial.mapExpr(recursiveKeys, calcType, propChanges, null),
@@ -188,7 +187,7 @@ public class RecursiveProperty<T extends PropertyInterface> extends ComplexIncre
             return calculateNewExpr(joinImplement, calcType, propChanges);
 
         assert calcType.isExpr();
-        return calculateIncrementExpr(joinImplement, propChanges, getExpr(joinImplement), changedWhere);
+        return calculateIncrementExpr(joinImplement, propChanges, getPrevExpr(joinImplement, calcType, propChanges), changedWhere);
     }
 
     @Override

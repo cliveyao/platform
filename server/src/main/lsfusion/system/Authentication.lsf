@@ -1,14 +1,18 @@
 MODULE Authentication;
 
-REQUIRE System, Time;
+REQUIRE Time, Utils;
+
+CLASS DesignEnv;
+name '{authentication.name}'= ABSTRACT ISTRING(DesignEnv);
 
 // ------------------------- Computers ---------------------- //
 
-CLASS Computer '{authentication.computer}';
+CLASS Computer '{authentication.computer}' : DesignEnv;
 TABLE computer (Computer);
 
 hostname '{authentication.host.name.computer}' = DATA ISTRING[100] (Computer) CHARWIDTH 10 IN id;
-computer = GROUP LAST Computer computer BY hostname(computer);
+name(Computer c) += hostname(c);
+computer = GROUP LAST Computer computer ORDER computer BY hostname(computer) LAZY;
 
 FORM computer '{authentication.computer}'
     OBJECTS c = Computer PANEL
@@ -35,6 +39,10 @@ DESIGN computersDialog { BOX { size = (1024, 768); }}
 currentComputer = NATIVE Computer ();
 hostnameCurrentComputer () = hostname(currentComputer());
 
+EXTEND FORM computers
+    FILTERGROUP current FILTER '{logics.property.current.computer}' c = currentComputer()
+; 
+
 // -------------------------- Users ---------------------------- //
 
 // Contact
@@ -49,12 +57,13 @@ phone '{authentication.phone.contact}' = DATA STRING[100] (Contact) CHARWIDTH 10
 postAddress '{authentication.post.address.contact}' = DATA STRING[150] (Contact) CHARWIDTH 20;
 birthday '{authentication.birthday.contact}' = DATA DATE (Contact);
 
-email '{authentication.email.contact}'= DATA STRING[400] (Contact) CHARWIDTH 20 REGEXP '[-!#-\'*+/-9=?A-Z^-~]+(\\.[-!#-\'*+/-9=?A-Z^-~]+)*@[0-9A-Za-z]([0-9A-Za-z-]{0,61}[0-9A-Za-z])?(\\.[0-9A-Za-z]([0-9A-Za-z-]{0,61}[0-9A-Za-z])?)+' '<html>{authentication.email.contact.incorrect}</html>';
+email '{authentication.email.contact}'= DATA STRING[400] (Contact) CHARWIDTH 20 REGEXP '[\\-!#-\'*+\\/-9=?A-Z^-~]+(\\.[\\-!#-\'*+\\/-9=?A-Z^-~]+)*@[0-9A-Za-z]([0-9A-Za-z\\-]\{0,61\}[0-9A-Za-z])?(\\.[0-9A-Za-z]([0-9A-Za-z\\-]\{0,61\}[0-9A-Za-z])?)+' '{authentication.email.contact.incorrect}';
 contact (email) = GROUP MAX Contact contact BY email(contact);
+attributes '{authentication.attributes.contact}' = DATA STRING (Contact, STRING);
 
 // User
 
-CLASS ABSTRACT User '{authentication.user}';
+CLASS ABSTRACT User '{authentication.user}' : DesignEnv;
 TABLE user (User);
 
 CLASS SystemUser '{authentication.system.user}' : User;
@@ -69,39 +78,15 @@ name '{authentication.name.user}' (CustomUser user) = name[User](user AS CustomU
 
 // login
 login '{authentication.login}' = DATA ISTRING[100] (CustomUser) CHARWIDTH 15;
+name(CustomUser c) += login(c);
+loginShortened(STRING login) = IF wordCount(login, ':') > 1 THEN getWord(login, ':', 2) ELSE login;
 customUserLower (login) = GROUP AGGR CustomUser customUser WHERE customUser IS CustomUser BY ISTRING[100](lower(login(customUser)));
-customUserNormalized (ISTRING[100] login) = customUserLower(ISTRING[100](lower(login)));
-
-//backward compatibility
-customUser (login) = GROUP AGGR CustomUser customUser WHERE customUser IS CustomUser BY login(customUser);
-upcaseLogin (CustomUser customUser) = upper(login(customUser));
-customUserUpcase (login) = GROUP MAX CustomUser customUser BY upcaseLogin(customUser);
-
-//migration 4 -> 5 version
-intersectingLoginsCount '{authentication.intersecting.logins}' (CustomUser user) = GROUP SUM 1 IF upper(login(CustomUser u)) == upper(login(user));
-intersectingLoginsCount () = GROUP SUM 1 IF intersectingLoginsCount(CustomUser u) > 1;
-FORM intersectingLogins '{authentication.intersecting.logins}'
-OBJECTS c = CustomUser
-PROPERTIES(c) login, intersectingLoginsCount
-FILTERS intersectingLoginsCount(c) > 1 
-;
-
-showIntersectingLogins '{authentication.intersecting.logins}' ()  {
-    SHOW intersectingLogins;
-}
-
-EXTEND FORM migrationData 
-    PROPERTIES showIntersectingLogins()
-;
-
-DESIGN migrationData {
-    commons {
-        MOVE PROPERTY(showIntersectingLogins());
-    }
-}
+customUserLowerShort (login) = GROUP LAST CustomUser customUser ORDER customUser BY ISTRING[100](lower(loginShortened(login(customUser))));
+customUserNormalized (ISTRING[100] login) = OVERRIDE customUserLower(lower(login)), customUserLowerShort(lower(login)) LAZY;
+logName (CustomUser user) = OVERRIDE name(user), login(user) LAZY;
 
 // password
-sha256Password '{authentication.password}' = DATA STRING[100] (CustomUser) ECHO;
+sha256Password '{authentication.password}' = DATA STRING[100] (CustomUser) ECHO LAZY;
 calculatedHash = DATA LOCAL STRING[100] ();
 calculateBase64Hash INTERNAL  'lsfusion.server.physics.admin.authentication.action.CalculateBase64HashAction' (BPSTRING[10], BPSTRING[30]);
 changeSHA256Password(CustomUser customUser)  { 
@@ -125,10 +110,15 @@ getAuthToken() {
     exportText() <- currentAuthToken();
 } @@api;
 
-minHashLength = DATA INTEGER ();
+resultAuthToken = DATA LOCAL TEXT();
+generateAuthToken(user, tokenExpiration) INTERNAL 'lsfusion.server.physics.admin.authentication.action.GenerateAuthTokenAction' (STRING, INTEGER) NULL; // tokenExpiration in minutes
+
+generateAuthToken(user) {
+    generateAuthToken(user, NULL);
+}
 
 // LDAP
-useLDAP '{authentication.use.ldap}' = DATA BOOLEAN ();
+useLDAP '{authentication.use.ldap}' = DATA BOOLEAN () LAZY;
 serverLDAP '{authentication.server.ldap}' = DATA STRING[100] ();
 portLDAP '{authentication.port.ldap}' = DATA INTEGER ();
 baseDNLDAP '{authentication.base.dn.ldap}' = DATA STRING[100] ();
@@ -229,10 +219,16 @@ getClientCredentials(STRING str) {
 
 onUserRegister ABSTRACT LIST (User);
 
+checkPasswordStrength ABSTRACT LIST (STRING);
+passwordStrengthError = DATA LOCAL STRING ();
+
 registerUser(JSONFILE user) {
     IMPORT FROM user FIELDS STRING[100] login, STRING[100] password, STRING[100] firstName, STRING[100] lastName, STRING[400] email DO {
+        checkPasswordStrength(password);
         IF customUserNormalized(login) THEN {
             EXPORT FROM error = '{registration.not.successful.login.exist}';
+        } ELSE IF passwordStrengthError() THEN {
+            EXPORT FROM error = passwordStrengthError();
         } ELSE {
             NEW cu = CustomUser { 
                 login(cu) <- login;
@@ -252,20 +248,24 @@ resetPassword(JSONFILE input) {
     IMPORT FROM input FIELDS STRING userNameOrEmail DO {
         LOCAL token = STRING();
         LOCAL NESTED success = BOOLEAN();
-        LOCAL NESTED href = STRING();
+        LOCAL NESTED subject = STRING();
+        LOCAL NESTED body = STRING();
         LOCAL NESTED email = STRING();
         TRY {
             FOR email(CustomUser cu) == userNameOrEmail OR login(cu) == userNameOrEmail DO {
                 token() <- randomUUID();
                 passwordResetToken(cu) <- token();
                 expiryPasswordResetTokenDate(cu) <- currentDateTime();
-                href() <- CONCAT '', '<a href="', webPath(), '/change-password', '?token=', token(), IF query() != '' THEN (CONCAT '', '&', query()), '"> {password.reset} - ', login(cu), '</a>';
+                FOR STRING href = CONCAT '', webPath(), '/change-password', '?token=', token(), IF query() != '' THEN (CONCAT '', '&', query()) DO {
+                    subject() <- '$I{resetPasswordSubject.html}';
+                    body() <- '$I{resetPasswordBody.html}';    
+                }
                 APPLY;
                 IF NOT canceled() THEN {
                     EMAIL 
-                        SUBJECT '{password.reset.email.subject} '
+                        SUBJECT subject()
                         TO email(cu)
-                        BODY href();
+                        BODY body();
                     success() <- TRUE;
                 }
                 email() <- email(cu);
@@ -285,6 +285,12 @@ changePassword(JSONFILE input) {
     IMPORT FROM input FIELDS STRING token, STRING newPassword DO {
         LOCAL NESTED success = BOOLEAN();
         FOR CustomUser cu = userByPassResetToken(token) AND cu IS CustomUser DO {
+            checkPasswordStrength(newPassword);
+            IF passwordStrengthError() THEN {
+                EXPORT FROM error = passwordStrengthError(), passwordStrengthError = TRUE;
+                RETURN;
+            }
+        
             setSHA256Password(cu, newPassword);
             passwordResetToken(cu) <- NULL;
             expiryPasswordResetTokenDate(cu) <- NULL;
@@ -313,7 +319,7 @@ clearPassResetToken () + {
 }
 
 // lock
-isLocked '{authentication.is.locked.user}' = DATA BOOLEAN (CustomUser);
+isLocked '{authentication.is.locked.user}' = DATA BOOLEAN (CustomUser) LAZY;
 isLockedLogin (login) = isLocked(customUserNormalized(lower(login)));
 
 // Current User
@@ -334,12 +340,14 @@ userTwoDigitYearStart '{authentication.user.two.digit.year.start.user}' = DATA I
 userDateFormat '{authentication.user.date.format.user}' = DATA STRING (CustomUser);
 userTimeFormat '{authentication.user.time.format.user}' = DATA STRING (CustomUser);
 
-clientLanguage '{authentication.client.language.user}' = DATA STRING[3] (CustomUser) CHARWIDTH 5;
-clientCountry '{authentication.client.country.user}' = DATA STRING[3] (CustomUser) CHARWIDTH 5;
+clientLanguage '{authentication.client.language.user}' = DATA STRING[3] (CustomUser) CHARWIDTH 5 LAZY;
+clientCountry '{authentication.client.country.user}' = DATA STRING[3] (CustomUser) CHARWIDTH 5 LAZY;
+clientTimeZone '{authentication.client.time.zone.user}' = DATA STRING[30] (CustomUser) LAZY;
 useClientLocale '{authentication.use.client.locale.user}' = DATA BOOLEAN (CustomUser) CHARWIDTH 12;
+useClientTimeZone '{authentication.use.client.time.zone.user}' = DATA BOOLEAN (CustomUser) CHARWIDTH 12;
 
-clientDateFormat '{authentication.client.date.format.user}' = DATA STRING (CustomUser);
-clientTimeFormat '{authentication.client.time.format.user}' = DATA STRING (CustomUser);
+clientDateFormat '{authentication.client.date.format.user}' = DATA STRING (CustomUser) LAZY;
+clientTimeFormat '{authentication.client.time.format.user}' = DATA STRING (CustomUser) LAZY;
 useClientDateTimeFormat '{authentication.use.client.date.time.format.user}' = DATA BOOLEAN (CustomUser);
 
 defaultUserLanguage '{authentication.default.user.language}' = DATA STRING[3] ();
@@ -356,13 +364,19 @@ serverTwoDigitYearStart '{authentication.server.two.digit.year.start}' = DATA IN
 serverDateFormat '{authentication.server.date.format}' = DATA STRING ();
 serverTimeFormat '{authentication.server.time.format}' = DATA STRING ();
 
-language '{authentication.language.user}' (CustomUser user) = OVERRIDE (clientLanguage(user) IF useClientLocale(user)), userLanguage(user), defaultUserLanguage(), serverLanguage();
+language '{authentication.language.user}' (CustomUser user) = OVERRIDE (clientLanguage(user) IF useClientLocale(user)), userLanguage(user), defaultUserLanguage(), serverLanguage() LAZY;
 country '{authentication.country.user}' (CustomUser user) = IF useClientLocale(user) AND clientLanguage(user) 
                                                                 THEN clientCountry(user)
-                                                                ELSE IF userLanguage(user) THEN userCountry(user) ELSE IF defaultUserLanguage() THEN defaultUserCountry() ELSE serverCountry();
+                                                                ELSE IF userLanguage(user) THEN userCountry(user) ELSE IF defaultUserLanguage() THEN defaultUserCountry() ELSE serverCountry()  LAZY;
 
-dateFormat '{authentication.date.format.user}' (CustomUser user) = OVERRIDE (clientDateFormat(user) IF useClientDateTimeFormat(user)), userDateFormat(user), defaultUserDateFormat(), serverDateFormat();
-timeFormat '{authentication.time.format.user}' (CustomUser user) = OVERRIDE (clientTimeFormat(user) IF useClientDateTimeFormat(user)), userTimeFormat(user), defaultUserTimeFormat(), serverTimeFormat();
+dateFormat (CustomUser user) = OVERRIDE (clientDateFormat(user) IF useClientDateTimeFormat(user)), userDateFormat(user), defaultUserDateFormat(), serverDateFormat() LAZY;
+timeFormat (CustomUser user) = OVERRIDE (clientTimeFormat(user) IF useClientDateTimeFormat(user)), userTimeFormat(user), defaultUserTimeFormat(), serverTimeFormat() LAZY;
+
+lsfParams(STRING s) += country(currentUser()) IF s = 'googleMapAutocompleteCountry';
+lsfParams(STRING s) += language(currentUser()) IF s = 'googleGeocodingLanguage';
+
+timeZone '{authentication.time.zone.user}' (CustomUser user) = OVERRIDE (clientTimeZone(user) IF useClientTimeZone(user)), userTimeZone(user), defaultUserTimezone(), serverTimezone() LAZY;
+twoDigitYearStart '{authentication.two.digit.year.start.user}' (CustomUser user) = OVERRIDE userTwoDigitYearStart(user), defaultUserTwoDigitYearStart(), serverTwoDigitYearStart() LAZY;
 
 // "duplicate" of loadLocalePreferences, but web-client needs this data just right after authentication
 getCurrentUserLocale() {
@@ -370,28 +384,35 @@ getCurrentUserLocale() {
         EXPORT JSON FROM language(user), country(user); 
 } @@api;
 
-timeZone '{authentication.time.zone.user}' (CustomUser user) = OVERRIDE userTimeZone(user), defaultUserTimezone(), serverTimezone();
-twoDigitYearStart '{authentication.two.digit.year.start.user}' (CustomUser user) = OVERRIDE userTwoDigitYearStart(user), defaultUserTwoDigitYearStart(), serverTwoDigitYearStart();
 
 // GUI settings -- should be moved to Service (but needs migration)
 
 fontSize '{authentication.font.size.user}' = DATA INTEGER (CustomUser); 
+
+storeNavigatorSettingsForComputer '{system.events.navigator.store.settings.for.computer}' = DATA BOOLEAN ();
+WHEN CHANGED(storeNavigatorSettingsForComputer()) DO {
+    reload();
+}
+
+currentDesignEnv = IF storeNavigatorSettingsForComputer() THEN currentComputer() ELSE currentUser();
 
 CLASS ColorTheme '{authentication.color.theme}' {
     light '{authentication.color.theme.light}',
     dark '{authentication.color.theme.dark}'
 }
 TABLE colorTheme(ColorTheme);
-colorTheme '{authentication.color.theme.user}' = DATA ColorTheme (CustomUser);
-colorThemeStaticName (CustomUser user) = staticName(colorTheme(user));
+designEnvColorTheme '{authentication.color.theme}' (DesignEnv) = DATA ColorTheme (DesignEnv);
+currentColorTheme = designEnvColorTheme(currentDesignEnv());
+clientColorTheme '{authentication.color.theme}' = DATA ColorTheme (DesignEnv);
+colorTheme '{authentication.color.theme}' (DesignEnv designEnv) = OVERRIDE designEnvColorTheme(designEnv), clientColorTheme(designEnv);
 name '{authentication.color.theme}' (ColorTheme theme) = staticCaption(theme) IF theme IS ColorTheme;
-colorThemeName '{authentication.color.theme.user}' (CustomUser user) = name(colorTheme(user));
+colorThemeName '{authentication.color.theme}' (DesignEnv designEnv) = name(designEnvColorTheme(designEnv));
 
-isDarkTheme() = colorTheme(currentUser()) == ColorTheme.dark;
+isDarkTheme() = colorTheme(currentDesignEnv()) == ColorTheme.dark;
 
 changeColorThemeAction INTERNAL 'lsfusion.server.logics.navigator.ChangeColorThemeAction'(ColorTheme) NULL;
-WHEN CHANGED(colorTheme(CustomUser user)) DO {
-    changeColorThemeAction(colorTheme(user));    
+WHEN CHANGED(designEnvColorTheme(DesignEnv designEnv)) DO {
+    changeColorThemeAction(colorTheme(designEnv));    
 }
 
 FORM dialogColorThemes '{authentication.color.themes}'
@@ -416,7 +437,8 @@ FORM customUser '{authentication.custom.user}'
     PROPERTIES(u) login, sha256Password ON CHANGE changeSHA256Password(u), isLocked ,
                   firstName, lastName, email, phone, postAddress, birthday,
                   useClientLocale, userLanguage SHOWIF NOT useClientLocale(u), userCountry SHOWIF NOT useClientLocale(u), 
-                  userTimeZone, userTwoDigitYearStart,
+                  useClientTimeZone, userTimeZone SHOWIF NOT useClientTimeZone(u), 
+                  userTwoDigitYearStart,
                   useClientDateTimeFormat, userDateFormat SHOWIF NOT useClientDateTimeFormat(u), userTimeFormat SHOWIF NOT useClientDateTimeFormat(u)
 
     EDIT CustomUser OBJECT u
@@ -425,7 +447,7 @@ FORM customUser '{authentication.custom.user}'
 DESIGN customUser {
     OBJECTS {
         NEW pane {
-            type = SPLITH;
+            horizontal = TRUE;
             fill = 1;
             NEW header {
                 fill = 1;
@@ -465,20 +487,19 @@ DESIGN customUser {
                 MOVE BOX(u);
             }
             NEW details {
-                type = TABBED;
+                tabbed = TRUE;
                 fill = 3;
             }
         }
     }
     NEW container BEFORE TOOLBARBOX {
-        type = CONTAINERH;
+        horizontal = TRUE;
         fill = 1;
         MOVE BOX(u) {
             flex = 0.3;
         };
         GROUP(,u) {
-            type = COLUMNS;
-            columns = 1;
+            lines = 1;
         }
     }
 }
@@ -496,6 +517,7 @@ FORM customUsers '{authentication.users}'
     PROPERTIES(lu) READONLYIF isReadonly() userLanguage BACKGROUND RGB(232,232,255), 
                                            userCountry BACKGROUND RGB(232,232,255), 
                                            useClientLocale, clientLanguage READONLY, clientCountry READONLY,
+                                           useClientTimeZone, clientTimeZone READONLY,
                                            userTimeZone BACKGROUND RGB(232,232,255), userTwoDigitYearStart BACKGROUND RGB(232,232,255),
                                            userDateFormat BACKGROUND RGB(232,232,255), 
                                            userTimeFormat BACKGROUND RGB(232,232,255), 
@@ -526,7 +548,7 @@ FORM customUsers '{authentication.users}'
 DESIGN customUsers {
     OBJECTS {
         NEW pane {
-            type = TABBED;
+            tabbed = TRUE;
             fill = 1;
             NEW users {
                 caption = '{authentication.users}';
@@ -535,7 +557,7 @@ DESIGN customUsers {
             NEW locale {
                 caption = '{authentication.locale}';
                 NEW headerLocale {
-                    type = CONTAINERH;
+                    horizontal = TRUE;
                     MOVE PROPERTY(defaultUserLanguage());
                     MOVE PROPERTY(defaultUserCountry());
                     MOVE PROPERTY(defaultUserTimezone());
@@ -624,7 +646,7 @@ DESIGN reloginLoginUser {
     BOX(data) {
         caption = '';
         GROUP(, data) {
-            type = CONTAINERV;
+            lines = 1;
             PROPERTY(valueLogin){
                 caption = '{authentication.login}';
                 fontSize = 36;
@@ -705,14 +727,75 @@ reloginPassword(CustomUser customUser)  {
 
 // ---------------- Change password ------------------- //
 
+// Strength
+pwLength (STRING[30] p) = length(p);
+pwNumeric (STRING[30] p) = length(regexpReplace (p, '\\D', '', 'g'));
+pwNumsymbols (STRING[30] p) = length(regexpReplace(p, '[A-Z,a-z,а-я,А-Я,0-9]', '', 'g'));
+pwUpper (STRING[30] p) = length(regexpReplace(p, '[^A-Z,А-Я]', '', 'g'));
+
+passwordStrength (STRING[30] p) = min(max(min(pwLength(p), 5) * 10 (-) 20 (+) min(pwNumeric(p), 3) * 10 (+) min(pwNumsymbols(p), 3) * 15 (+) min(pwUpper(p), 3) * 10, 0), 100);
+
+passwordColor (STRING[30] p) = CASE
+    WHEN passwordStrength(p) < 70 THEN #FFC0C0
+    WHEN passwordStrength(p) < 80 THEN #FFFFC0
+    WHEN passwordStrength(p) < 90 THEN #F0FFF0
+    ELSE #C0FFC0 IF p IS STRING
+;
+
+// Policy
+GROUP policyStrengthPassword '{authentication.password.requirements}';
+ 
+passwordMinLength '{authentication.password.minimum.length}' () = DATA INTEGER () IN policyStrengthPassword;
+passwordContainsDigits '{authentication.password.must.contain.digits}' = DATA BOOLEAN () IN policyStrengthPassword;
+passwordContainsSymbols '{authentication.password.must.contain.special.symbols}' = DATA BOOLEAN () IN policyStrengthPassword;
+passwordContainsUpper '{authentication.password.must.contain.upcase.letters}' = DATA BOOLEAN () IN policyStrengthPassword;
+
+weakPassword (STRING[30] p) = TEXT(
+    CONCAT ';\n',
+        '{authentication.password.minimum.length} - ' + passwordMinLength() + ' ' + '{authentication.password.symbols}' IF pwLength(p) < passwordMinLength(),
+        '{authentication.password.must.contain.digits}' IF passwordContainsDigits() AND NOT pwNumeric(p) > 0,
+        '{authentication.password.must.contain.special.symbols}' IF passwordContainsSymbols() AND NOT pwNumsymbols(p) > 0,
+        '{authentication.password.must.contain.upcase.letters}' IF passwordContainsUpper() AND NOT pwUpper(p) > 0
+); 
+
+passwordRequirements '{authentication.password.requirements}' () = weakPassword('' AS STRING[30]);
+
+check (BOOLEAN b) = IF b THEN '✔' ELSE ' ';
+check '' (STRING[30] pass) = check(NOT weakPassword(pass)) CHARWIDTH 2;
+check '' (STRING[30] new1, STRING[30] new2) = check(new1 = new2 AND NOT weakPassword(new1)) CHARWIDTH 2;
+
+changePasswordOnNextLogin '{authentication.password.change.next.login}' = DATA BOOLEAN (CustomUser);
+
+EXTEND FORM customUsers
+    PROPERTIES() PANEL passwordMinLength, passwordContainsDigits, passwordContainsSymbols, passwordContainsUpper
+    
+    OBJECTS up = CustomUser
+    PROPERTIES(up) READONLY name, login, email
+    PROPERTIES(up)          changePasswordOnNextLogin
+;
+
+DESIGN customUsers {
+    pane {
+        NEW policyStrengthPassword {
+            caption = '{authentication.passwords}';
+            MOVE GROUP(policyStrengthPassword);
+            MOVE BOX(up) {
+                PROPERTY(changePasswordOnNextLogin(up)) { charWidth = 30; }
+            }
+        }
+    }
+}
+
 FORM changePasswordUser '{authentication.change.password}'
     OBJECTS u=CustomUser PANEL
     PROPERTIES(u) READONLY login
+    FILTERS u = currentUser()
 
     OBJECTS passwords = (old = BPSTRING[30], new1 = BPSTRING[30], new2 = BPSTRING[30]) PANEL
     PROPERTIES valueOld = VALUE(old), valueNew1 = VALUE(new1), valueNew2 = VALUE(new2)
 
-    FILTERS u = currentUser()
+    PROPERTIES () READONLY passwordRequirements SHOWIF passwordRequirements()
+    PROPERTIES checkNew1 = check(new1) READONLY FOREGROUND passwordColor(new1), checkNew2 = check(new1, new2) READONLY FOREGROUND #C0FFC0
 ;
 
 DESIGN changePasswordUser {
@@ -726,15 +809,37 @@ DESIGN changePasswordUser {
                 echoSymbols = TRUE;
                 fontSize = 36;
             }
-            MOVE PROPERTY(valueNew1){
-                caption = '{authentication.change.password.new}';
-                echoSymbols = TRUE;
-                fontSize = 36;
+            MOVE PROPERTY(passwordRequirements()) FIRST {
+                fill = 1;
+                fontSize = 14;
             }
-            MOVE PROPERTY(valueNew2){
-                caption = '{authentication.change.password.repeat}';
-                echoSymbols = TRUE;
-                fontSize = 36;
+            NEW newPass1 {
+                horizontal = TRUE;
+                fill = 1;
+                MOVE PROPERTY(valueNew1){
+                    caption = '{authentication.change.password.new}';
+                    echoSymbols = TRUE;
+                    fontSize = 36;
+                }
+                MOVE PROPERTY (checkNew1) {
+                    fontSize = 36;
+                    charWidth = 2;
+                    focusable = FALSE;
+                }
+            }
+            NEW newPass2 {
+                horizontal = TRUE;
+                fill = 1;
+                MOVE PROPERTY(valueNew2){
+                    caption = '{authentication.change.password.repeat}';
+                    echoSymbols = TRUE;
+                    fontSize = 36;
+                }
+                MOVE PROPERTY (checkNew2) {
+                    fontSize = 36;
+                    charWidth = 2;
+                    focusable = FALSE;
+                }
             }
         }
     }
@@ -742,21 +847,37 @@ DESIGN changePasswordUser {
     REMOVE PROPERTY(formRefresh());
 }
 
-changePassword(CustomUser customUser)  { 
-    DIALOG changePasswordUser OBJECTS old INPUT, new1 INPUT,new2 INPUT DO {
-        calculateBase64Hash('SHA-256', old);
-        IF calculatedHash() != sha256Password(customUser) THEN {
-            MESSAGE '{authentication.change.password.incorrect.old}';
-            BREAK;
-        }
+checkPasswordStrength(STRING password) + {
+    IF weakPassword(password) THEN passwordStrengthError() <- '{authentication.password.does.not.match.requirements}' + ' \n' + weakPassword(password); 
+}
 
+changePassword (CustomUser u)  { 
+    DIALOG changePasswordUser OBJECTS old INPUT, new1 INPUT, new2 INPUT DO {
+        beforeCanceled() <- NULL;    
+        calculateBase64Hash('SHA-256', old);
+        IF calculatedHash() != sha256Password(u) THEN {
+            MESSAGE '{authentication.change.password.incorrect.old}';
+            RETURN;    
+        }
+        IF old = new1 THEN {
+            MESSAGE '{authentication.password.must.be.different}';
+            RETURN;    
+        }
+        IF weakPassword(new1) THEN {
+            MESSAGE '{authentication.password.must.meet.complexity.requirements}:\n' + weakPassword(new1);
+            RETURN;    
+        }
         IF new1 != new2 THEN {
             MESSAGE '{authentication.change.password.do.not.match}';
-            BREAK;
+            RETURN;    
         }
-        calculateBase64Hash('SHA-256', new1);
-        sha256Password(customUser) <- calculatedHash();
-        APPLY;
+
+        APPLY {
+            calculateBase64Hash('SHA-256', new1);
+            sha256Password(u) <- calculatedHash();
+            
+            changePasswordOnNextLogin(u) <- NULL;
+        }
         IF NOT canceled() THEN
             MESSAGE '{authentication.change.password.complete}';
     }
@@ -773,11 +894,11 @@ NAVIGATOR {
             NEW computers;
         }
     }
-    NEW FOLDER account '{navigator.account}' WINDOW toolbar IMAGE 'lock.png' {
-        NEW ACTION reloginLoginUserAction '{navigator.account.relogin}' = reloginLoginUser[] IMAGE 'relogin.png';
-        NEW editProfile IMAGE 'editProfile.png';
-        NEW ACTION changePasswordAction '{navigator.account.change.password}' = changePassword[] IMAGE 'changePassword.png';
-        NEW ACTION logOutAction '{navigator.account.logout}' = restart[] IMAGE 'logout.png';
+    NEW FOLDER account '{navigator.account}' HEADER '{navigator.account}' IF NOT noSystemToolbarCaptions() LAST WINDOW system PARENT IMAGE 'lock.png'{
+        NEW ACTION reloginLoginUserAction '{navigator.account.relogin}' = reloginLoginUser[] WINDOW toolbar PARENT IMAGE 'relogin.png';
+        NEW editProfile WINDOW toolbar PARENT IMAGE 'editProfile.png';
+        NEW ACTION changePasswordAction '{navigator.account.change.password}' = changePassword[] WINDOW toolbar PARENT IMAGE 'changePassword.png';
+        NEW ACTION logOutAction '{navigator.account.logout}' = restart[] WINDOW toolbar PARENT IMAGE 'logout.png';
     }
 }
 
@@ -807,6 +928,64 @@ lock(Object object)  {
 
 unlock(Object object)  { 
 	NEWSESSION { 
-	    APPLY locked(object) <- NULL;
+	    APPLY SERIALIZABLE locked(object) <- NULL;
 	}
 }
+
+//dateTimeRanges
+dateTimeRange '{date.time.picker.range.predefined.date}' (DateTimePickerRanges r) = staticCaption(r);
+isDateTimeRangeSelected '{logics.property.select}' = DATA BOOLEAN (DateTimePickerRanges, CustomUser);
+
+//dateTimeIntervalRanges
+intervalRange '{date.time.picker.range.predefined.date}' (DateTimeIntervalPickerRanges r) = staticCaption(r);
+isIntervalRangeSelected '{logics.property.select}' = DATA BOOLEAN (DateTimeIntervalPickerRanges, CustomUser);
+
+selectedDateTimeRangesCount(user) = GROUP SUM 1 IF isDateTimeRangeSelected(DateTimePickerRanges r, user);
+selectedIntervalRangesCount(user) = GROUP SUM 1 IF isIntervalRangeSelected(DateTimeIntervalPickerRanges ir, user);
+CONSTRAINT selectedDateTimeRangesCount(CustomUser cu) > 7 OR selectedIntervalRangesCount(cu) > 7 MESSAGE '{date.time.picker.range.constraint}';
+
+setDefaultRanges(CustomUser cu) {
+    //dateTime
+    isDateTimeRangeSelected(DateTimePickerRanges r, cu) <- TRUE WHERE 
+    r == DateTimePickerRanges.rangeToday OR 
+    r == DateTimePickerRanges.rangeYesterday OR 
+    r == DateTimePickerRanges.rangeSevenDaysAgo OR 
+    r == DateTimePickerRanges.rangeThirtyDaysAgo OR 
+    r == DateTimePickerRanges.rangeMonthStart OR 
+    r == DateTimePickerRanges.rangePreviousMonthStart OR 
+    r == DateTimePickerRanges.rangeThisYearStart;
+    
+    //dateTime interval
+    isIntervalRangeSelected(DateTimeIntervalPickerRanges r, cu) <- TRUE WHERE
+    r == DateTimeIntervalPickerRanges.rangeIntervalToday OR 
+    r == DateTimeIntervalPickerRanges.rangeIntervalYesterday OR 
+    r == DateTimeIntervalPickerRanges.rangeLast7Days OR 
+    r == DateTimeIntervalPickerRanges.rangeLast30Days OR 
+    r == DateTimeIntervalPickerRanges.rangeThisMonth OR 
+    r == DateTimeIntervalPickerRanges.rangePreviousMonth OR 
+    r == DateTimeIntervalPickerRanges.rangeThisYear;
+}
+
+WHEN SET (CustomUser cu IS CustomUser) DO {
+    setDefaultRanges(cu);
+}
+
+EXTEND FORM customUser
+    OBJECTS r = DateTimePickerRanges
+    PROPERTIES dateTimeRange(r) READONLY, isDateTimeRangeSelected(r, u)
+    
+    OBJECTS ir = DateTimeIntervalPickerRanges
+    PROPERTIES intervalRange(ir) READONLY, isIntervalRangeSelected(ir, u)
+;
+
+DESIGN customUser {
+    header {
+        NEW predefinedRanges {
+            horizontal = TRUE;
+            MOVE BOX(r);
+            MOVE BOX(ir);
+            REMOVE TOOLBARSYSTEM(r);
+            REMOVE TOOLBARSYSTEM(ir);
+        }
+    }
+} 

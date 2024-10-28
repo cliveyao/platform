@@ -1,0 +1,58 @@
+
+.option-btn-container {
+    display: flex;
+    flex-flow: row wrap;
+}
+
+.option-btn-container:not(.btn-group) .btn.btn-outline-secondary.option-item:hover {
+    border: 1px solid var(--component-hover-border-color);
+    background: var(--component-hover-background-color);
+}
+
+.btn-check:checked + .btn.btn-outline-secondary.option-item {
+    background: var(--selection-color);
+    color: var(--text-color);
+}
+
+.btn-check:checked + .btn.btn-outline-secondary.option-item:hover {
+    background: var(--option-selected-hover-color);
+}
+
+/*set a border for all buttons except the .btn-group*/
+.option-btn-container:not(.btn-group) .btn.btn-outline-secondary.option-item-current {
+    border: var(--border-width) solid var(--focused-cell-border-color);
+}
+
+/*do not display <input> for all except standard views*/
+.option-btn-container input[type="radio"].btn-check, .option-btn-container input[type="checkbox"].btn-check {
+    display:none;
+}
+
+.option-btn-container.btn-group .btn.option-item {
+    color: var(--disabled-text-color);
+    margin: 0;
+    flex: 1 1 auto;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.option-btn-container.btn-group {
+    /*padding: 0.5em;*/
+}
+
+.option-btn-container.btn-group label:not(:first-of-type) {
+    border-left: 0;
+    border-radius: 0;
+}
+
+.option-btn-container.btn-group label:first-of-type {
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+}
+
+.option-btn-container.btn-group label:last-of-type {
+    border-top-right-radius: var(--button-border-radius);
+    border-bottom-right-radius: var(--button-border-radius);
+}

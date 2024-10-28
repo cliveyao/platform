@@ -1,7 +1,9 @@
 package lsfusion.server.logics.form.struct.filter;
 
+import lsfusion.base.col.MapFact;
 import lsfusion.base.col.SetFact;
 import lsfusion.base.col.interfaces.immutable.ImMap;
+import lsfusion.base.col.interfaces.immutable.ImRevMap;
 import lsfusion.base.col.interfaces.immutable.ImSet;
 import lsfusion.server.data.expr.Expr;
 import lsfusion.server.data.sql.exception.SQLHandledException;
@@ -15,6 +17,7 @@ import lsfusion.server.logics.form.struct.FormEntity;
 import lsfusion.server.logics.form.struct.object.GroupObjectEntity;
 import lsfusion.server.logics.form.struct.object.ObjectEntity;
 import lsfusion.server.logics.form.struct.property.PropertyObjectEntity;
+import lsfusion.server.logics.property.implement.PropertyMapImplement;
 import lsfusion.server.logics.property.oraction.PropertyInterface;
 
 import java.sql.SQLException;
@@ -41,15 +44,12 @@ public class FilterEntity<P extends PropertyInterface> implements Instantiable<F
         return new NotNullFilterInstance<>(instanceFactory.getInstance(property), resolveAdd);
     }
 
-    public PropertyObjectEntity<P> getImportProperty() {
+    public PropertyObjectEntity<P> getProperty() {
         return property;
-    }
-    public ContextFilterInstance getRemappedContextFilter(final ObjectEntity oldObject, final ObjectEntity newObject, final InstanceFactory instanceOldFactory) {
-        return property.getRemappedInstance(oldObject, newObject, instanceOldFactory);
     }
 
     public Where getWhere(ImMap<ObjectEntity, ? extends Expr> mapKeys, Modifier modifier) throws SQLException, SQLHandledException {
-        return property.getEntityExpr(mapKeys, modifier).getWhere();
+        return property.getExpr(mapKeys, modifier).getWhere();
     }
 
     public ImSet<ObjectEntity> getObjects() {
@@ -58,5 +58,13 @@ public class FilterEntity<P extends PropertyInterface> implements Instantiable<F
 
     public GroupObjectEntity getApplyObject(FormEntity formEntity) {
         return getApplyObject(formEntity, SetFact.EMPTY());
+    }
+
+    public <V extends PropertyInterface> ContextFilterEntity<P, V, ObjectEntity> getContext() {
+        return new ContextFilterEntity<>(property.property, MapFact.EMPTYREV(), property.mapping);
+    }
+
+    public <T extends PropertyInterface> PropertyMapImplement<?, T> getImplement(ImRevMap<ObjectEntity, T> mapObjects) {
+        return property.getImplement(mapObjects);
     }
 }

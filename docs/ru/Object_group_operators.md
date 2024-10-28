@@ -1,6 +1,5 @@
 ---
 title: 'Операции с группами объектов'
-sidebar_label: Обзор
 ---
 
 Операции с группами объектов включают в себя следующие операторы:
@@ -8,6 +7,7 @@ sidebar_label: Обзор
 ### Действия
 
 -   [Поиск (`SEEK`)](Search_SEEK.md)
+-   [Видимость элементов дерева (`EXPAND`, `COLLAPSE`)](Object_tree_visibility_EXPAND_COLLAPSE.md)
 
 ### Свойства
 

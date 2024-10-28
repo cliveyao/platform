@@ -16,9 +16,8 @@ dateTime '{eval.script.date.time.script}' = DATA DATETIME (Script);
 dateTimeChange '{eval.script.date.time.change.script}' = DATA DATETIME (Script);  
 dateTimeChange(Script s) <- currentDateTime() WHEN CHANGED(text(s));
 
-preRunScript(Script s)  { 
-    dateTime(s) <- currentDateTime();
-    APPLY;
+copyToClipboard '{eval.script.copy.to.clipboard}' (STRING message, STRING javaStack, STRING lsfStack) {
+    copyToClipboard(CONCAT '\n', message, javaStack, lsfStack);
 }
 
 showStack '{eval.script.show.stack}' = DATA LOCAL BOOLEAN ();
@@ -26,14 +25,14 @@ FORM exception '{eval.script.form.exception}'
     OBJECTS message = TEXT PANEL, showStack = BOOLEAN PANEL, javaStack = TEXT PANEL, lsfStack = TEXT PANEL
     PROPERTIES valueMessage= VALUE(message) BACKGROUND RGB(255, 50, 50) READONLY, showStack() TOOLBAR 
     PROPERTIES READONLY SHOWIF showStack() valueJavaStack = VALUE(javaStack), valueLsfStack = VALUE(lsfStack)
+    PROPERTIES copy = copyToClipboard(message, javaStack, lsfStack)
 ;
 
 DESIGN exception {
-    size = (500, 400);
+    size = (800, 600);
     OBJECTS {
         NEW pane {
             fill = 1;
-            type = SPLITV;
             MOVE PROPERTY(valueMessage) {
                 fill = 1;
                 panelCaptionVertical = TRUE;
@@ -41,59 +40,41 @@ DESIGN exception {
             }
             NEW stacks {
                 fill = 3;
-                type = SPLITH;
-                MOVE PROPERTY(valueJavaStack) {
-                    panelCaptionVertical = TRUE;
-                    fill = 1;
+                horizontal = TRUE;
+                height = 100;
+                NEW javaStack {
                     caption = '{eval.script.form.exception.caption.java.stack}';
-                }
-                MOVE PROPERTY(valueLsfStack) {
-                    panelCaptionVertical = TRUE;
+                    width = 100;
                     fill = 1;
-                    caption = '{eval.script.form.exception.caption.lsf.stack}';
+                    MOVE PROPERTY(valueJavaStack) {
+                        caption = '';
+                        fill = 1;
+                        alignShrink = FALSE;
+                        valueHeight = -1;
+                        valueWidth = -1;
+                    }
                 }
-            }        
+                NEW lsfStack {
+                    caption = '{eval.script.form.exception.caption.lsf.stack}';
+                    width = 100;
+                    fill = 1;
+                    MOVE PROPERTY(valueLsfStack) {
+                        caption = '';
+                        fill = 1;
+                        alignShrink = FALSE;
+                        valueHeight = -1;
+                        valueWidth = -1;
+                    }
+                }
+                TOOLBARBOX {
+                    MOVE PROPERTY(copy) FIRST;
+                }
+            }
         }
     }
 }
 
-scriptExecution '{eval.script.script.execution}' (Script s)  { 
-    preRunScript(s); 
-    NEWSESSION TRY {
-        EVAL text(s); 
-    } CATCH {
-        SHOW exception OBJECTS message = messageCaughtException(), javaStack = javaStackTraceCaughtException(), lsfStack = lsfStackTraceCaughtException() WAIT;
-    }
-}
-
-actionBodyExecution '{eval.script.action.body.execution}' (Script s)  { 
-    preRunScript(s);
-    NEWSESSION TRY {
-        EVAL ACTION text(s);
-    } CATCH {
-        SHOW exception OBJECTS message = messageCaughtException(), javaStack = javaStackTraceCaughtException(), lsfStack = lsfStackTraceCaughtException() WAIT;
-    }
-}
-
-formExecution '{eval.script.form.execution}' (Script s)  { 
-    preRunScript(s);
-    NEWSESSION TRY {
-        EVAL CONCAT ' ', 'FORM form', text(s), '\n;\nrun() \{ SHOW form NOWAIT; \}';
-    } CATCH {
-        SHOW exception OBJECTS message = messageCaughtException(), javaStack = javaStackTraceCaughtException(), lsfStack = lsfStackTraceCaughtException() WAIT;    
-    }
-}
-
-javaActionBodyExecution '{eval.script.java.action.body.execution}' (Script s)  { 
-    preRunScript(s);
-    NEWSESSION TRY {
-        EVAL CONCAT ' ', 'run()  INTERNAL  <\{ ', text(s), ' \}>;';
-    } CATCH {
-        SHOW exception OBJECTS message = messageCaughtException(), javaStack = javaStackTraceCaughtException(), lsfStack = lsfStackTraceCaughtException() WAIT;
-    }
-}
-
-// Универсальная таблица для последующего импорта
+// Rows
 CLASS Row '{eval.script.row}';
 TABLE row(Row);
 
@@ -137,23 +118,86 @@ FORM scriptsLog '{eval.script.form.scripts.log}'
     LIST Script OBJECT s
 ;
 
+CLASS ScriptType {
+    script '{eval.script.script}',
+    action '{eval.script.action}',
+    form '{eval.script.form}',
+    java '{eval.script.java}'
+}
+
+dataScriptType = DATA ScriptType(Script);
+dataScriptType(Script s) <- ScriptType.action WHEN SET(s IS Script);
+selectedExecutionScriptType (ScriptType st, Script s) = st == dataScriptType(s);
+executionScriptTypeCaption (ScriptType st) = staticCaption(st);
+executionScriptTypeName (ScriptType st) = basicStaticName(st);
+
+evalString = DATA LOCAL STRING();
+executeScript '{eval.execution}' (Script s) {
+    dateTime(s) <- currentDateTime();
+    APPLY;
+
+    NEWSESSION {
+        TRY {
+            IF executionScriptTypeName(dataScriptType(s)) == 'script' OR executionScriptTypeName(dataScriptType(s)) == 'action' THEN evalString() <- text(s);
+            IF executionScriptTypeName(dataScriptType(s)) == 'form' THEN evalString() <- CONCAT ' ', 'FORM form', text(s), '\n;\nrun() \{ SHOW form NOWAIT; \}';
+            IF executionScriptTypeName(dataScriptType(s)) == 'java' THEN evalString() <- CONCAT ' ', 'run()  INTERNAL  <\{ ', text(s), ' \}>;';
+
+            IF executionScriptTypeName(dataScriptType(s)) == 'action' THEN EVAL ACTION evalString(); ELSE EVAL evalString();
+        } CATCH {
+            SHOW exception OBJECTS message = messageCaughtException(), javaStack = javaStackTraceCaughtException(), lsfStack = lsfStackTraceCaughtException() WAIT;
+        }
+    }
+} IMAGE 'play.png';
+
+scriptExecution '{eval.script.script.execution}' (Script s)  {
+    dataScriptType(s) <- ScriptType.script;
+    executeScript(s);    
+}
+
+actionBodyExecution '{eval.script.action.body.execution}' (Script s)  {
+    dataScriptType(s) <- ScriptType.action; 
+    executeScript(s);    
+}
+
+formExecution '{eval.script.form.execution}' (Script s)  {
+    dataScriptType(s) <- ScriptType.form;   
+    executeScript(s);    
+}
+
+javaActionBodyExecution '{eval.script.java.action.body.execution}' (Script s)  {
+    dataScriptType(s) <- ScriptType.java; 
+    executeScript(s);    
+}
+
+json(Script s) = JSON FROM text = (OVERRIDE text(s), ''), type = (OVERRIDE executionScriptTypeName(dataScriptType(s)), '');
+
+changeScript(Script sc) {
+    INPUT s = TEXT DO {
+        stringToFile(s);
+        LOCAL text = TEXT();
+        IMPORT JSON FROM resultFile() TO() text;
+        text(sc) <- text(); 
+    }
+}
+
+onWebClientInit() +{ onWebClientInit('interpreter.js') <- 1; }
+
 FORM interpreter '{eval.script.form.interpreter}'
     OBJECTS s = Script PANEL
-    PROPERTIES(s) name, text
-    
-    PROPERTIES(s) scriptExecution, actionBodyExecution, formExecution, javaActionBodyExecution
+    PROPERTIES name(s), '{eval.script.text.script}' = json(s) CUSTOM 'interpreter' SHOWIF isWeb() ON CHANGE changeScript(s), text(s) SHOWIF NOT isWeb()
+
+    OBJECTS st = ScriptType CUSTOM 'selectButtonGroup'
+    PROPERTIES SHOWIF isWeb() name=executionScriptTypeCaption(st), selected=selectedExecutionScriptType(st, s), executionScriptTypeName(st)
+    ORDERS executionScriptTypeName(st)
+
+    PROPERTIES(s) SHOWIF NOT isWeb() scriptExecution, actionBodyExecution, formExecution, javaActionBodyExecution
+    PROPERTIES(s) '' = executeScript SHOWIF isWeb()
                  
     OBJECTS r = Row GRID
     PROPERTIES(r) string1, string2, string3, string4, string5, string6, string7, string8, string9, string10 
     PROPERTIES(r) numeric1, numeric2, numeric3, numeric4, numeric5, date1, date2, date3
     PROPERTIES(r) NEW, DELETE GRID
 ;
-
-createScript ()  { 
-    NEW s = Script {
-        SEEK interpreter.s = s;
-    }
-}
 
 copyScript '{eval.script.copy.script}' (Script sf)  { 
     NEW s = Script {
@@ -184,39 +228,62 @@ findScript '{eval.script.find.script}' (Script sf)  {
     }   
 }
 
-EXTEND FORM interpreter
-    PROPERTIES(s) copyScript, findScript
+EXTEND FORM interpreter 
+    PROPERTIES(s) copyScript, findScript 
     
-    EVENTS
-        ON INIT createScript();
+    EVENTS  
+        ON INIT {
+            NEW scr = Script {
+                SEEK interpreter.s = scr; 
+            }
+        }
 ;
 
 DESIGN interpreter {
     NEW pane {
         fill = 1;
-        type = TABBED;
+        tabbed = TRUE;
         NEW scriptPane {
             fill = 1;        
             caption = '{eval.script.form.interpreter.caption.script}';
             NEW script {
                 caption = '{eval.script.form.interpreter.caption.options}';
-                type = CONTAINERH;
-                MOVE PROPERTY(copyScript(s)) { font = 'bold 24'; alignment = STRETCH; }
-                MOVE PROPERTY(findScript(s)) { font = 'bold 24'; alignment = STRETCH; }
-                MOVE PROPERTY(name(s)) { font = 'bold 24'; alignment = STRETCH; }
+                horizontal = TRUE;
+                MOVE PROPERTY(copyScript(s)); // { font = 'bold 24'; alignment = STRETCH; }
+                MOVE PROPERTY(findScript(s)); // { font = 'bold 24'; alignment = STRETCH; }
+                MOVE PROPERTY(name(s)); // { font = 'bold 24'; alignment = STRETCH; }
             }
+            NEW execute {
+                caption = '{eval.script.form.interpreter.caption.run}';
+                horizontal = TRUE;
+                MOVE BOX(st) {
+                    caption = NULL;
+                    flex = 0;
+                    alignment = CENTER;
+                };
+                GRID(st) {
+                    boxed = FALSE;
+                }
+                MOVE PROPERTY(executeScript(s)) {
+                    focusable = FALSE;
+                    alignment = CENTER;
+                }
+                MOVE PROPERTY(scriptExecution(s)); // { font = 'bold 24'; }
+                MOVE PROPERTY(actionBodyExecution(s)); // { font = 'bold 24'; }
+                MOVE PROPERTY(formExecution(s)); // { font = 'bold 24'; }
+                MOVE PROPERTY(javaActionBodyExecution(s)); // { font = 'bold 24'; }
+            }
+            REMOVE TOOLBARSYSTEM(st);
+            
             MOVE PROPERTY(text(s)) {
                 panelCaptionVertical = TRUE;    
                 fill = 1;
             }
-            NEW run {
-                caption = '{eval.script.form.interpreter.caption.run}';
-                type = CONTAINERH;
-                MOVE PROPERTY(scriptExecution(s)) { font = 'bold 24'; }
-                MOVE PROPERTY(actionBodyExecution(s)) { font = 'bold 24'; }
-                MOVE PROPERTY(formExecution(s)) { font = 'bold 24'; }
-                MOVE PROPERTY(javaActionBodyExecution(s)) { font = 'bold 24'; }
-            }
+            
+            MOVE PROPERTY(json(s)) {
+                panelCaptionVertical = TRUE;    
+                fill = 1;
+            }            
         }
         MOVE BOX(r) {
             caption = '{eval.script.form.interpreter.caption.data}';

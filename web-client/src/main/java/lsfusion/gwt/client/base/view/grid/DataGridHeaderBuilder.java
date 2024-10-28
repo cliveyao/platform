@@ -16,6 +16,9 @@
 package lsfusion.gwt.client.base.view.grid;
 
 import com.google.gwt.dom.client.*;
+import lsfusion.gwt.client.base.GwtClientUtils;
+
+import java.util.List;
 
 /**
  * Default implementation of {@link HeaderBuilder} that renders columns.
@@ -29,11 +32,11 @@ public abstract class DataGridHeaderBuilder<T> implements HeaderBuilder<T> {
 
         TableSectionElement getHeaderElement();
 
-        String getCellStyle();
-
-        String getFirstCellStyle();
-
-        String getLastCellStyle();
+        void setRowStyle(TableRowElement element);
+        void setCellStyle(TableCellElement element);
+        void addFirstCellStyle(TableCellElement element);
+        void addLastCellStyle(TableCellElement element);
+        boolean isFooter();
     }
 
     /**
@@ -52,7 +55,6 @@ public abstract class DataGridHeaderBuilder<T> implements HeaderBuilder<T> {
      * Create a new DefaultHeaderBuilder for the header of footer section.
      *
      * @param table    the table being built
-     * @param isFooter true if building the footer, false if the header
      */
     public DataGridHeaderBuilder(DataGrid<T> table, HeaderDelegate delegate) {
         this.delegate = delegate;
@@ -60,23 +62,45 @@ public abstract class DataGridHeaderBuilder<T> implements HeaderBuilder<T> {
         this.headerElement = delegate.getHeaderElement();
     }
 
+    private TableRowElement headerRow;
     @Override
     public void update(boolean columnsChanged) {
-        int rowCount = headerElement.getChildCount();
-        if (columnsChanged || rowCount == 0) {
-            if (rowCount != 0) {
-                assert rowCount == 1;
-                headerElement.getRows().getItem(0).removeFromParent();
-            }
-            buildHeaderImpl(headerElement.insertRow(0));
+        if (columnsChanged) {
+            if (headerRow != null)
+                headerRow.removeFromParent();
+            headerRow = headerElement.insertRow(-1);
+            delegate.setRowStyle(headerRow);
+            // see .table-container-boxed comment
+            GwtClientUtils.addClassName(headerRow, "background-inherit"); // because it's assumed that header and footer are sticky
+            buildHeaderImpl(headerRow);
+
+            table.initArrow(headerRow, delegate.isFooter());
         } else {
-            updateHeaderImpl(headerElement.getRows().getItem(0));
+            updateHeaderImpl(headerRow);
         }
+    }
+
+    public TableRowElement getHeaderRow() {
+        return headerRow;
     }
 
     protected abstract void buildHeaderImpl(TableRowElement tr);
 
     protected abstract void updateHeaderImpl(TableRowElement tr);
+
+    @Override
+    public void updateStickyLeft(List<Integer> stickyColumns, List<DataGrid.StickyParams> stickyLefts) {
+        updateHeaderStickyLeftImpl(getHeaderRow(), stickyColumns, stickyLefts);
+    }
+
+    @Override
+    public void updateStickedState(List<Integer> stickyColumns, int lastSticked) {
+        updateStickedState(getHeaderRow(), stickyColumns, lastSticked);
+    }
+
+    protected abstract void updateHeaderStickyLeftImpl(TableRowElement tr, List<Integer> stickyColumns, List<DataGrid.StickyParams> stickyLefts);
+    
+    protected abstract void updateStickedState(TableRowElement tr, List<Integer> stickyColumns, int lastSticked);
 
     /**
      * Get the header or footer at the specified index.
@@ -97,7 +121,7 @@ public abstract class DataGridHeaderBuilder<T> implements HeaderBuilder<T> {
      */
     protected final <H> void renderHeader(TableCellElement th, Header<H> header) {
         th.setPropertyObject(HEADER_ATTRIBUTE, header);
-        header.renderAndUpdateDom(th);
+        header.renderAndUpdateDom(th, false);
     }
 
     public Header<?> getHeader(Element elem) {

@@ -4,9 +4,12 @@ import lsfusion.client.ClientResourceBundle;
 import lsfusion.client.form.controller.remote.serialization.ClientIdentitySerializable;
 import lsfusion.client.form.controller.remote.serialization.ClientSerializationPool;
 import lsfusion.client.form.design.ClientComponent;
+import lsfusion.client.form.design.ClientContainer;
 import lsfusion.client.form.filter.user.ClientFilter;
+import lsfusion.client.form.filter.user.ClientFilterControls;
 import lsfusion.client.form.object.ClientGroupObject;
 import lsfusion.client.form.object.table.ClientToolbar;
+import lsfusion.client.form.object.table.grid.ClientGridProperty;
 import lsfusion.interop.form.object.table.tree.AbstractTreeGroup;
 
 import java.io.DataInputStream;
@@ -15,18 +18,21 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
-public class ClientTreeGroup extends ClientComponent implements ClientIdentitySerializable, AbstractTreeGroup<ClientComponent> {
+public class ClientTreeGroup extends ClientGridProperty implements ClientIdentitySerializable, AbstractTreeGroup<ClientComponent> {
 
     public List<ClientGroupObject> groups = new ArrayList<>();
 
+    public ClientContainer filtersContainer;
+    public ClientFilterControls filterControls;
+    public List<ClientFilter> filters = new ArrayList<>();
+    
     public ClientToolbar toolbar;
-    public ClientFilter filter;
 
     public boolean plainTreeMode;
     
     public boolean expandOnClick;
+    public int hierarchicalWidth;
 
-    public int headerHeight;
 
     public ClientTreeGroup() {
     }
@@ -37,34 +43,56 @@ public class ClientTreeGroup extends ClientComponent implements ClientIdentitySe
     }
 
     @Override
-    public ClientComponent getUserFilter() {
-        return filter;
+    public ClientContainer getFiltersContainer() {
+        return filtersContainer;
+    }
+
+    @Override
+    public ClientFilterControls getFilterControls() {
+        return filterControls;
+    }
+
+    public List<ClientFilter> getFilters() {
+        return filters;
     }
 
     public void customSerialize(ClientSerializationPool pool, DataOutputStream outStream) throws IOException {
         super.customSerialize(pool, outStream);
 
+        outStream.writeBoolean(boxed != null);
+        if(boxed != null)
+            outStream.writeBoolean(boxed);
+
         pool.serializeCollection(outStream, groups);
         pool.serializeObject(outStream, toolbar);
-        pool.serializeObject(outStream, filter);
+        pool.serializeObject(outStream, filtersContainer);
+        pool.serializeObject(outStream, filterControls);
+        pool.serializeCollection(outStream, filters);
         
         outStream.writeBoolean(expandOnClick);
+        outStream.writeInt(hierarchicalWidth);
 
-        outStream.writeInt(headerHeight);
+        outStream.writeInt(captionHeight);
+
+        outStream.writeInt(lineWidth);
+        outStream.writeInt(lineHeight);
     }
 
     public void customDeserialize(ClientSerializationPool pool, DataInputStream inStream) throws IOException {
         super.customDeserialize(pool, inStream);
 
+        // Tree
+
         groups = pool.deserializeList(inStream);
         toolbar = pool.deserializeObject(inStream);
-        filter = pool.deserializeObject(inStream);
+        filtersContainer = pool.deserializeObject(inStream);
+        filterControls = pool.deserializeObject(inStream);
+        pool.deserializeCollection(filters, inStream);
 
         plainTreeMode = inStream.readBoolean();
         
         expandOnClick = inStream.readBoolean();
-
-        headerHeight = inStream.readInt();
+        hierarchicalWidth = inStream.readInt();
 
         List<ClientGroupObject> upGroups = new ArrayList<>();
         for (ClientGroupObject group : groups) {
@@ -90,7 +118,11 @@ public class ClientTreeGroup extends ClientComponent implements ClientIdentitySe
         return result + "[sid:" + getSID() + "]";
     }
 
-    public int calculateSize() {
+    public int getExpandWidth() {
+        if(hierarchicalWidth > 0) {
+            return hierarchicalWidth;
+        }
+
         int size = 0;
         for (ClientGroupObject groupObject : groups) {
             size += groupObject.isRecursive ? 20 * 4 : 20;
@@ -98,7 +130,21 @@ public class ClientTreeGroup extends ClientComponent implements ClientIdentitySe
         return size;
     }
 
+    private ClientGroupObject getLastGroup() {
+        return groups.get(groups.size() - 1);
+    }
+
     public int getHeaderHeight() {
-        return headerHeight;
+        return captionHeight;
+    }
+
+    @Override
+    protected Integer getDefaultWidth() {
+        return getExpandWidth() + getLastGroup().getWidth(lineWidth);
+    }
+
+    @Override
+    protected Integer getDefaultHeight() {
+        return getLastGroup().getHeight(lineHeight, captionHeight);
     }
 }

@@ -9,7 +9,6 @@ DESIGN options {
         }
     }            
 }
-// ------------------------------------------- Нумераторы ----------------------------------------------- //
 
 CLASS Numerator '{numerator.numerator}';
 TABLE numerator (Numerator);
@@ -26,11 +25,11 @@ stringLength '{numerator.string.length.numerator}' = DATA INTEGER (Numerator) IN
 curValue '{numerator.cur.value.numerator}' = DATA LONG (Numerator) IN id CHARWIDTH 15;
 curValue(Numerator numerator) <- minValue(numerator) WHEN SET(numerator IS Numerator);
 
-lpadStringWithZero = FORMULA STRING[28] PG 'lpad(CAST($1 AS text),$2,\'0\')', MS 'RIGHT(REPLICATE(\'0\', $2) + $1, $2)';
+lpadStringWithZero = FORMULA STRING[48] PG 'lpad(CAST($1 AS text),$2,\'0\')', MS 'RIGHT(REPLICATE(\'0\', $2) + $1, $2)';
 
 curStringValue '{numerator.cur.string.value.numerator}' (Numerator numerator) = lpadStringWithZero(curValue(numerator), stringLength(numerator)) IN base;
 
-incrementedValue = DATA LOCAL NESTED STRING[28] ();
+incrementedValue = DATA LOCAL NESTED STRING[48] ();
 
 incrementValue '{numerator.increment.value.numerator}'(Numerator numerator)  { 
 	NEWSESSION {
@@ -46,8 +45,7 @@ incrementValue '{numerator.increment.value.numerator}'(Numerator numerator)  {
 	}
 };
 
-// -------------- Генерация счетчиков на форме с целью выноса из общей транзакции для уменьшения вероятности CONFLICT UPDATE
-
+// -------------- Generate number on the form to take out of transaction to reduce probability of CONFLICT UPDATE
 @defineOption(generateNumberOnForm, '{numerator.generate.number.on.form}', numerator);
 
 META addEventGenerateNumberOnForm(form, o, object)
@@ -101,8 +99,7 @@ FORM defaultNumerators '{numerator.numerators}'
 DESIGN defaultNumerators {
     BOX {
         NEW defaultContainer AFTER OBJECTS {
-            type = COLUMNS;
-            columns = 3;
+            lines = 3;
             caption = '{numerator.caption.default.numerators}';
         }
     }
@@ -114,12 +111,11 @@ NAVIGATOR {
     }
 }
 
-// --------------------------------------------- Макрос по объявлению нумерируемого объекта ---------------------------- //
-
+// --------------------------------------------- Numbered object ---------------------------- //
 GROUP numbered '{numerator.numerator}' : id;
 
 META defineNumberedAbstract(class, stype)
-    number '{numerator.number.numerator}' = ABSTRACT STRING[28] (class) IN numbered MATERIALIZED CHARWIDTH 8;
+    number '{numerator.number.numerator}' = ABSTRACT STRING[48] (class) IN numbered MATERIALIZED CHARWIDTH 8;
     series '{numerator.series.numerator}' = ABSTRACT stype (class) IN numbered MATERIALIZED CHARWIDTH 3 NOFLEX; 
 
     seriesNumber '{numerator.series.number.numerator}' (class o) = 
@@ -144,7 +140,7 @@ DESIGN options{
 }
 
 META defineNumbered(class, stype)
-    number '{numerator.number.numerator}' = DATA STRING[28] (class) IN numbered INDEXED CHARWIDTH 8;
+    number '{numerator.number.numerator}' = DATA STRING[48] (class) IN numbered INDEXED CHARWIDTH 8;
     series '{numerator.series.numerator}' = DATA stype (class) IN numbered CHARWIDTH 3 NOFLEX;
      
     WHEN useLoweredNumber() AND CHANGED(number(class o))
@@ -228,7 +224,7 @@ END
 META defineNumeratedID(object, caption)
     @defineNumeratedID(object, caption, );
 END
-// --------------------------------------------- Стандартные значения ---------------------------- //
+// --------------------------------------------- Default numerators ---------------------------- //
 
 loadDefaultNumerators '{numerator.load.default.numerators}'  ABSTRACT LIST ( );
 @implementLoadDefaultData(loadDefaultNumerators);

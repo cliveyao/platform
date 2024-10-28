@@ -6,14 +6,16 @@ The `ABSTRACT` operator - creating an [abstract action](Action_extension.md).
 
 ### Syntax
 
-    ABSTRACT [type [exclusionType]] [FIRST | LAST] [CHECKED] (argClassName1, ..., argClassNameN) 
+```
+ABSTRACT [type [exclusionType]] [FIRST | LAST] [CHECKED] (argClassName1, ..., argClassNameN) 
+```
 
 ### Description
 
 The `ABSTRACT` operator creates an abstract action, the implementation of which can be defined later (for example, in other [modules](Modules.md) dependent on the module containing the `ABSTRACT` action). Implementations are added to the action using the [`ACTION+` statement](ACTION+_statement.md). When executing `MULTI` or `CASE` type abstract actions, their matching implementation is selected and executed. The selection of the matching implementation depends on the selection conditions that are defined when adding implementations, and on the `ABSTRACT` operator type.
 
 - `CASE` - a general case. The selection condition will be explicitly specified in the implementation using the [`WHEN` block](ACTION+_statement.md).
-- `MULTI` - [a polymorphic form](Branching_CASE_IF_MULTI.md#poly). The selection condition is that the parameters match the implementation [signature](CLASS_operator.md). This type is the default type and need not be explicitly specified.
+- `MULTI` - [a polymorphic form](Branching_CASE_IF_MULTI.md#poly). The selection condition is that the parameters match the implementation [signature](ISCLASS_operator.md). This type is the default type and need not be explicitly specified.
 
 The [type of mutual exclusion](Branching_CASE_IF_MULTI.md#exclusive) of an operator determines whether several conditions for the implementation of an abstract action can simultaneously be met with a certain set of parameters. The `EXCLUSIVE` type indicates that implementation conditions cannot be met simultaneously. The `OVERRIDE` type allows several simultaneously fulfilled conditions, while which implementation is ultimately selected is determined by the keywords `FIRST` and `LAST`.
 
@@ -55,13 +57,13 @@ The `ABSTRACT` operator cannot be used inside the [`{...}` operator](Braces_oper
 
 
 ```lsf
-exportXls 'Export to Excel'  ABSTRACT CASE ( Order);         // In this case, ABSTRACT CASE OVERRIDE LAST is created
+exportXls 'Export to Excel' ABSTRACT CASE (Order); // ABSTRACT CASE OVERRIDE LAST is created         
 exportXls (Order o) + WHEN name(currency(o)) == 'USD' THEN {
     MESSAGE 'Export USD not implemented';
 }
 
 CLASS Task;
-run 'Execute'  ABSTRACT ( Task);                           // ABSTRACT MULTI EXCLUSIVE
+run 'Execute' ABSTRACT (Task); // ABSTRACT MULTI EXCLUSIVE
 
 CLASS Task1 : Task;
 name = DATA STRING[100] (Task);
@@ -75,10 +77,9 @@ price = DATA NUMERIC[14,2] (OrderDetail);
 
 CLASS InvoiceDetail;
 price = DATA NUMERIC[14,2] (InvoiceDetail);
-fill  ABSTRACT LIST ( OrderDetail, InvoiceDetail);   // ABSTRACT LIST LAST
+fill ABSTRACT LIST (OrderDetail, InvoiceDetail); // ABSTRACT LIST LAST
 
 fill (OrderDetail od, InvoiceDetail id) + {
     price(id) <- price(od);
 }
 ```
-

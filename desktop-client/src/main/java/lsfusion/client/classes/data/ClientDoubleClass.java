@@ -6,6 +6,7 @@ import lsfusion.client.classes.ClientTypeClass;
 import lsfusion.client.form.property.ClientPropertyDraw;
 import lsfusion.client.form.property.cell.classes.controller.DoublePropertyEditor;
 import lsfusion.client.form.property.cell.classes.controller.PropertyEditor;
+import lsfusion.client.form.property.table.view.AsyncChangeInterface;
 import lsfusion.interop.classes.DataType;
 
 import java.text.DecimalFormat;
@@ -32,16 +33,6 @@ public class ClientDoubleClass extends ClientIntegralClass implements ClientType
     public NumberFormat getDefaultFormat() {
         NumberFormat format = super.getDefaultFormat();
         format.setMaximumFractionDigits(10);
-
-        if (StartupProperties.dotSeparator) {
-            DecimalFormat decimalFormat = (DecimalFormat) format;
-            DecimalFormatSymbols dfs = decimalFormat.getDecimalFormatSymbols();
-            if (dfs.getGroupingSeparator() != '.') {
-                dfs.setDecimalSeparator('.');
-            }
-            decimalFormat.setDecimalFormatSymbols(dfs);
-        }
-
         return format;
     }
 
@@ -54,7 +45,8 @@ public class ClientDoubleClass extends ClientIntegralClass implements ClientType
         }
     }
 
-    public PropertyEditor getDataClassEditorComponent(Object value, ClientPropertyDraw property) {
+    @Override
+    public PropertyEditor getDataClassEditorComponent(Object value, ClientPropertyDraw property, AsyncChangeInterface asyncChange) {
         return new DoublePropertyEditor(value, property.maxValue, getEditFormat(property), property, Double.class, property.hasMask());
     }
 

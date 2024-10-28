@@ -6,9 +6,7 @@ import com.google.gwt.user.client.rpc.RpcRequestBuilder;
 import lsfusion.base.ExceptionUtils;
 import lsfusion.base.col.MapFact;
 import lsfusion.base.col.heavy.concurrent.weak.ConcurrentIdentityWeakHashMap;
-import lsfusion.gwt.client.base.exception.NonFatalHandledException;
-import lsfusion.gwt.client.base.exception.RemoteInternalDispatchException;
-import lsfusion.gwt.client.base.exception.StackedException;
+import lsfusion.gwt.client.base.exception.*;
 import lsfusion.gwt.client.base.result.VoidResult;
 import lsfusion.gwt.client.controller.remote.action.navigator.LogClientExceptionAction;
 import lsfusion.gwt.server.MainDispatchServlet;
@@ -18,6 +16,7 @@ import lsfusion.interop.base.exception.RemoteInternalException;
 import lsfusion.interop.navigator.remote.RemoteNavigatorInterface;
 import net.customware.gwt.dispatch.server.ExecutionContext;
 import net.customware.gwt.dispatch.shared.DispatchException;
+import org.apache.log4j.Logger;
 
 import java.rmi.RemoteException;
 import java.util.Timer;
@@ -27,6 +26,7 @@ import static lsfusion.gwt.server.GLoggers.invocationLogger;
 
 public class LogClientExceptionActionHandler extends NavigatorActionHandler<LogClientExceptionAction, VoidResult> {
     public static final long COUNTER_CLEANER_PERIOD = 3 * 60 * 1000;
+    private static final Logger logger = Logger.getLogger(LogClientExceptionActionHandler.class);
     
     private ConcurrentIdentityWeakHashMap<RemoteNavigatorInterface, Integer> exceptionCounter = MapFact.getGlobalConcurrentIdentityWeakHashMap();
     
@@ -78,6 +78,8 @@ public class LogClientExceptionActionHandler extends NavigatorActionHandler<LogC
             throwable = fromWebServerToAppServer(throwable);
 
             try {
+                if (!(action.throwable instanceof RemoteRetryException))
+                    logger.error(throwable.getMessage(), throwable);
                 navigator.logClientException(null, throwable);
             } finally {
                 invocationLogger.info("After logging exception, count : " + newCount + ", navigator " + navigator);

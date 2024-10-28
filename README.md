@@ -6,7 +6,7 @@
   <a href="https://github.com/lsfusion/platform/tree/master/README_ru.md#lsfusion-">Russian</a>
 </p>
 
-# lsFusion <a href="http://lsfusion.org" target="_blank"><img src="https://lsfusion.org/themes/lsfusion/assets/images/i-logo-lsfusion.svg" align="right"/></a>  
+# lsFusion <a href="http://lsfusion.org" target="_blank"><img src="https://lsfusion.org/imgs/logo.svg" align="right"/></a>  
 
 lsFusion is a free open-source platform for information systems development based on the fifth-generation programming language of the same name.
 
@@ -87,66 +87,23 @@ Incremental computing, function-level, reactive, and event-based programming, th
 For a more complete list see [lsfusion website](https://lsfusion.org/opportunities).
 
 ## Installation
-### Windows 
-- **Development**
 
-    Single-click .exe installers of **lsFusion 4.1** (OpenJDK 11.0.9, PostgreSQL 13.1(x64)/10.8(x32), Tomcat 9.0.21, IntelliJ IDEA Community Edition 2020.3.1)  
-    - [x32](http://download.lsfusion.org/exe/lsfusion-dev-4.1.exe)  
-    - [x64](http://download.lsfusion.org/exe/lsfusion-dev-4.1-x64.exe)
-
-    In addition to **lsFusion**, these installers also install **OpenJDK**, **PostgreSQL**, **Tomcat**, and **IntelliJ IDEA Community Edition** with the built-in **lsFusion plugin**. If any of these programs are already on your computer, you can exclude them during the installation process.
-
-    After the installation completes successfully, the corresponding shortcuts for launching IDE and the client will automatically be created on the desktop. A description of working with IDE after it opens is located [here](https://documentation.lsfusion.org/display/LSFUS/IDE).
-
-- **Production**
-
-    Single-click .exe installers of **lsFusion 4.1 Server & Client** (OpenJDK 11.0.9, PostgreSQL 13.1(x64)/10.8(x32), Tomcat 9.0.21)  
-    - [x32](http://download.lsfusion.org/exe/lsfusion-4.1.exe)  
-    - [x64](http://download.lsfusion.org/exe/lsfusion-4.1-x64.exe)
-
-    In addition to **lsFusion**, these installers also install **OpenJDK**, **PostgreSQL**, and **Tomcat**. **Tomcat** is embedded into the **lsFusion Client** installation, and **OpenJDK** and **PostgreSQL** are installed separately (in particular, in separate folders).
-
-### Linux
-- **Development**
-
-    1. [Install](https://www.jetbrains.com/help/idea/installation-guide.html) the **Intellij IDEA Community Edition**.
-    1. Install the [lsFusion language support](https://plugins.jetbrains.com/plugin/7601-lsfusion) Intellij IDEA plugin. In the IDEA settings `File > Settings`, select `Plugins > Marketplace`, find the **lsFusion** plugin, click **Install**, and restart IDEA. 
-    1. Create a new lsFusion project in IDEA:
-    
-        1. Select **Create New Project**, or when IDEA is already opened, select `File > New > Project` from the menu. 
-        1. Select project type **lsFusion**. Make sure that the JDK is set. 
-        1. Click the **Download** button opposed to the lsFusion library: IDEA automatically downloads the JAR file of the latest (non-beta) version of the lsFusion server from the central server and installs this file as a dependency of this project (or rather, as its only module: `File > Project Structure > Modules > project name > Dependencies tab`). Also, if necessary, you can download another version of the server (different from the latest) or select a previously downloaded server JAR file on the local disk. 
-    
-    After the server starts, in the start log one of the last lines will be a line with a link to the JNLP file, which when run will automatically install the client using Java Web Start technology. 
-   
-- **Production**
-
-    **lsFusion 4 Server & Client** (OpenJDK 1.8, PostgreSQL 11, Tomcat 9.0.21).
-
-    - RHEL 7 / CentOS 7 / Fedora 29
-
-          source <(curl -s https://download.lsfusion.org/yum/install-lsfusion4)
-
-    - Ubuntu 18 / Debian 9
-
-          source <(curl -s https://download.lsfusion.org/apt/install-lsfusion4)
-
-For more detailed information about installation process please refer to [install section](https://documentation.lsfusion.org/display/LSFUS/Install) of documentation.
+See https://docs.lsfusion.org/Install/
 
 ## Code examples
-- [Score table](https://documentation.lsfusion.org/display/LSFUS/Score+table)
+- [Score table](https://docs.lsfusion.org/Score_table/)
 
   Simple application that allows you to calculate the score table of a hockey tournament. It contains exactly one form, in which the user can enter game scores, based on which the score table is automatically built. 
   
   Using this example you can get an idea of how to quickly develop "Excel-style" applications in which form data are editable, and any changes to them will cause all dependent data on the form to be updated incrementally.
 
-- [Materials management](https://documentation.lsfusion.org/display/LSFUS/Materials+management)
+- [Materials management](https://docs.lsfusion.org/Materials_management/)
 
   Example of creating a simple stock management business application. In it, the user can manage receipt and shipment operations, and also obtain item balances.
 
   This example shows a way to create an application for processing documents that have headers and lines. All forms are created in "Dialog style". In this approach, for each class in the system, a form with their list is created, in which only buttons for creating, editing and deleting objects are available for editing. Clicking the corresponding button opens a separate dialog form, with which the user can create a new object or edit an existing one.
 
-- [How-To](https://documentation.lsfusion.org/display/LSFUS/How-to)
+- [How-To](https://docs.lsfusion.org/How-to/)
 
   How-to section of documentation contains examples of typical tasks, categorized.
 
@@ -155,38 +112,27 @@ It is possible to run the code snippets in lsfusion programming language [online
 
 ## Online demos
 - [Score table](https://demo.lsfusion.org/hockeystats) 
-  - [docs](https://documentation.lsfusion.org/display/LSFUS/Score+table) 
+  - [docs](https://docs.lsfusion.org/Score_table/) 
   - [github](https://github.com/lsfusion/samples/tree/master/hockeystats) 
   - username: guest
   - password: guest 
 
 - [Materials management (MM)](https://demo.lsfusion.org/mm)
-  - [docs](https://documentation.lsfusion.org/display/LSFUS/Materials+management)
+  - [docs](https://docs.lsfusion.org/Materials_management/)
   - [github](https://github.com/lsfusion/samples/tree/master/mm) 
   - username: guest
   - password: guest 
 
-- [ERP](https://demo.lsfusion.org/erp)
-
-  A commercial ERP system with broad functionality, operating in enterprises with more than 500 concurrent users.
-
-  - [github](https://github.com/lsfusion-solutions/erp)
-  - username: guest
-  - password: guest
-
-  This demo version is the [equ-erp-logics](https://github.com/lsfusion/erp/tree/master/erp-equ-logics) module, which includes basic [ERP logic](https://github.com/lsfusion/erp/tree/master/erp-logics) + communication interfaces ([equ-srv](https://github.com/lsfusion/erp/tree/master/equ-srv)) with the hardware server ([equ-clt](https://github.com/lsfusion/erp/tree/master/equ-clt)).
-
 ## Links
 - [Homepage](https://lsfusion.org)
-- [Documentation](https://documentation.lsfusion.org/)
-- [Blog (ru)](https://habr.com/ru/company/lsfusion/blog/)
-- [Q&A (ru)](https://ru.stackoverflow.com/questions/tagged/lsfusion)
+- [Documentation](https://docs.lsfusion.org/)
 - [Repository](https://github.com/lsfusion/platform)
 - [Downloads](https://download.lsfusion.org/)
 
 ## Feedback
 - [Issue tracker](https://github.com/lsfusion/platform/issues) 
-- [Slack community](https://slack.lsfusion.org)
+- [Slack community](https://join.slack.com/t/lsfusion/shared_invite/zt-1itj7vlmf-9aBIP__nj9iMJglDaecqXg)
+- [Telegram group](https://t.me/lsfusion_official)
 
 ## License
 The platform is licensed under [LGPL v3](http://www.gnu.org/licenses/lgpl-3.0.en.html), which allows you to freely use, distribute, and modify the platform as you wish.

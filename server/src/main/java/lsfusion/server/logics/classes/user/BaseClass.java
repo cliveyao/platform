@@ -22,17 +22,18 @@ import lsfusion.server.data.expr.key.KeyExpr;
 import lsfusion.server.data.sql.SQLSession;
 import lsfusion.server.data.sql.exception.SQLHandledException;
 import lsfusion.server.data.sql.lambda.SQLCallable;
-import lsfusion.server.data.table.NamedTable;
 import lsfusion.server.data.value.DataObject;
 import lsfusion.server.data.value.NullValue;
 import lsfusion.server.data.value.ObjectValue;
 import lsfusion.server.language.property.LP;
 import lsfusion.server.logics.classes.user.set.AndClassSet;
 import lsfusion.server.logics.classes.user.set.OrObjectClassSet;
+import lsfusion.server.logics.navigator.controller.env.ChangesController;
 import lsfusion.server.logics.property.classes.user.ObjectClassProperty;
 import lsfusion.server.physics.admin.log.ServerLoggers;
 import lsfusion.server.physics.dev.i18n.LocalizedString;
 import lsfusion.server.physics.exec.db.controller.manager.DBManager;
+import lsfusion.server.physics.exec.db.table.DBTable;
 import lsfusion.server.physics.exec.db.table.FullTablesInterface;
 import lsfusion.server.physics.exec.db.table.ImplementTable;
 import org.apache.log4j.Logger;
@@ -43,7 +44,6 @@ import java.util.*;
 public class BaseClass extends AbstractCustomClass {
 
     protected final static Logger logger = Logger.getLogger(BaseClass.class);
-    private static final Logger startLogger = ServerLoggers.startLogger;
 
     public final UnknownClass unknown;
 
@@ -56,9 +56,9 @@ public class BaseClass extends AbstractCustomClass {
     }
 
     public BaseClass(String canonicalName, LocalizedString caption, String staticCanonicalName, LocalizedString staticCanonicalCaption, Version version) {
-        super(canonicalName, caption, version, ListFact.EMPTY());
+        super(canonicalName, caption, null, version, ListFact.EMPTY());
         unknown = new UnknownClass(this);
-        staticObjectClass = new AbstractCustomClass(staticCanonicalName, staticCanonicalCaption, version, ListFact.singleton(this));
+        staticObjectClass = new AbstractCustomClass(staticCanonicalName, staticCanonicalCaption, null, version, ListFact.singleton(this));
     }
 
     @Override
@@ -96,22 +96,24 @@ public class BaseClass extends AbstractCustomClass {
     }
 
     public void initObjectClass(Version version, String canonicalName) { // чтобы сохранить immutability классов
-        objectClass = new ConcreteCustomClass(canonicalName, LocalizedString.create("{classes.object.class}"), version, ListFact.singleton(staticObjectClass));
+        objectClass = new ConcreteCustomClass(canonicalName, LocalizedString.create("{classes.object.class}"), null, version, ListFact.singleton(staticObjectClass));
 
         ImSet<CustomClass> allClasses = getAllClasses().remove(SetFact.singleton(objectClass));
 
         // сначала обрабатываем baseClass.objectClass чтобы классы
         List<String> sidClasses = new ArrayList<>();
         List<LocalizedString> nameClasses = new ArrayList<>();
+        List<String> images = new ArrayList<>();
         for(CustomClass customClass : allClasses)
             if(customClass instanceof ConcreteCustomClass) {
                 sidClasses.add(customClass.getSID());
                 nameClasses.add(customClass.caption);
+                images.add(customClass.image);
             }
-        ConcreteCustomClass.fillObjectClass(objectClass, sidClasses, nameClasses, version);
+        ConcreteCustomClass.fillObjectClass(objectClass, sidClasses, nameClasses, images, version);
     }
 
-    public void fillIDs(SQLSession sql, QueryEnvironment env, SQLCallable<Long> idGen, LP staticCaption, LP<?> staticName, Map<String, String> sidChanges, Map<String, String> objectSIDChanges, DBManager.IDChanges dbChanges) throws SQLException, SQLHandledException {
+    public void fillIDs(SQLSession sql, QueryEnvironment env, SQLCallable<Long> idGen, LP staticCaption, LP staticImage, LP<?> staticName, Map<String, String> sidChanges, Map<String, String> objectSIDChanges, DBManager.IDChanges dbChanges, ChangesController changesController) throws SQLException, SQLHandledException {
         Map<String, ConcreteCustomClass> usedSIds = new HashMap<>();
         Set<Long> usedIds = new HashSet<>();
 
@@ -120,13 +122,13 @@ public class BaseClass extends AbstractCustomClass {
 
         objectClass.ID = Long.MAX_VALUE - 5; // в явную обрабатываем objectClass
 
-        if(objectClass.readData(objectClass.ID, sql, env) == null)
-            dbChanges.added.add(new DBManager.IDAdd(objectClass.ID, objectClass, objectClass.getSID(), ThreadLocalContext.localize(objectClass.caption)));
+        if(objectClass.readData(objectClass.ID, sql, env, changesController) == null)
+            dbChanges.added.add(new DBManager.IDAdd(objectClass.ID, objectClass, objectClass.getSID(), ThreadLocalContext.localize(objectClass.caption), "object"));
 
         usedSIds.put(objectClass.getSID(), objectClass);
         usedIds.add(objectClass.ID);
 
-        objectClass.fillIDs(sql, env, idGen, staticCaption, staticName, usedSIds, usedIds, sidChanges, dbChanges);
+        objectClass.fillIDs(sql, env, idGen, staticCaption, staticImage, staticName, usedSIds, usedIds, sidChanges, dbChanges);
 
         Set<CustomClass> allClasses = getAllChildren().toJavaSet();
         allClasses.remove(objectClass);
@@ -143,7 +145,7 @@ public class BaseClass extends AbstractCustomClass {
 
         for (CustomClass customClass : allClasses) // заполним все остальные StaticClass
             if (customClass instanceof ConcreteCustomClass)
-                ((ConcreteCustomClass) customClass).fillIDs(sql, env, idGen, staticCaption, staticName, usedSIds, usedIds, objectSIDChanges, dbChanges);
+                ((ConcreteCustomClass) customClass).fillIDs(sql, env, idGen, staticCaption, staticImage, staticName, usedSIds, usedIds, objectSIDChanges, dbChanges);
 
         for (CustomClass customClass : allClasses)
             if (customClass instanceof AbstractCustomClass) {
@@ -197,10 +199,10 @@ public class BaseClass extends AbstractCustomClass {
     @IdentityInstanceLazy
     public Pair<KeyExpr, Expr> getSubQuery(ImSet<ObjectClassField> classTables, IsClassType type) {
         KeyExpr keyExpr = new KeyExpr("isSetClass");
-        return new Pair<>(keyExpr, IsClassExpr.getTableExpr(keyExpr, classTables, IsClassExpr.subqueryThreshold, type));
+        return new Pair<>(keyExpr, IsClassExpr.getTableExpr(keyExpr, classTables, type));
     }
     @IdentityStrongLazy
-    public NamedTable getInconsistentTable(ImplementTable table) {
+    public DBTable getInconsistentTable(ImplementTable table) {
         return table.getInconsistent(this);
     }
 

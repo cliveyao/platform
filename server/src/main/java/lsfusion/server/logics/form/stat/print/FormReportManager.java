@@ -3,8 +3,9 @@ package lsfusion.server.logics.form.stat.print;
 import com.google.common.base.Throwables;
 import lsfusion.base.BaseUtils;
 import lsfusion.base.Pair;
-import lsfusion.base.ResourceUtils;
+import lsfusion.server.base.ResourceUtils;
 import lsfusion.base.Result;
+import lsfusion.base.classloader.ReadUsedClassLoader;
 import lsfusion.base.col.interfaces.immutable.ImMap;
 import lsfusion.base.col.interfaces.immutable.ImOrderSet;
 import lsfusion.base.col.interfaces.immutable.ImSet;
@@ -12,7 +13,6 @@ import lsfusion.base.col.interfaces.mutable.add.MAddExclMap;
 import lsfusion.base.col.interfaces.mutable.mapvalue.ImValueMap;
 import lsfusion.base.file.FileData;
 import lsfusion.base.file.RawFileData;
-import lsfusion.interop.action.ReportPath;
 import lsfusion.interop.form.object.table.grid.user.design.FormUserPreferences;
 import lsfusion.interop.form.print.FormPrintType;
 import lsfusion.interop.form.print.ReportGenerationData;
@@ -32,12 +32,8 @@ import net.sf.jasperreports.engine.JasperCompileManager;
 import net.sf.jasperreports.engine.design.JasperDesign;
 import net.sf.jasperreports.engine.xml.JRXmlLoader;
 import net.sf.jasperreports.engine.xml.JRXmlWriter;
-import org.apache.commons.io.FilenameUtils;
-import org.apache.log4j.Logger;
 
 import java.io.*;
-import java.net.URISyntaxException;
-import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -47,8 +43,6 @@ import java.util.*;
 import static lsfusion.server.base.controller.thread.ThreadLocalContext.localize;
 
 public abstract class FormReportManager extends FormDataManager {
-    private static final Logger systemLogger = Logger.getLogger("SystemLogger");
-
     protected final FormReportInterface reportInterface; // for multiple inhertiance
 
     public FormReportManager(FormReportInterface reportInterface) {
@@ -57,12 +51,12 @@ public abstract class FormReportManager extends FormDataManager {
     }
 
     // only for development / debug
-    public List<ReportPath> getCustomReportPathList(final FormPrintType printType) throws SQLException, SQLHandledException {
+    public List<String> getCustomReportPathList(final FormPrintType printType) throws SQLException, SQLHandledException {
         Result<String> reportPrefix = new Result<>();
         return getCustomReportPathList(getReportHierarchy(reportPrefix), printType, reportPrefix.result);
     }
-    public List<ReportPath> getCustomReportPathList(StaticDataGenerator.ReportHierarchy hierarchy, final FormPrintType printType, String reportPrefix) throws SQLException, SQLHandledException {
-        List<ReportPath> ret = new ArrayList<>();
+    public List<String> getCustomReportPathList(StaticDataGenerator.ReportHierarchy hierarchy, final FormPrintType printType, String reportPrefix) throws SQLException, SQLHandledException {
+        List<String> ret = new ArrayList<>();
 
         ImMap<GroupObjectHierarchy.ReportNode, String> reportsFileNames = getCustomReportFileNames(hierarchy, printType, reportPrefix);
         for (String customReportDesignName : reportsFileNames.valueIt()) {
@@ -74,76 +68,25 @@ public abstract class FormReportManager extends FormDataManager {
     }
 
     // only for development / debug
-    public ReportPath getCustomReportPath(String fileName) {
-        return getDirectoriesFromTarget(getTargetDir(fileName), fileName);
-    }
-
-    private ReportPath getDirectoriesFromTarget(String targetDir, String fileName) {
-        Path projDirPath = getTargetClassesParentPath(targetDir);
+    public String getCustomReportPath(String fileName) {
+        String targetDir = ResourceUtils.getFileParentDirectoryPath(fileName);
+        Path projDirPath = ResourceUtils.getTargetClassesParentPath(targetDir);
         if(projDirPath == null) {
-            projDirPath = getOutProductionParentPath(targetDir);
+            projDirPath = ResourceUtils.getOutProductionParentPath(targetDir);
         }
 
         //if nor target/classes nor out/production found, then project dir = target dir
         Path srcPath = projDirPath == null ? null : Paths.get(projDirPath.toString(), "src/main/lsfusion/");
         Path customPath = srcPath == null || !Files.exists(srcPath) ? Paths.get(targetDir, fileName) : Paths.get(srcPath.toString(), fileName);
-        Path targetPath = Paths.get(targetDir, fileName);
-        return new ReportPath(customPath.toString(), targetPath.toString());
-    }
-
-    private Path getTargetClassesParentPath(String currentPath) {
-        Path classesDir = Paths.get(currentPath);
-        Path targetDir = classesDir.getParent();
-        return equalName(classesDir, "classes") && equalName(targetDir, "target") ? Paths.get(currentPath, "../..") : null;
-    }
-
-    private Path getOutProductionParentPath(String currentPath) {
-        Path moduleDir = Paths.get(currentPath);
-        Path productionDir = moduleDir.getParent();
-        Path outDir = productionDir.getParent();
-        return equalName(productionDir, "production") && equalName(outDir, "out") && equalName(outDir.getParent(), moduleDir.toFile().getName()) ? Paths.get(currentPath, "../../..") : null;
-    }
-
-    private boolean equalName(Path path, String name) {
-        return path.toFile().getName().equals(name);
-    }
-
-    private String getTargetDir(String fileName) {
-        URL resource = getClass().getResource(fileName);
-        String fullPath = "";
-        if(resource != null) {
-            try {
-                fullPath = FilenameUtils.separatorsToUnix(Paths.get(resource.toURI()).toString());
-            } catch (URISyntaxException ignored) {
-            }
-        }
-
-        assert fullPath.substring(fullPath.length() - fileName.length()).equals(fileName);
-        return fullPath.substring(0, fullPath.length() - fileName.length());
+        return customPath.toString();
     }
 
     // only for development / debug, если нет отчета и его нужно создать
-    public ReportPath getDefaultCustomReportPath(String fileName) {
-        return getDirectoriesFromSource(SystemProperties.userDir, fileName);
+    public String getDefaultCustomReportPath(String fileName) {
+        return ResourceUtils.getCustomPath(SystemProperties.userDir, fileName).toString();
     }
 
-    private ReportPath getDirectoriesFromSource(String projDir, String fileName) {
-        Path targetDir = Paths.get(projDir, "target/classes");
-        if(!Files.exists(targetDir)) { // если не мавен, значит из idea
-            targetDir = Paths.get(projDir, "out/production/" + Paths.get(projDir).toFile().getName());
-            if(!Files.exists(targetDir))
-                targetDir = null;
-        }
-
-        //if nor target/classes nor out/production found, then target dir = project dir
-        Path srcPath = targetDir == null ? null : Paths.get(projDir, "src/main/lsfusion/");
-        Path customPath = srcPath == null || !Files.exists(srcPath) ? Paths.get(projDir, fileName) : Paths.get(srcPath.toString(), fileName);
-        Path targetPath = targetDir == null ? Paths.get(projDir, fileName) : Paths.get(targetDir.toString(), fileName);
-
-        return new ReportPath(customPath.toString(), targetPath.toString());
-    }
-
-    public List<ReportPath> saveAndGetCustomReportPathList(final FormPrintType printType, boolean recreate) throws SQLException, SQLHandledException {
+    public List<String> saveAndGetCustomReportPathList(final FormPrintType printType, boolean recreate) throws SQLException, SQLHandledException {
         Result<String> reportPrefix = new Result<>();
         StaticDataGenerator.ReportHierarchy reportHierarchy = getReportHierarchy(reportPrefix);
 
@@ -157,7 +100,7 @@ public abstract class FormReportManager extends FormDataManager {
     }
 
     public ReportGenerationData getReportData(FormPrintType printType) throws SQLException, SQLHandledException {
-        return getReportData(printType, 0);
+        return getReportData(printType, SelectTop.NULL);
     }
 
     // backward compatibility
@@ -166,30 +109,59 @@ public abstract class FormReportManager extends FormDataManager {
         throw new UnsupportedOperationException();
     }
 
-    public ReportGenerationData getReportData(FormPrintType printType, int selectTop) throws SQLException, SQLHandledException {
-        // report hierarchy and design prefix
-        Result<String> reportPrefix = new Result<>();
-        StaticDataGenerator.ReportHierarchy hierarchy = getReportHierarchy(reportPrefix);
-
+    public ReportGenerationData getReportData(FormPrintType printType, SelectTop selectTop) throws SQLException, SQLHandledException {
         // report sources
-        FullStaticDataGenerator sourceGenerator = new FullStaticDataGenerator(reportInterface, hierarchy.hierarchy, true);
+        ReportStaticDataGenerator sourceGenerator = new ReportStaticDataGenerator(reportInterface);
         Pair<Map<GroupObjectEntity, StaticKeyData>, StaticPropertyData<PropertyReaderEntity>> sources = sourceGenerator.generate(selectTop);
         Map<GroupObjectEntity, StaticKeyData> keyData = sources.first;
         StaticPropertyData<PropertyReaderEntity> propData = sources.second;
 
+        // report hierarchy and design prefix
+        Result<String> reportPrefix = new Result<>();
+        StaticDataGenerator.ReportHierarchy hierarchy = getReportHierarchy(reportPrefix);
+
         // report design
         Map<GroupObjectHierarchy.ReportNode, JasperDesign> designs = getReportDesigns(printType, reportPrefix.result, hierarchy, propData.columnData, propData.types);
+        Map<String, byte[]> usedClasses = getUsedClasses(designs.values());
 
         // serializing
         byte[] reportHierarchyByteArray = getReportHierarchyByteArray(hierarchy.reportHierarchy);
         byte[] reportSourcesByteArray = getReportSourcesByteArray(hierarchy.reportHierarchy, keyData, propData);
         byte[] reportDesignsByteArray = getReportDesignsByteArray(designs);
-        return new ReportGenerationData(reportHierarchyByteArray, reportDesignsByteArray, reportSourcesByteArray, Settings.get().isUseShowIfInReports());
+        byte[] classesByteArray = getClassesByteArray(usedClasses);
+        return new ReportGenerationData(reportHierarchyByteArray, reportDesignsByteArray, reportSourcesByteArray,
+                Settings.get().isUseShowIfInReports(), Settings.get().getJasperReportsGovernorMaxPages(), Settings.get().getJasperReportsGovernorTimeout(),
+                classesByteArray);
+    }
+
+    private Map<String, byte[]> getUsedClasses(Collection<JasperDesign> designs) {
+        ClassLoader originalClassloader = Thread.currentThread().getContextClassLoader();
+        Thread.currentThread().setContextClassLoader(new ReadUsedClassLoader(originalClassloader));
+        try {
+            for (JasperDesign design : designs) {
+                JasperCompileManager.compileReport(design);
+            }
+            return ReadUsedClassLoader.getClasses();
+        } catch (JRException e) {
+            throw new RuntimeException(e);
+        } finally {
+            Thread.currentThread().setContextClassLoader(originalClassloader);
+        }
+    }
+
+    private byte[] getClassesByteArray(Map<String, byte[]> classes) {
+        try {
+            ByteArrayOutputStream outStream = new ByteArrayOutputStream();
+            new ObjectOutputStream(outStream).writeObject(classes);
+            return outStream.toByteArray();
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     protected StaticDataGenerator.ReportHierarchy getReportHierarchy(Result<String> reportPrefix) {
         reportPrefix.set(reportInterface.getReportPrefix());
-        return dataInterface.getHierarchy(true).getReportHierarchy();
+        return reportInterface.getHierarchy(true).getReportHierarchy();
     }
 
     private byte[] getReportHierarchyByteArray(GroupObjectHierarchy.ReportHierarchy reportHierarchy) {
@@ -219,23 +191,8 @@ public abstract class FormReportManager extends FormDataManager {
         }
     }
 
-    public final static String reportsDir = ""; // "reports/" 
-    
-    private String findCustomReportFileName(String fileName) {
-        if(fileName.startsWith("/")) {
-            //absolute path
-            return ResourceUtils.getResource(fileName) != null ? fileName : null;
-        } else {
-            //relative path
-            Collection<String> result = reportInterface.getBL().getAllCustomReports();
-
-            for(String entry : result){
-                if(entry.endsWith("/" + fileName))
-                    return entry; //"/" + reportsDir + entry.split(reportsDir)[1]; // отрезаем путь reports/custom и далее
-            }
-
-            return null; // не нашли "/" + reportsDir + filePath;
-        }
+    private String findCustomReport(String fileName) {
+        return ResourceUtils.findResourcePath(fileName, true, true, "reports");
     }
 
     private String getReportFileName(GroupObjectHierarchy.ReportNode reportNode, String reportPrefix) {
@@ -274,21 +231,17 @@ public abstract class FormReportManager extends FormDataManager {
 
         for (Map.Entry<GroupObjectHierarchy.ReportNode, JasperDesign> entry : designs.entrySet()) {
             GroupObjectHierarchy.ReportNode node = entry.getKey();
-            ReportPath defaultCustomReportPath;
+            String defaultCustomReportPath;
             if(recreateCustom) {
                 String nodeFileName = customReportFileNames.get(node);
                 if(nodeFileName == null) // file (not file name) is provided (do nothing)
                     continue;
                 defaultCustomReportPath = getCustomReportPath(nodeFileName);
             } else
-                defaultCustomReportPath = getDefaultCustomReportPath("/" + reportsDir + getReportFileName(node, printType.getFormatPrefix() + reportPrefix));
-            String reportName = defaultCustomReportPath.customPath;
+                defaultCustomReportPath = getDefaultCustomReportPath("/" + getReportFileName(node, printType.getFormatPrefix() + reportPrefix));
             
-            new File(reportName).getParentFile().mkdirs();
-            JRXmlWriter.writeReport(JasperCompileManager.compileReport(entry.getValue()), reportName, "UTF-8");
-            
-            if(!recreateCustom) // нужно скопировать в target чтобы его подцепил последующий getCustomReportPath
-                Files.copy(Paths.get(reportName), Paths.get(defaultCustomReportPath.targetPath));                        
+            new File(defaultCustomReportPath).getParentFile().mkdirs();
+            JRXmlWriter.writeReport(JasperCompileManager.compileReport(entry.getValue()), defaultCustomReportPath, "UTF-8");
         }
     }
 
@@ -299,13 +252,13 @@ public abstract class FormReportManager extends FormDataManager {
                 FileData fileReport = (FileData) readReport;
                 RawFileData rawFile = fileReport.getRawFile();
                 if(fileReport.getExtension().equals("path"))
-                    readReport = new String(rawFile.getBytes());
+                    readReport = rawFile.convertString();
                 else
                     readReport = rawFile;
             }
 
             if(readReport instanceof String) {
-                String fileName = findCustomReportFileName(reportPrefix + ((String) readReport).trim());
+                String fileName = findCustomReport(BaseUtils.addPrefix(((String) readReport).trim(), reportPrefix));
                 if(fileName != null)
                     return new ResourceReportSource(fileName);
             } else if(readReport instanceof RawFileData) {
@@ -348,7 +301,7 @@ public abstract class FormReportManager extends FormDataManager {
         }
 
         public InputStream getInputStream() {
-            return getClass().getResourceAsStream(fileName);
+            return ResourceUtils.getResourceAsStream(fileName, true);
         }
     }
 
@@ -369,7 +322,7 @@ public abstract class FormReportManager extends FormDataManager {
         if(reportSource != null)
             return reportSource;
 
-        String fileName = findCustomReportFileName(getReportFileName(reportNode, reportPrefix));
+        String fileName = findCustomReport(getReportFileName(reportNode, reportPrefix));
         if(fileName != null)
             return new ResourceReportSource(fileName);
 
@@ -446,11 +399,16 @@ public abstract class FormReportManager extends FormDataManager {
             ImOrderSet<ObjectEntity> objects = serializeObjects(outStream, propData.objects.get(propertyData));
 
             ImMap<ImMap<ObjectEntity, Object>, Object> values = propData.data.getValue(i);
-            outStream.writeInt(values.size());
-            for(int j=0,sizeJ=values.size();j<sizeJ;j++) {
-                serializeObjectValues(outStream, objects, values.getKey(j));
-                BaseUtils.serializeObject(outStream, values.getValue(j));
-            }
+            int notNullCount = 0;
+            for (int j=0,sizeJ=values.size();j<sizeJ;j++)
+                if (values.getValue(j) != null)
+                    notNullCount++;
+            outStream.writeInt(notNullCount);
+            for(int j=0,sizeJ=values.size();j<sizeJ;j++)
+                if (values.getValue(j) != null) {
+                    serializeObjectValues(outStream, objects, values.getKey(j));
+                    BaseUtils.serializeObject(outStream, values.getValue(j));
+                }
         }
 
         // serializing property draws

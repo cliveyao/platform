@@ -1,0 +1,78 @@
+.caption-panel {
+}
+
+.caption-panel-header {
+    /*border: none;*/
+    /*background: var(--background-color);*/
+    /*text-align: left;*/
+    /*border-radius: 0;*/
+    /*display: flex;*/
+    /*align-items: center;*/
+    color: var(--caption-panel-header-color);
+}
+
+.caption-panel-header-line {
+    /* we want some extra padding because in bootstrap h6 is used and it's not needed */
+    padding: var(--border-cont-vert-padding) var(--border-cont-horz-padding);
+
+    align-items: center;
+}
+
+.caption-panel-header:hover, .caption-panel-header:focus {
+    /*background-color: transparent;*/
+}
+
+.caption-panel-header[disabled] {
+    /*color: var(--caption-panel-header-color);*/
+}
+
+.caption-panel-header[disabled]:hover {
+    /*border: none;*/
+    /*color: var(--caption-panel-header-color);*/
+}
+
+/* drawing lines */
+
+.caption-panel-header-line::before {
+    content: "";
+
+    width: var(--border-comp-horz-padding);
+
+    border-bottom: 1px solid var(--panel-border-color);
+    margin-bottom: var(--border-width);
+}
+
+.caption-panel-header-line::after {
+    content: "";
+
+    flex-grow: 1;
+
+    border-bottom: 1px solid var(--panel-border-color);
+    margin-bottom: var(--border-width);
+}
+
+/* drawing collapsible */
+
+.caption-panel-header.collapsible::before {
+    content: "";
+
+    width: 1rem;
+
+    height: 1rem;
+    background-image: var(--caption-panel-header-expand-icon-url);
+}
+.caption-panel-header.collapsible:not(.collapsed)::before {
+    background-image: var(--caption-panel-header-collapse-icon-url);
+}
+
+.collapsible-text-header, .collapsible-text {
+    display: none;
+}
+.highlight-text {
+    font-weight: bold;
+}
+
+/* just like in the clobal tab panel we want the top padding to come from the "header" */
+.modal-body {
+    padding-top: var(--border-cont-vert-padding);
+}

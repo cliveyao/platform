@@ -1,0 +1,53 @@
+<!--   Whole application context. All other contexts or configs(e.g. security-config or ) have access to beans defined in this context   -->
+
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xmlns:aop="http://www.springframework.org/schema/aop"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans.xsd
+                                 http://www.springframework.org/schema/aop http://www.springframework.org/schema/aop/spring-aop.xsd">
+
+    <!-- GWT request handler -->
+    <bean id="mainDispatch" class="lsfusion.gwt.server.MainDispatchServlet">
+        <constructor-arg ref="logicsProvider"/>
+        <constructor-arg ref="logicsAndNavigatorProvider"/>
+        <constructor-arg ref="formProvider"/>
+        <constructor-arg ref="servletContext"/>
+    </bean>
+
+    <!-- Beans need for GWT request handler, bean names are actually not used (except logicsProvider, autowiring can find name with its interface, there is no intersection of this interfaces) -->
+    <!-- the name of that bean is used in main.jsp and login.jsp-->
+    <bean id="logicsProvider" class="lsfusion.http.provider.logics.LogicsProviderImpl">
+        <constructor-arg ref="servletContext"/>
+    </bean>
+
+    <bean id="logicsAndNavigatorProvider" scope="session" class="lsfusion.http.provider.navigator.NavigatorProviderImpl">
+        <aop:scoped-proxy proxy-target-class="false" /><!-- this thing is needed because we autowire session scope objects in singletons-->
+    </bean>
+
+    <bean id="sessionProvider" scope="session" class="lsfusion.http.provider.session.SessionProviderImpl">
+        <aop:scoped-proxy proxy-target-class="false" />
+    </bean>
+
+    <bean id="formProvider" scope="session" class="lsfusion.http.provider.form.FormProviderImpl">
+        <constructor-arg ref="logicsAndNavigatorProvider"/>
+        <aop:scoped-proxy proxy-target-class="false" />
+    </bean>
+
+    <!-- Custom request handlers -->
+
+    <bean id="fileUploadHandler" class="lsfusion.http.controller.file.UploadFileRequestHandler" />
+
+    <bean id="fileDownloadHandler" class="lsfusion.http.controller.file.DownloadFileRequestHandler" />
+
+    <bean id="externalHandler" class="lsfusion.http.controller.ExternalLogicsAndSessionRequestHandler">
+        <constructor-arg ref="logicsProvider"/>
+        <constructor-arg ref="sessionProvider"/>
+        <constructor-arg ref="servletContext"/>
+    </bean>
+
+    <bean id="externalFormHandler" class="lsfusion.http.controller.ExternalFormRequestHandler">
+        <constructor-arg ref="logicsProvider"/>
+        <constructor-arg ref="logicsAndNavigatorProvider"/>
+        <constructor-arg ref="formProvider"/>
+    </bean>
+</beans>

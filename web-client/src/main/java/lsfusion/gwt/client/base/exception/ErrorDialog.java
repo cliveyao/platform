@@ -1,102 +1,106 @@
 package lsfusion.gwt.client.base.exception;
 
-import com.google.gwt.dom.client.Element;
-import com.google.gwt.event.dom.client.*;
-import com.google.gwt.user.client.ui.*;
+import com.google.gwt.dom.client.Style;
+import com.google.gwt.event.dom.client.KeyCodes;
+import com.google.gwt.event.shared.HandlerRegistration;
+import com.google.gwt.user.client.Event;
+import com.google.gwt.user.client.Window;
+import com.google.gwt.user.client.ui.HTML;
+import com.google.gwt.user.client.ui.TextArea;
+import com.google.gwt.user.client.ui.Widget;
 import lsfusion.gwt.client.ClientMessages;
 import lsfusion.gwt.client.base.GwtClientUtils;
-import lsfusion.gwt.client.base.view.FlexPanel;
-import lsfusion.gwt.client.base.view.GFlexAlignment;
-import lsfusion.gwt.client.base.view.ResizableModalWindow;
-import lsfusion.gwt.client.base.view.ResizableSystemModalWindow;
+import lsfusion.gwt.client.base.view.*;
 import lsfusion.gwt.client.form.design.view.flex.FlexTabbedPanel;
 
-@SuppressWarnings("GWTStyleCheck")
-public class ErrorDialog extends ResizableSystemModalWindow {
+import static lsfusion.gwt.client.base.GwtSharedUtils.isRedundantString;
+
+public class ErrorDialog extends DialogModalWindow {
+    private HandlerRegistration nativePreviewHandlerRegistration;
     private static final ClientMessages messages = ClientMessages.Instance.get();
-    private FlexPanel mainPane;
-    private Button closeButton;
-    private FlexTabbedPanel stacksPanel = null;
-    
-    public ErrorDialog(String caption, String message, String javaStack, String lsfStack) {
-        super(caption);
 
-        mainPane = new FlexPanel(true);
+    private final FormButton closeButton;
 
-        Widget messageWidget = new HTML(message);
-        messageWidget.addStyleName("errorBox-message");
-        mainPane.add(messageWidget, GFlexAlignment.START);
-        
+    private FlexTabbedPanel stacks = null;
+
+    public ErrorDialog(String caption, String messageHTML, String javaStack, String lsfStack) {
+        super(caption, false, ModalWindowSize.EXTRA_LARGE);
+
+        ResizableComplexPanel body = new ResizableComplexPanel();
+
+        Widget message = new HTML(messageHTML);
+        body.add(message);
+
+        Style messageStyle = message.getElement().getStyle();
+        messageStyle.setProperty("overflow", "auto");
+        messageStyle.setProperty("maxWidth", (Window.getClientWidth() * 0.9) + "px");
+        messageStyle.setProperty("maxHeight", (Window.getClientHeight() * 0.3) + "px");
+
         if (javaStack != null || lsfStack != null) {
-            stacksPanel = new FlexTabbedPanel();
+            stacks = new FlexTabbedPanel();
             if (javaStack != null) {
                 TextArea javaTA = new TextArea();
-                javaTA.addStyleName("errorBox-stackBox");
+                GwtClientUtils.addClassNames(javaTA, "dialog-error-stack", "form-control");
                 javaTA.setText(javaStack);
-                stacksPanel.add(javaTA, "Java");
+                stacks.addTab(javaTA, "Java");
             }
             if (lsfStack != null) {
                 TextArea lsfTA = new TextArea();
-                lsfTA.addStyleName("errorBox-stackBox");
+                GwtClientUtils.addClassNames(lsfTA, "dialog-error-stack", "form-control");
                 lsfTA.setText(lsfStack);
-                stacksPanel.add(lsfTA, "LSF");
+                stacks.addTab(lsfTA, "LSF");
             }
-            stacksPanel.selectTab(0);
-            stacksPanel.setVisible(false);
-            
-            mainPane.addFill(stacksPanel, 1);
+            stacks.selectTab(0);
+            stacks.setVisible(false);
+
+            body.add(stacks);
         }
 
-        FlexPanel buttonsPanel = new FlexPanel(false, GFlexAlignment.CENTER);
+        setBodyWidget(body);
 
-        closeButton = new Button(messages.close(), new ClickHandler() {
-            @Override
-            public void onClick(final ClickEvent event) {
-                hide();
-            }
-        });
-        closeButton.addStyleName("errorBox-button");
-        buttonsPanel.add(closeButton);
-
-        if (stacksPanel != null) {
-            Button moreButton = new Button(messages.more(), new ClickHandler() {
-                @Override
-                public void onClick(final ClickEvent event) {
-                    stacksPanel.setVisible(!stacksPanel.isVisible());
-                    int height = 0;
-                    Element mainPaneElement = mainPane.getElement();
-                    for (int i = 0; i < mainPaneElement.getChildCount(); i++) {
-                        height += ((Element) mainPaneElement.getChild(i)).getOffsetHeight();
-                    }
-                    setContentSize(mainPane.getOffsetWidth(), height);
-                }
+        if(stacks != null) {
+            FormButton copyToClipboardButton = new FormButton(messages.copyToClipboard(), FormButton.ButtonStyle.SECONDARY, event -> {
+                CopyPasteUtils.copyToClipboard(messageHTML +
+                        (isRedundantString(javaStack) ? "" : ("\n" + javaStack)) +
+                        (isRedundantString(lsfStack) ? "" : ("\n" + lsfStack)));
             });
-            moreButton.addStyleName("errorBox-button");
-            buttonsPanel.add(moreButton);
+            addFooterWidget(copyToClipboardButton);
         }
 
-        mainPane.add(buttonsPanel, GFlexAlignment.CENTER);
+        closeButton = new FormButton(messages.close(), FormButton.ButtonStyle.PRIMARY, event -> hide());
+        addFooterWidget(closeButton);
 
-        mainPane.setHeight("100%");
-        FocusPanel focusPanel = new FocusPanel(mainPane);
-        focusPanel.addKeyDownHandler(event -> {
-            if (event.getNativeKeyCode() == KeyCodes.KEY_ESCAPE) {
-                GwtClientUtils.stopPropagation(event);
-                hide();
+        if (stacks != null) {
+            FormButton moreButton = new FormButton(messages.more(), FormButton.ButtonStyle.SECONDARY, event -> stacks.setVisible(!stacks.isVisible()));
+            addFooterWidget(moreButton);
+        }
+
+        nativePreviewHandlerRegistration = Event.addNativePreviewHandler(event -> {
+            if (Event.ONKEYDOWN == event.getTypeInt()) {
+                if (event.getNativeEvent().getKeyCode() == KeyCodes.KEY_ESCAPE) {
+                    GwtClientUtils.stopPropagation(event.getNativeEvent());
+                    hide();
+                }
             }
         });
-        
-        setContentWidget(focusPanel);
     }
 
     @Override
-    public void show() {
-        super.show();
+    public void show(PopupOwner popupOwner) {
+        super.show(popupOwner);
 
         closeButton.setFocus(true);
     }
 
-    public static void show(String caption, String message, String javaStack, String lsfStack) {
-        new ErrorDialog(caption, message, javaStack, lsfStack).show();
+    public static void show(String caption, String message, String javaStack, String lsfStack, PopupOwner popupOwner) {
+        new ErrorDialog(caption, message, javaStack, lsfStack).show(popupOwner);
+    }
+
+    @Override
+    public void hide() {
+        super.hide();
+        if (nativePreviewHandlerRegistration != null) {
+            nativePreviewHandlerRegistration.removeHandler();
+        }
     }
 }

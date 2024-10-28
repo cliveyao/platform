@@ -1,0 +1,9 @@
+.split-h-dragger {
+    cursor: col-resize;
+    width: 4px;
+}
+
+.split-v-dragger {
+    cursor: row-resize;
+    height: 4px !important;
+}

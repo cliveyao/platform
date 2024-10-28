@@ -1,18 +1,23 @@
 package lsfusion.client.form.object.panel.controller;
 
-import lsfusion.base.file.RawFileData;
+import lsfusion.base.Pair;
+import lsfusion.base.file.AppFileDataImage;
+import lsfusion.client.base.focus.FocusComponentProvider;
 import lsfusion.client.form.controller.ClientFormController;
 import lsfusion.client.form.design.view.ClientFormLayout;
-import lsfusion.client.form.design.view.JComponentPanel;
+import lsfusion.client.form.design.view.FlexPanel;
+import lsfusion.client.form.design.view.flex.CaptionContainerHolder;
+import lsfusion.client.form.design.view.flex.LinearCaptionContainer;
 import lsfusion.client.form.object.ClientGroupObjectValue;
 import lsfusion.client.form.property.ClientPropertyDraw;
 import lsfusion.client.form.property.cell.classes.view.ImagePropertyRenderer;
 import lsfusion.client.form.property.panel.view.PanelView;
 import lsfusion.interop.base.view.FlexAlignment;
-import lsfusion.interop.base.view.FlexConstraints;
 
+import javax.swing.*;
 import java.awt.*;
-import java.awt.event.KeyEvent;
+import java.awt.event.InputEvent;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -31,9 +36,10 @@ public class PropertyPanelController {
     private Map<ClientGroupObjectValue, Object> cellForegroundValues;
     private Map<ClientGroupObjectValue, Object> imageValues;
 
-    private Map<ClientGroupObjectValue, PanelView> views;
+    private Map<ClientGroupObjectValue, Integer> renderedColumnKeys;
+    private final Map<ClientGroupObjectValue, PanelView> views;
 
-    private JComponentPanel viewsPanel;
+    private final Panel renderersPanel;
 
     public PropertyPanelController(final ClientFormController form, final PanelController panelController, ClientPropertyDraw property) {
 
@@ -41,16 +47,23 @@ public class PropertyPanelController {
         this.panelController = panelController;
         this.property = property;
 
+        renderedColumnKeys = new HashMap<>();
+        views = new HashMap<>();
+
         form.addPropertyBindings(property, () -> new ClientFormController.Binding(property.groupObject, 0) {
-            public boolean pressed(KeyEvent ke) {
+            public boolean pressed(InputEvent ke) {
                 return forceEdit();
             }
             public boolean showing() {
-                return views.values().iterator().next().isShowing();
+                if(views != null && !views.isEmpty())
+                    return views.values().iterator().next().isShowing();
+                return false;
             }
         });
 
-        viewsPanel = new JComponentPanel(property.panelColumnVertical, FlexAlignment.START);
+        renderersPanel = new Panel(property.panelColumnVertical);
+        renderersPanel.transparentResize = true;
+        renderersPanel.setDebugContainer("CONTROLLER [" + property + "]");
     }
 
     public boolean forceEdit() {
@@ -59,24 +72,32 @@ public class PropertyPanelController {
         }
         return false;
     }
+    
+    public JComponent getFocusComponent() {
+        if (views != null && !views.isEmpty()) {
+            return views.values().iterator().next().getFocusComponent();
+        }
+        return null;
+    }
 
     public boolean requestFocusInWindow() {
-        if (views != null && !views.isEmpty()) {
-            return views.values().iterator().next().getFocusComponent().requestFocusInWindow();
+        JComponent focusComponent = getFocusComponent();
+        if (focusComponent != null) {
+            return focusComponent.requestFocusInWindow();
         }
         return false;
     }
 
     public void addView(ClientFormLayout formLayout) {
-        formLayout.add(property, viewsPanel);
+        formLayout.addBaseComponent(property, renderersPanel, (FocusComponentProvider) PropertyPanelController.this::getFocusComponent);
     }
 
     public void removeView(ClientFormLayout formLayout) {
-        formLayout.remove(property, viewsPanel);
+        formLayout.removeBaseComponent(property, renderersPanel);
     }
 
     public void setVisible(boolean visible) {
-        viewsPanel.setVisible(visible);
+        renderersPanel.setVisible(visible);
     }
 
     public void setPropertyValues(Map<ClientGroupObjectValue, Object> valueMap, boolean update) {
@@ -115,43 +136,87 @@ public class PropertyPanelController {
         this.imageValues = imageValues;
     }
 
-    void update(Color rowBackground, Color rowForeground) {
-        Map<ClientGroupObjectValue, PanelView> newViews = new HashMap<>();
+    public static class Panel extends FlexPanel implements CaptionContainerHolder {
 
-        List<ClientGroupObjectValue> columnKeys = this.columnKeys != null ? this.columnKeys : ClientGroupObjectValue.SINGLE_EMPTY_KEY_LIST;
-        for (final ClientGroupObjectValue columnKey : columnKeys) {
+        public Panel(boolean vertical) {
+            super(vertical);
+        }
+
+        public LinearCaptionContainer captionContainer;
+
+        @Override
+        public void setCaptionContainer(LinearCaptionContainer captionContainer) {
+            this.captionContainer = captionContainer; 
+        }
+
+        @Override
+        public FlexAlignment getCaptionHAlignment() {
+            return FlexAlignment.START;
+        }
+    }
+
+    private Pair<List<ClientGroupObjectValue>, List<ClientGroupObjectValue>> getDiff(List<ClientGroupObjectValue> columnKeys) {
+        List<ClientGroupObjectValue> optionsToAdd = new ArrayList<>();
+        List<ClientGroupObjectValue> optionsToRemove = new ArrayList<>();
+
+        Map<ClientGroupObjectValue, Integer> newRenderedColumnKeys = new HashMap<>();
+        for (int i = 0; i < columnKeys.size(); i++) {
+            ClientGroupObjectValue columnKey = columnKeys.get(i);
             if (showIfs == null || showIfs.get(columnKey) != null) {
-                PanelView view = views != null ? views.remove(columnKey) : null;
-                if (view == null && (!property.hide || property.changeKey != null)) {
-                    view = property.getPanelView(form, columnKey);
-                    view.setReadOnly(property.isReadOnly());
-
-                    view.getEditPropertyDispatcher().setUpdateEditValueCallback(result -> values.put(columnKey, result));
-
-                    panelController.addGroupObjectActions(view.getComponent());
+                Integer oldColumnKeyOrder = renderedColumnKeys.remove(columnKey);
+                if (oldColumnKeyOrder != null) {
+                    if (i != oldColumnKeyOrder) {
+                        optionsToRemove.add(columnKey);
+                        optionsToAdd.add(columnKey);
+                    }
+                } else {
+                    optionsToAdd.add(columnKey);
                 }
-                if(view != null) {
-                    newViews.put(columnKey, view);
-                }
+                newRenderedColumnKeys.put(columnKey, i);
             }
         }
 
-        if(views != null && !property.hide) {
-            views.values().forEach(panelView -> viewsPanel.remove(panelView.getComponent()));
-        }
-        views = newViews;
+        optionsToRemove.addAll(renderedColumnKeys.keySet());
 
-        //вообще надо бы удалять всё, и добавлять заново, чтобы соблюдался порядок,
-        //но при этом будет терятся фокус с удалённых компонентов, поэтому пока забиваем на порядок
-//        viewsPanel.removeAll();
+        renderedColumnKeys = newRenderedColumnKeys;
 
-        if (!property.hide) {
-            for (ClientGroupObjectValue columnKey : columnKeys) {
-                PanelView view = views.get(columnKey);
-                if (view != null && view.getComponent().getParent() != viewsPanel) {
-                    viewsPanel.add(view.getComponent(), new FlexConstraints(property.getAlignment(), property.getValueWidth(viewsPanel)));
+        return new Pair<>(optionsToAdd, optionsToRemove);
+    }
+
+    public void update(Color rowBackground, Color rowForeground) {
+        if (!property.hide || property.changeKey != null) {
+
+            List<ClientGroupObjectValue> columnKeys = this.columnKeys != null ? this.columnKeys : ClientGroupObjectValue.SINGLE_EMPTY_KEY_LIST;
+            Pair<List<ClientGroupObjectValue>, List<ClientGroupObjectValue>> pair = getDiff(columnKeys);
+            List<ClientGroupObjectValue> optionsToAdd = pair.first;
+            List<ClientGroupObjectValue> optionsToRemove = pair.second;
+
+            // removing old renderers
+            optionsToRemove.forEach(columnKey -> {
+                PanelView view = views.remove(columnKey);
+                if (!property.hide) {
+                    renderersPanel.remove(view.getWidget());
                 }
-            }
+            });
+
+            //adding new renderers
+            optionsToAdd.forEach(columnKey -> {
+                PanelView newView = property.getPanelView(form, columnKey, renderersPanel.captionContainer);
+                newView.setReadOnly(property.isReadOnly());
+
+                newView.getEditPropertyDispatcher().setUpdateEditValueCallback(result -> values.put(columnKey, result));
+
+                panelController.addGroupObjectActions(newView.getWidget().getComponent());
+
+                if (!property.hide) {
+                    if (newView.getWidget().getParent() != renderersPanel.getComponent()) {
+                        renderersPanel.addFill(newView.getWidget(), renderedColumnKeys.get(columnKey));
+                    }
+                }
+
+                views.put(columnKey, newView);
+
+            });
         }
 
         for (Map.Entry<ClientGroupObjectValue, PanelView> e : views.entrySet()) {
@@ -178,25 +243,24 @@ public class PropertyPanelController {
         if (background == null && cellBackgroundValues != null) {
             background = (Color) cellBackgroundValues.get(columnKey);
         }
-        view.setBackgroundColor(background);
+        view.setBackgroundColor(background == null ? property.design.background : background);
 
         Color foreground = rowForeground;
         if (foreground == null && cellForegroundValues != null) {
             foreground = (Color) cellForegroundValues.get(columnKey);
         }
-        view.setForegroundColor(foreground);
+        view.setForegroundColor(foreground == null ? property.design.foreground : foreground);
 
         if(imageValues != null) {
-            RawFileData image = (RawFileData) imageValues.get(columnKey);
-            if(image != null) {
+            AppFileDataImage image = (AppFileDataImage) imageValues.get(columnKey);
+            if(image != null)
                 view.setImage(ImagePropertyRenderer.convertValue(image));
-            }
         }
 
         if (captions != null) {
             String caption = property.getDynamicCaption(captions.get(columnKey));
             view.setCaption(caption);
-            view.setToolTip(caption);
+            view.setTooltip(caption);
         }
     }
 }

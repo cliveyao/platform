@@ -1,16 +1,17 @@
 package lsfusion.server.logics.classes.data.time;
 
 import lsfusion.interop.classes.DataType;
-import lsfusion.server.data.sql.syntax.SQLSyntax;
 import lsfusion.server.logics.classes.data.DataClass;
+import lsfusion.server.logics.classes.data.ParseException;
 import lsfusion.server.physics.dev.i18n.LocalizedString;
 
-import java.math.BigDecimal;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
-import java.time.format.FormatStyle;
+import java.time.LocalDate;
+import java.time.LocalTime;
 
-public class TimeIntervalClass extends IntervalClass {
+import static lsfusion.base.DateConverter.epochToLocalDateTime;
+import static lsfusion.base.DateConverter.localDateTimeToUTCEpoch;
+
+public class TimeIntervalClass extends IntervalClass<LocalTime> {
 
     public final static IntervalClass instance = new TimeIntervalClass();
 
@@ -29,23 +30,29 @@ public class TimeIntervalClass extends IntervalClass {
     }
 
     @Override
-    public String getString(Object value, SQLSyntax syntax) {
-        throw new RuntimeException("not supported");
-    }
-
-    @Override
-    public String formatString(BigDecimal value) {
-        return getLocalDateTime(value, true).format(DateTimeFormatter.ofLocalizedTime(FormatStyle.MEDIUM))
-                + " - " + getLocalDateTime(value, false).format(DateTimeFormatter.ofLocalizedTime(FormatStyle.MEDIUM));
-    }
-
-    @Override
     public byte getTypeID() {
         return DataType.TIMEINTERVAL;
     }
 
+    // should correspond ClientTimeIntervalClass, GTimeDTO.toTime
+    private static final LocalDate dateEpoch = LocalDate.of(1970, 1, 1); //date before 1970 year gives a negative number of milliseconds
     @Override
-    public Object extractValue(LocalDateTime localDateTime) {
-        return localDateTime.toLocalTime();
+    protected Long parse(String date) throws ParseException {
+        return localDateTimeToUTCEpoch(TimeClass.instance.parseString(date).atDate(dateEpoch));
+    }
+
+    @Override
+    protected String format(Long epoch) {
+        return TimeClass.instance.formatString(epochToLocalDateTime(epoch).toLocalTime());
+    }
+
+    @Override
+    protected String getSQLFrom(String source) {
+        return "(to_timestamp((trunc (" + source + "::NUMERIC) / 1000)) AT TIME ZONE 'UTC')::time";
+    }
+
+    @Override
+    protected String getSQLTo(String source) {
+        return "(to_timestamp((SPLIT_PART(" + source + "::TEXT, '.', 2)::NUMERIC) / 1000) AT TIME ZONE 'UTC')::time";
     }
 }

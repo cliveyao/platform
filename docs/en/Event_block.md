@@ -6,11 +6,15 @@ The event block of the  [`FORM` statement](FORM_statement.md) - a set of constru
 
 ### Syntax
 
-    EVENTS formEventDecl1, ..., formEventDeclN
+```
+EVENTS formEventDecl1, ..., formEventDeclN
+```
 
 Where each `formEventDecli` has the following syntax:
 
-    ON eventType eventActionId(param1, ..., paramK) | { eventActionOperator }
+```
+ON eventType eventActionId(param1, ..., paramK) | { eventActionOperator }
+```
 
 ### Description
 
@@ -35,6 +39,7 @@ The event block allows to define handlers for [form events](Form_events.md) that
     - `CHANGE objName` – specifies that the action will be executed when the object `objName` is changed.
     - `QUERYOK`
     - `QUERYCANCEL`
+    - `SCHEDULE PERIOD intPeriod [FIXED]` - creates a scheduler that executes an action every `intPeriod` seconds. `FIXED` indicates that the period to the next action is counted from the start of the current action. By default, the period is counted from the end of the current action.
 
 - `eventActionId`
 
@@ -62,8 +67,14 @@ FORM invoice 'Invoice' // creating a form for editing an invoice
 //    ...  setting the rest of the form behavior
 
     EVENTS
-        ON OK { posted(i) <- TRUE; }, // specifying that when the user clicks OK, an action should be executed that will execute actions to "conduction" this invoice
-        ON DROP showImpossibleMessage() // by clicking the formDrop button, showing a message that this cannot be, since this button by default will be shown only in the form for choosing an invoice, and this form is basically an invoice edit form
+        // specifying that when the user clicks OK, an action should be executed 
+        // that will execute actions to "conduction" this invoice
+        ON OK { posted(i) <- TRUE; },
+ 
+        // by clicking the formDrop button, showing a message that this cannot be, 
+        // since this button by default will be shown only in the form for choosing an invoice, 
+        // and this form is basically an invoice edit form
+        ON DROP showImpossibleMessage() 
 ;
 
 CLASS Shift;
@@ -79,8 +90,8 @@ cashier = DATA Cashier (Receipt);
 FORM POS 'POS' // declaring the form for product sale to the customer in the salesroom
 
     OBJECTS r = Receipt PANEL // adding an object that will store the current receipt
-//    ... declaring the behavior of the form
 
+    //  ... declaring the behavior of the form
 ;
 
 createReceipt ()  {
@@ -92,8 +103,14 @@ createReceipt ()  {
     }
 }
 
-EXTEND FORM POS // adding a property through the form extension so that SEEK could be applied to the already created object on the form
+// adding a property through the form extension so that SEEK could be applied to the already created
+// object on the form
+EXTEND FORM POS 
     EVENTS
-        ON INIT createReceipt() // when opening the form, executing the action to create a new receipt, which fills in the shift, cashier and other information
+        // when opening the form, executing the action to create a new receipt, 
+        // which fills in the shift, cashier and other information
+        ON INIT createReceipt()
+        //apply every 60 seconds
+        ON SCHEDULE PERIOD 60 FIXED apply(); 
 ;
 ```

@@ -10,7 +10,6 @@ import lsfusion.base.col.interfaces.mutable.MExclMap;
 import lsfusion.base.col.interfaces.mutable.MList;
 import lsfusion.base.col.lru.LRUUtil;
 import lsfusion.base.col.lru.LRUWSVSMap;
-import lsfusion.base.log.DebugInfoWriter;
 import lsfusion.interop.form.property.Compare;
 import lsfusion.server.base.caches.*;
 import lsfusion.server.data.expr.BaseExpr;
@@ -26,14 +25,12 @@ import lsfusion.server.data.expr.key.KeyExpr;
 import lsfusion.server.data.expr.key.KeyType;
 import lsfusion.server.data.expr.key.ParamExpr;
 import lsfusion.server.data.expr.value.ValueExpr;
-import lsfusion.server.data.expr.where.cases.CaseExpr;
 import lsfusion.server.data.expr.where.classes.data.EqualsWhere;
 import lsfusion.server.data.expr.where.pull.AndContext;
 import lsfusion.server.data.expr.where.pull.ExclExprPullWheres;
 import lsfusion.server.data.expr.where.pull.ExclPullWheres;
 import lsfusion.server.data.expr.where.pull.ExprPullWheres;
 import lsfusion.server.data.query.compile.*;
-import lsfusion.server.data.sql.SQLQuery;
 import lsfusion.server.data.sql.syntax.SQLSyntax;
 import lsfusion.server.data.stat.Stat;
 import lsfusion.server.data.stat.StatKeys;
@@ -93,12 +90,12 @@ public class GroupExpr extends AggrExpr<Expr,GroupType,GroupExpr.Query, GroupJoi
             return new Query(translator.translate(exprs), translator.translate(orders), ordersNotNull, type, noInnerFollows);
         }
 
-        public Type getType(Where groupWhere) {
-            return type.getType(getMainExpr().getType(getWhere().and(groupWhere)));
+        public Type getGroupType(Where groupWhere) {
+            return getType(getWhere().and(groupWhere));
         }
 
         public Expr getSingleExpr() {
-            return type.getSingleExpr(exprs, getOrderWhere());
+            return type.getSingleExpr(exprs).and(getOrderWhere());
         }
 
         public Query followFalse(Where falseWhere, boolean pack) {
@@ -125,7 +122,7 @@ public class GroupExpr extends AggrExpr<Expr,GroupType,GroupExpr.Query, GroupJoi
         }
 
         public boolean isLastOpt(boolean needValue) {
-            return type.isLastOpt(needValue, exprs);
+            return type.isLastOpt(needValue, exprs, orders);
         }
     }
 
@@ -182,11 +179,6 @@ public class GroupExpr extends AggrExpr<Expr,GroupType,GroupExpr.Query, GroupJoi
         }
 
         @IdentityLazy
-        public Type getType() {
-            return thisObj.query.getType(getGroupWhere());
-        }
-
-        @IdentityLazy
         protected Where getFullWhere() {
             return thisObj.query.getWhere().and(getGroupWhere());
         }
@@ -227,24 +219,6 @@ public class GroupExpr extends AggrExpr<Expr,GroupType,GroupExpr.Query, GroupJoi
     @ParamLazy
     public Expr translate(ExprTranslator translator) {
         return createOuterGroupCases(translator.translate(group), query, MapFact.EMPTY(), false);
-    }
-
-    public String getExprSource(final CompileSource source, SubQueryContext subcontext) {
-
-        DebugInfoWriter debugInfoWriter = null;
-        
-        final Result<ImMap<Expr,String>> fromPropertySelect = new Result<>();
-        Result<ImCol<String>> fromWhereSelect = new Result<>(); // проверить crossJoin
-        Result<ImMap<String, SQLQuery>> subQueries = new Result<>();
-        lsfusion.server.data.query.Query<KeyExpr,Expr> subQuery = new lsfusion.server.data.query.Query<>(getInner().getQueryKeys().toRevMap(),
-                group.keys().addExcl(query.getExprs()).toMap(), getInner().getFullWhere());
-        CompiledQuery<KeyExpr, Expr> compiled = subQuery.compile(new CompileOptions<>(source.syntax, subcontext, debugInfoWriter != null));
-        String fromSelect = compiled.fillSelect(new Result<>(), fromPropertySelect, fromWhereSelect, subQueries, source.params, null, DebugInfoWriter.pushPrefix(debugInfoWriter, "GROUP EXPR"));
-        
-        ImCol<String> whereSelect = fromWhereSelect.result.mergeCol(group.mapColValues((key, value) -> fromPropertySelect.result.get(key)+"="+value.getSource(source)));
-
-        return "(" + source.syntax.getSelect(fromSelect, query.getSource(fromPropertySelect.result, compiled.getMapPropertyReaders(), subQuery, source.syntax, source.env, getType()),
-                whereSelect.toString(" AND "), "", "", "", "") + ")";
     }
 
     @IdentityInstanceLazy
@@ -397,7 +371,7 @@ public class GroupExpr extends AggrExpr<Expr,GroupType,GroupExpr.Query, GroupJoi
     }
     
     private static <K> Type getType(ImMap<K, ? extends Expr> group, Query query) {
-        return query.getType(getWhere(group));
+        return query.getGroupType(getWhere(group));
     }
 
     // вытаскивает из outer Case'ы
@@ -675,7 +649,7 @@ public class GroupExpr extends AggrExpr<Expr,GroupType,GroupExpr.Query, GroupJoi
         Result<ImRevMap<Expr, BaseExpr>> compares = new Result<>();
         ImSet<KeyExpr> keys = getKeys(query, innerOuter);
         ImRevMap<KeyExpr, BaseExpr> groupKeys = MapFact.splitRevKeys(innerOuter, keys, compares);
-        if(groupKeys.size()==keys.size()) {
+        if(groupKeys.size()==keys.size() && query.type.hasSingle()) {
             ExprTranslator translator = new KeyExprTranslator(groupKeys);
             Where equalsWhere = Where.TRUE(); // чтобы лишних проталкиваний не было
             for(int i=0,size=compares.result.size();i<size;i++) // оставшиеся

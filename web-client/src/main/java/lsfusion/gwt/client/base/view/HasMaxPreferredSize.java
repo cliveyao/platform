@@ -1,7 +1,7 @@
 package lsfusion.gwt.client.base.view;
 
-import lsfusion.gwt.client.base.Dimension;
+import lsfusion.gwt.client.base.Result;
 
 public interface HasMaxPreferredSize {
-    Dimension getMaxPreferredSize();
+    void setPreferredSize(boolean set, Result<Integer> grids);
 }

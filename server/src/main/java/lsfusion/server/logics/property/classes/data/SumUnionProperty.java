@@ -7,7 +7,7 @@ import lsfusion.base.col.interfaces.immutable.ImOrderSet;
 import lsfusion.server.data.expr.Expr;
 import lsfusion.server.data.where.Where;
 import lsfusion.server.data.where.WhereBuilder;
-import lsfusion.server.logics.LogicsModule;
+import lsfusion.server.logics.BaseLogicsModule;
 import lsfusion.server.logics.action.session.change.PropertyChanges;
 import lsfusion.server.logics.property.CalcType;
 import lsfusion.server.logics.property.IncrementUnionProperty;
@@ -20,7 +20,7 @@ import lsfusion.server.physics.dev.i18n.LocalizedString;
 
 import java.util.function.Function;
 
-public class SumUnionProperty extends IncrementUnionProperty {
+public class SumUnionProperty extends IncrementFormulaUnionProperty {
 
     public SumUnionProperty(LocalizedString caption, ImOrderSet<Interface> interfaces, ImMap<PropertyInterfaceImplement<Interface>, Integer> operands) {
         super(caption, interfaces);
@@ -53,10 +53,11 @@ public class SumUnionProperty extends IncrementUnionProperty {
         });
 
         Expr result = prevExpr;
+        PropertyChanges prevPropChanges = getPrevPropChanges(propChanges);
         for(int i=0,size=operands.size();i<size;i++) {
             PropertyInterfaceImplement<Interface> operand = operands.getKey(i);
             Pair<Expr, Where> newOperandExpr = operandExprs.get(operand);
-            Expr prevOperandExpr = operand.mapExpr(joinImplement);
+            Expr prevOperandExpr = operand.mapExpr(joinImplement, prevPropChanges);
             result = result.sum(newOperandExpr.first.diff(prevOperandExpr).and(newOperandExpr.second).scale(operands.getValue(i)));
             if(changedWhere!=null) changedWhere.add(newOperandExpr.second);
         }
@@ -69,13 +70,8 @@ public class SumUnionProperty extends IncrementUnionProperty {
     }
 
     @Override
-    public DrillDownFormEntity createDrillDownForm(LogicsModule LM) {
+    public DrillDownFormEntity createDrillDownForm(BaseLogicsModule LM) {
         return new SumUnionDrillDownFormEntity(LocalizedString.create("{logics.property.drilldown.form.sum.union}"), this, LM
         );
-    }
-
-    @Override
-    public ExClassSet calcInferValueClass(ImMap<Interface, ExClassSet> inferred, InferType inferType) {
-        return ExClassSet.removeValues(super.calcInferValueClass(inferred, inferType));
     }
 }

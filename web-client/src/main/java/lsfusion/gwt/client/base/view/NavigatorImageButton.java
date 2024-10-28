@@ -1,52 +1,131 @@
 package lsfusion.gwt.client.base.view;
 
+import com.google.gwt.core.client.JavaScriptObject;
+import com.google.gwt.dom.client.Document;
+import com.google.gwt.dom.client.NativeEvent;
+import lsfusion.gwt.client.base.BaseImage;
 import lsfusion.gwt.client.base.GwtClientUtils;
-import lsfusion.gwt.client.base.ImageDescription;
-import lsfusion.gwt.client.base.ImageHolder;
+import lsfusion.gwt.client.base.TooltipManager;
+import lsfusion.gwt.client.form.design.view.GFormLayout;
+import lsfusion.gwt.client.navigator.GNavigatorElement;
+import lsfusion.gwt.client.navigator.window.GNavigatorWindow;
+import lsfusion.gwt.client.navigator.window.view.WindowsController;
+
+import java.util.function.BiConsumer;
+
+import static lsfusion.gwt.client.base.GwtClientUtils.nvl;
 
 public class NavigatorImageButton extends ImageButton {
-    private ImageHolder imageHolder;
-    
-    public NavigatorImageButton(ImageHolder imageHolder, String caption) {
-        this(imageHolder, caption, false, true);
+
+    private GNavigatorElement element;
+
+    public NavigatorImageButton(GNavigatorElement element, boolean vertical, int level, boolean active, BiConsumer<GNavigatorElement, NativeEvent> clickHandler) {
+        this(element, vertical, false, level, active);
+
+        addClickHandler(event -> clickHandler.accept(this.element, event.getNativeEvent()));
+    }
+    public NavigatorImageButton(GNavigatorElement element, boolean vertical, boolean span, int level, boolean active) {
+        super(element.caption, element.image, vertical, span ? Document.get().createSpanElement() : Document.get().createAnchorElement());
+
+        GwtClientUtils.addClassNames(this, "nav-item", "nav-link", "navbar-text", vertical ? "nav-link-vert" : "nav-link-horz");
+        this.vertical = vertical;
+
+        this.element = element;
+        this.level = level;
+        this.active = active;
+
+        tippy = TooltipManager.initTooltip(this, getTooltipHelper());
+        update();
     }
 
-    public NavigatorImageButton(ImageHolder imageHolder, String caption, boolean vertical, boolean alignCenter) {
-        super(caption, null, vertical, alignCenter);
-        this.imageHolder = imageHolder;
-        setCurrentThemeImage();
+    private JavaScriptObject tippy;
+
+    private void update() {
+        GwtClientUtils.addClassName(this, (vertical ? "nav-link-vert" : "nav-link-horz") + "-" + level);
+        if(active)
+           GwtClientUtils.addClassName(this, "active");
+
+        updateElementClass();
+
+        GFormLayout.setDebugInfo(this, element.canonicalName);
     }
 
-    public void setImage(ImageDescription imageDescription) {
-        if (imageDescription != null) {
-            setAppImagePath(imageDescription.url);
-            if (imageDescription.width != -1) {
-                image.setWidth(imageDescription.width + "px");
+    private TooltipManager.TooltipHelper getTooltipHelper() {
+        return new TooltipManager.TooltipHelper() {
+            @Override
+            public String getTooltip(String dynamicTooltip) {
+                return nvl(dynamicTooltip, element.getTooltipText());
             }
-            if (imageDescription.height != -1) {
-                image.setHeight(imageDescription.height + "px");
+
+            @Override
+            public String getPath() {
+                return element.path;
             }
-        }
-    }
-    
-    private void setCurrentThemeImage() {
-        setImage(getImage());
-    }
-    
-    public void setDefaultImage() {
-        setImage(getImage());
+
+            @Override
+            public String getCreationPath() {
+                return element.creationPath;
+            }
+        };
     }
 
-    private ImageDescription getImage() {
-        return imageHolder != null ? imageHolder.getImage() : null;
+    private final boolean vertical;
+
+    private int level = -1;
+    private boolean active;
+    public void change(GNavigatorElement element, int level, boolean active) {
+        if(this.active)
+           GwtClientUtils.removeClassName(this, "active");
+        if(this.level >= 0)
+           GwtClientUtils.removeClassName(this, (vertical ? "nav-link-vert" : "nav-link-horz") + "-" + this.level);
+
+        this.element = element;
+        this.level = level;
+        this.active = active;
+
+        updateImage();
+        updateText();
+        updateTooltip();
+        update();
     }
 
-    public void setAppImagePath(String imagePath) {
-        setAbsoluteImagePath(imagePath == null ? null : GwtClientUtils.getAppImagePath(imagePath));
+    private void updateTooltip() {
+        if(tippy != null)
+            TooltipManager.updateContent(tippy, getTooltipHelper(), null);
+    }
+
+    public void updateElementClass() {
+        BaseImage.updateClasses(this, element.elementClass);
+
+        updateForceDiv(); // forceDiv might change
     }
 
     @Override
-    public void colorThemeChanged() {
-        setCurrentThemeImage();
+    protected BaseImage getImage() {
+        return element.image;
+    }
+
+    private static boolean isForceDiv(String elementClass) {
+        return elementClass != null && (elementClass.contains(WindowsController.NAVBAR_TEXT_ON_HOVER) || elementClass.contains(WindowsController.NAVBAR_TEXT_HIDDEN));
+    }
+
+    private boolean forceDiv;
+    private void updateForceDiv() {
+        String elementClass = element.elementClass;
+        GNavigatorWindow drawWindow = element.getDrawWindow();
+        boolean newForceDiv = isForceDiv(elementClass) || drawWindow != null && isForceDiv(drawWindow.elementClass);
+        if(forceDiv != newForceDiv) {
+            forceDiv = newForceDiv;
+            updateText();
+        }
+    }
+
+    protected boolean forceDiv() {
+        return forceDiv;
+    }
+
+    @Override
+    protected String getCaption() {
+        return element.caption;
     }
 }

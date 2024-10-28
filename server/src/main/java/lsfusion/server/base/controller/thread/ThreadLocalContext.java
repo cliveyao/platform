@@ -1,12 +1,17 @@
 package lsfusion.server.base.controller.thread;
 
 import com.google.common.base.Throwables;
+import lsfusion.base.EscapeUtils;
 import lsfusion.base.col.heavy.concurrent.weak.ConcurrentWeakHashMap;
 import lsfusion.base.col.interfaces.immutable.ImList;
 import lsfusion.base.col.interfaces.immutable.ImMap;
 import lsfusion.base.col.interfaces.immutable.ImSet;
 import lsfusion.interop.action.ClientAction;
-import lsfusion.interop.form.ModalityType;
+import lsfusion.interop.action.MessageClientAction;
+import lsfusion.interop.action.MessageClientType;
+import lsfusion.interop.connection.TFormats;
+import lsfusion.interop.form.ShowFormType;
+import lsfusion.interop.form.WindowFormType;
 import lsfusion.server.base.controller.context.AbstractContext;
 import lsfusion.server.base.controller.context.Context;
 import lsfusion.server.base.controller.manager.EventServer;
@@ -16,6 +21,7 @@ import lsfusion.server.base.controller.remote.context.ContextAwarePendingRemoteO
 import lsfusion.server.base.controller.remote.manager.RmiServer;
 import lsfusion.server.data.sql.exception.SQLHandledException;
 import lsfusion.server.data.value.ObjectValue;
+import lsfusion.server.logics.BaseLogicsModule;
 import lsfusion.server.logics.BusinessLogics;
 import lsfusion.server.logics.LogicsInstance;
 import lsfusion.server.logics.action.controller.context.ExecutionContext;
@@ -25,31 +31,42 @@ import lsfusion.server.logics.action.controller.stack.SyncExecutionStack;
 import lsfusion.server.logics.action.controller.stack.TopExecutionStack;
 import lsfusion.server.logics.action.session.DataSession;
 import lsfusion.server.logics.classes.data.DataClass;
-import lsfusion.server.logics.classes.user.CustomClass;
 import lsfusion.server.logics.controller.manager.RestartManager;
 import lsfusion.server.logics.form.interactive.ManageSessionType;
-import lsfusion.server.logics.form.interactive.dialogedit.DialogRequest;
+import lsfusion.server.logics.form.interactive.action.async.InputList;
+import lsfusion.server.logics.form.interactive.action.async.InputListAction;
+import lsfusion.server.logics.form.interactive.action.input.InputContext;
+import lsfusion.server.logics.form.interactive.action.input.InputResult;
+import lsfusion.server.logics.form.interactive.changed.FormChanges;
+import lsfusion.server.logics.form.interactive.controller.remote.serialization.ConnectionContext;
 import lsfusion.server.logics.form.interactive.instance.FormInstance;
 import lsfusion.server.logics.form.interactive.listener.CustomClassListener;
 import lsfusion.server.logics.form.struct.FormEntity;
 import lsfusion.server.logics.form.struct.filter.ContextFilterInstance;
 import lsfusion.server.logics.form.struct.object.ObjectEntity;
 import lsfusion.server.logics.navigator.controller.manager.NavigatorsManager;
+import lsfusion.server.logics.property.oraction.ActionOrProperty;
 import lsfusion.server.logics.property.oraction.PropertyInterface;
 import lsfusion.server.physics.admin.Settings;
 import lsfusion.server.physics.admin.authentication.security.controller.manager.SecurityManager;
 import lsfusion.server.physics.admin.log.LogInfo;
 import lsfusion.server.physics.admin.log.RemoteLoggerAspect;
 import lsfusion.server.physics.admin.log.ServerLoggers;
+import lsfusion.server.physics.admin.monitor.SystemEventsLogicsModule;
 import lsfusion.server.physics.dev.i18n.LocalizedString;
 import lsfusion.server.physics.exec.db.controller.manager.DBManager;
 import org.apache.commons.beanutils.BeanUtils;
 import org.apache.commons.beanutils.PropertyUtils;
 import org.apache.log4j.MDC;
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
+import org.jsoup.nodes.Element;
 
 import java.lang.reflect.InvocationTargetException;
 import java.sql.SQLException;
 import java.sql.Timestamp;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import java.util.Stack;
 import java.util.concurrent.ConcurrentHashMap;
@@ -67,7 +84,7 @@ public class ThreadLocalContext {
         return context.get();
     }
     public static void assureContext(Context context) { // временно, должно уйти
-        assure(context, null);
+        //assure(context, null);
     }
 
     private static void set(Context c) {
@@ -89,6 +106,10 @@ public class ThreadLocalContext {
             }
         } else
             activeMap.put(Thread.currentThread(), false);
+    }
+
+    public static LogInfo getLogInfo(Thread thread) {
+        return logInfoMap.get(thread);
     }
 
     public static void setSettings() {
@@ -135,6 +156,14 @@ public class ThreadLocalContext {
         return get().getCurrentUser();
     }
 
+    public static Long getCurrentComputer() {
+        return get().getCurrentComputer();
+    }
+
+    public static Long getCurrentConnection() {
+        return get().getCurrentConnection();
+    }
+
     public static Long getCurrentRole() {
         return get().getCurrentUserRole();
     }
@@ -149,6 +178,15 @@ public class ThreadLocalContext {
 
     public static BusinessLogics getBusinessLogics() {
         return getLogicsInstance().getBusinessLogics();
+    }
+    public static BaseLogicsModule getBaseLM() {
+        return getBusinessLogics().LM;
+    }
+    public static SystemEventsLogicsModule getSystemEventsLM() {
+        return getBusinessLogics().systemEventsLM;
+    }
+    public static TFormats getTFormats() {
+        return getBusinessLogics().tFormats;
     }
 
     public static NavigatorsManager getNavigatorsManager() {
@@ -195,24 +233,22 @@ public class ThreadLocalContext {
         }
     }
 
-    public static FormInstance getFormInstance() {
-        return get().getFormInstance();
+    public static FormEntity getCurrentForm() {
+        return get().getCurrentForm();
     }
 
-    public static FormInstance createFormInstance(FormEntity formEntity, ImSet<ObjectEntity> inputObjects, ImMap<ObjectEntity, ? extends ObjectValue> mapObjects, ExecutionStack stack, DataSession session, boolean isModal, Boolean noCancel, ManageSessionType manageSession, boolean checkOnOk, boolean showDrop, boolean interactive, boolean isFloat, ImSet<ContextFilterInstance> contextFilters, boolean readonly) throws SQLException, SQLHandledException {
-        return get().createFormInstance(formEntity, inputObjects, mapObjects, session, isModal, noCancel, manageSession, stack, checkOnOk, showDrop, interactive, isFloat, contextFilters, readonly);
+    public static FormInstance createFormInstance(FormEntity formEntity, ImSet<ObjectEntity> inputObjects, ImMap<ObjectEntity, ? extends ObjectValue> mapObjects, ExecutionStack stack, DataSession session, boolean isModal, Boolean noCancel, ManageSessionType manageSession, boolean checkOnOk, boolean showDrop, boolean interactive, WindowFormType type, ImSet<ContextFilterInstance> contextFilters, boolean readonly) throws SQLException, SQLHandledException {
+        return get().createFormInstance(formEntity, inputObjects, mapObjects, session, isModal, noCancel, manageSession, stack, checkOnOk, showDrop, interactive, type, contextFilters, readonly);
     }
 
-    public static ObjectValue inputUserObject(DialogRequest dialogRequest, ExecutionStack stack) throws SQLException, SQLHandledException {
-        return get().requestUserObject(dialogRequest, stack);
+    public static InputContext lockInputContext() {
+        return get().lockInputContext();
     }
-
-    public static ObjectValue inputUserData(DataClass dataClass, Object oldValue, boolean hasOldValue) {
-        return get().requestUserData(dataClass, oldValue, hasOldValue);
+    public static void unlockInputContext() {
+        get().unlockInputContext();
     }
-
-    public static ObjectValue requestUserClass(CustomClass baseClass, CustomClass defaultValue, boolean concrete) {
-        return get().requestUserClass(baseClass, defaultValue, concrete);
+    public static InputResult inputUserData(ActionOrProperty securityProperty, DataClass dataClass, Object oldValue, boolean hasOldValue, InputContext inputContext, String customChangeFunction, InputList inputList, InputListAction[] actions) {
+        return get().inputUserData(securityProperty, dataClass, oldValue, hasOldValue, inputContext, customChangeFunction, inputList, actions);
     }
 
     public static void pushLogMessage() {
@@ -226,16 +262,49 @@ public class ThreadLocalContext {
         get().delayUserInteraction(action);
     }
 
+    public static String htmlToPlainText(String html) {
+        Document document = Jsoup.parse(html);
+        for (Element element : document.getElementsByClass("collapse"))
+            element.remove();
+        return document.text();
+    }
+
+    public static void message(String message) {
+        message(message, "lsFusion", MessageClientType.WARN);
+    }
+    public static void message(String message, String header, MessageClientType type) {
+        message(ThreadLocalContext.getRemoteContext(), message, header, new ArrayList<>(), new ArrayList<>(), type, true);
+    }
+
+    public static void message(ConnectionContext remoteContext, String message, String caption, List<List<String>> data, List<String> titles, MessageClientType type, boolean noWait) {
+        if(message == null)
+            message = "";
+
+        String textMessage = message;
+        if(EscapeUtils.containsHtmlTag(textMessage)) // optimization
+            textMessage = htmlToPlainText(textMessage);
+
+        ClientAction action = new MessageClientAction(FormChanges.convertFileValue(message, remoteContext), textMessage, caption, data, titles, type, !noWait);
+        if (noWait)
+            delayUserInteraction(action);
+        else
+            requestUserInteraction(action);
+    }
+
+    public static ConnectionContext getRemoteContext() {
+        return get().getConnectionContext();
+    }
+
     public static Object requestUserInteraction(ClientAction action) {
         return get().requestUserInteraction(action);
     }
 
-    public static void requestFormUserInteraction(FormInstance remoteForm, ModalityType modalityType, boolean forbidDuplicate, ExecutionStack stack) throws SQLException, SQLHandledException {
-        get().requestFormUserInteraction(remoteForm, modalityType, forbidDuplicate, stack);
+    public static void requestFormUserInteraction(FormInstance remoteForm, ShowFormType showFormType, boolean forbidDuplicate, String formId, ExecutionStack stack) throws SQLException, SQLHandledException {
+        get().requestFormUserInteraction(remoteForm, showFormType, forbidDuplicate, formId, stack);
     }
 
-    public static boolean canBeProcessed() {
-        return get().canBeProcessed();
+    public static boolean userInteractionCanBeProcessedInTransaction() {
+        return get().userInteractionCanBeProcessedInTransaction();
     }
 
     public static Object[] requestUserInteraction(ClientAction... actions) {
@@ -300,7 +369,7 @@ public class ThreadLocalContext {
             RemoteLoggerAspect.putDateTimeCall(pid, new Timestamp(System.currentTimeMillis()));
 
             if(threadInfo instanceof EventThreadInfo) { // можно было попытаться старое имя сохранить, но оно по идее может меняться тогда очень странная логика получится
-                currentThread.setName(((EventThreadInfo) threadInfo).getEventName() + " - " + currentThread.getId());
+                currentThread.setName(((EventThreadInfo) threadInfo).getEventName() + ", TID - (" + currentThread.getId() + ")");
             }
         }
 
@@ -347,10 +416,10 @@ public class ThreadLocalContext {
     private static void aspectBeforeEvent(LogicsInstance instance, NewThreadExecutionStack stack, ThreadInfo threadInfo, SyncType mirror) {
         aspectBeforeEvent(instance, stack, threadInfo, true, mirror);
     }
-    private static AspectState aspectBeforeEvent(LogicsInstance instance, NewThreadExecutionStack stack, ThreadInfo threadInfo, boolean assertTop, SyncType mirror) {
+    public static AspectState aspectBeforeEvent(LogicsInstance instance, NewThreadExecutionStack stack, ThreadInfo threadInfo, boolean assertTop, SyncType mirror) {
         return aspectBeforeEvent(instance.getContext(), assertTop, threadInfo, stack, mirror);
     }
-    private static void aspectAfterEvent(ThreadInfo threadInfo) {
+    public static void aspectAfterEvent(ThreadInfo threadInfo) {
         aspectAfterEvent(null, true, threadInfo);
     }
     private static NewThreadExecutionStack eventStack(EventServer eventServer) {

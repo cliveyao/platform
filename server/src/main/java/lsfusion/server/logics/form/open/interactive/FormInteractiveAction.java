@@ -3,16 +3,18 @@ package lsfusion.server.logics.form.open.interactive;
 import lsfusion.base.col.ListFact;
 import lsfusion.base.col.interfaces.immutable.*;
 import lsfusion.base.col.interfaces.mutable.MList;
-import lsfusion.interop.form.ModalityType;
-import lsfusion.interop.form.WindowFormType;
+import lsfusion.interop.form.*;
 import lsfusion.server.data.sql.exception.SQLHandledException;
 import lsfusion.server.data.value.NullValue;
 import lsfusion.server.data.value.ObjectValue;
 import lsfusion.server.language.property.LP;
 import lsfusion.server.logics.action.controller.context.ExecutionContext;
 import lsfusion.server.logics.action.flow.ChangeFlowType;
+import lsfusion.server.logics.action.flow.FormChangeFlowType;
 import lsfusion.server.logics.form.interactive.FormCloseType;
 import lsfusion.server.logics.form.interactive.ManageSessionType;
+import lsfusion.server.logics.form.interactive.action.async.map.AsyncMapEventExec;
+import lsfusion.server.logics.form.interactive.action.async.map.AsyncMapOpenForm;
 import lsfusion.server.logics.form.interactive.action.input.RequestResult;
 import lsfusion.server.logics.form.interactive.instance.FormInstance;
 import lsfusion.server.logics.form.interactive.instance.object.ObjectInstance;
@@ -23,14 +25,13 @@ import lsfusion.server.logics.form.struct.FormEntity;
 import lsfusion.server.logics.form.struct.filter.ContextFilterInstance;
 import lsfusion.server.logics.form.struct.filter.ContextFilterSelector;
 import lsfusion.server.logics.form.struct.object.ObjectEntity;
-import lsfusion.server.logics.form.struct.property.async.AsyncExec;
-import lsfusion.server.logics.form.struct.property.async.AsyncOpenForm;
 import lsfusion.server.logics.property.Property;
 import lsfusion.server.logics.property.classes.ClassPropertyInterface;
 import lsfusion.server.logics.property.oraction.PropertyInterface;
 import lsfusion.server.physics.dev.i18n.LocalizedString;
 
 import java.sql.SQLException;
+import java.util.function.Consumer;
 
 public class FormInteractiveAction<O extends ObjectSelector> extends FormAction<O> {
 
@@ -41,27 +42,32 @@ public class FormInteractiveAction<O extends ObjectSelector> extends FormAction<
 
     private final Boolean syncType;
     private final WindowFormType windowType;
-    
-    private ModalityType getModalityType(boolean syncType) {
+
+    private ShowFormType getShowFormType(boolean syncType) {
         WindowFormType windowType = this.windowType;
-        if(windowType == null) {
-            if(syncType)
-                windowType = WindowFormType.FLOAT;
-            else
-                windowType = WindowFormType.DOCKED;
+        if (windowType == null) {
+            windowType = syncType ? ModalityWindowFormType.FLOAT : ModalityWindowFormType.DOCKED;
         }
 
-        if(syncType) {
-            if (windowType == WindowFormType.FLOAT) {
-                if(!inputObjects.isEmpty())
-                    return ModalityType.DIALOG_MODAL;
-                return ModalityType.MODAL;
-            } else {
-                assert (windowType == WindowFormType.DOCKED);
-                return ModalityType.DOCKED_MODAL;
-            }
-        } else
-            return ModalityType.DOCKED;
+        if (windowType instanceof ContainerWindowFormType) {
+            return new ContainerShowFormType(((ContainerWindowFormType) windowType).getInContainerId());
+        } else {
+            if (syncType) {
+                switch ((ModalityWindowFormType) windowType) {
+                    case FLOAT:
+                        return inputObjects.isEmpty() ? ModalityShowFormType.MODAL : ModalityShowFormType.DIALOG_MODAL;
+                    case DOCKED:
+                        return ModalityShowFormType.DOCKED_MODAL;
+                    case EMBEDDED:
+                        return ModalityShowFormType.EMBEDDED;
+                    case POPUP:
+                        return ModalityShowFormType.POPUP;
+                    default:
+                        throw new UnsupportedOperationException();
+                }
+            } else
+                return ModalityShowFormType.DOCKED;
+        }
     }
 
     // SYSTEM ACTIONS
@@ -73,23 +79,29 @@ public class FormInteractiveAction<O extends ObjectSelector> extends FormAction<
 
     private final boolean readOnly;
     private final boolean checkOnOk;
+
+    private final String formId;
     
     public <C extends PropertyInterface> FormInteractiveAction(LocalizedString caption,
                                                                FormSelector<O> form,
                                                                final ImList<O> objectsToSet, final ImList<Boolean> nulls,
                                                                ImList<O> inputObjects, ImList<LP> inputProps, ImList<Boolean> inputNulls,
-                                                               ImOrderSet<C> orderInterfaces, ImList<ContextFilterSelector<?, C, O>> contextFilters,
+                                                               ImOrderSet<C> orderInterfaces, ImSet<ContextFilterSelector<C, O>> contextFilters,
+                                                               Consumer<ImRevMap<C, ClassPropertyInterface>> mapContext,
                                                                ManageSessionType manageSession,
                                                                Boolean noCancel,
                                                                Boolean syncType,
-                                                               WindowFormType windowType, boolean forbidDuplicate,
+                                                               WindowFormType windowType,
+                                                               boolean forbidDuplicate,
                                                                boolean checkOnOk,
-                                                               boolean readOnly) {
-        super(caption, form, objectsToSet, nulls, orderInterfaces, contextFilters);
+                                                               boolean readOnly,
+                                                               String formID) {
+        super(caption, form, objectsToSet, nulls, orderInterfaces, contextFilters, mapContext);
 
         this.inputObjects = inputObjects;
         this.inputProps = inputProps;
         this.inputNulls = inputNulls;
+        assert !inputProps.containsNull();
 
         this.syncType = syncType;
         this.windowType = windowType;
@@ -101,6 +113,8 @@ public class FormInteractiveAction<O extends ObjectSelector> extends FormAction<
 
         this.readOnly = readOnly;
         this.checkOnOk = checkOnOk;
+
+        this.formId = formID;
     }
     
     private boolean isShowDrop() {
@@ -116,7 +130,7 @@ public class FormInteractiveAction<O extends ObjectSelector> extends FormAction<
 
     private boolean heuristicSyncType(ExecutionContext<ClassPropertyInterface> context) {
         FormInstance formInstance;
-        return context.hasMoreSessionUsages || ((formInstance = context.getFormInstance(false, false)) != null && formInstance.isFloat()) || (windowType != null && windowType.equals(WindowFormType.FLOAT));
+        return context.hasMoreSessionUsages || ((formInstance = context.getFormInstance(false, false)) != null && formInstance.isModal()) || (windowType != null && windowType.isModal());
     }
 
     //todo: same as above
@@ -134,12 +148,12 @@ public class FormInteractiveAction<O extends ObjectSelector> extends FormAction<
             syncType = this.syncType;
         else
             syncType = heuristicSyncType(context);
-        ModalityType modalityType = getModalityType(syncType);
+        ShowFormType showFormType = getShowFormType(syncType);
 
         ImList<ObjectEntity> resolvedInputObjects = inputObjects.mapList(mapRevObjects);
 
-        FormInstance newFormInstance = context.createFormInstance(form, resolvedInputObjects.getCol().toSet(), mapObjectValues, context.getSession(), syncType, noCancel, manageSession, checkOnOk, isShowDrop(), true, modalityType.isModal(), contextFilters, readOnly);
-        context.requestFormUserInteraction(newFormInstance, modalityType, forbidDuplicate, context.stack);
+        FormInstance newFormInstance = context.createFormInstance(form, resolvedInputObjects.getCol().toSet(), mapObjectValues, context.getSession(), syncType, noCancel, manageSession, checkOnOk, isShowDrop(), true, showFormType.getWindowType(), contextFilters, readOnly);
+        context.requestFormUserInteraction(newFormInstance, showFormType, forbidDuplicate, formId);
 
         if (syncType) {
             FormCloseType formResult = newFormInstance.getFormResult();
@@ -167,11 +181,18 @@ public class FormInteractiveAction<O extends ObjectSelector> extends FormAction<
 
     @Override
     public boolean hasFlow(ChangeFlowType type) {
-        if(type == ChangeFlowType.FORMCHANGE) {
-            if (!readOnly && !getForm().hasNoChange()) 
+        if(type instanceof FormChangeFlowType && !readOnly) {
+            FormEntity form = getForm();
+
+            ImSet<FormEntity> recursionGuard = ((FormChangeFlowType) type).recursionGuard;
+            ImSet<FormEntity> newRecursionGuard = recursionGuard.merge(form);
+            if (newRecursionGuard.size() > recursionGuard.size() &&
+                !form.hasNoChange(new FormChangeFlowType(newRecursionGuard)))
                 return true;
         }
-        if(type == ChangeFlowType.INTERACTIVEFORM)
+        if(type == ChangeFlowType.INTERACTIVEFORM && !(windowType != null && windowType.isEditing()))
+            return true;
+        if(type == ChangeFlowType.INTERACTIVEWAIT)
             return true;
         if(type == ChangeFlowType.NEEDMORESESSIONUSAGES && syncType == null)
             return true;
@@ -187,20 +208,18 @@ public class FormInteractiveAction<O extends ObjectSelector> extends FormAction<
 
 
     @Override
-    public AsyncExec getAsyncExec() {
-        FormEntity staticForm = form.getNFStaticForm();
-        String canonicalName = staticForm != null ? staticForm.getCanonicalName() : null;
-        String caption = staticForm != null ? staticForm.getAsyncCaption() : null;
-        return new AsyncOpenForm(canonicalName, caption, forbidDuplicate, getModalityType().isModalWindow());
+    public AsyncMapEventExec<ClassPropertyInterface> calculateAsyncEventExec(boolean optimistic, boolean recursive) {
+        ShowFormType showFormType = getShowFormType();
+        return new AsyncMapOpenForm<>(form, forbidDuplicate, showFormType.isModal(), showFormType.getWindowType(), null, mapObjects.size() == 1 ? mapObjects.singleValue() : null);
     }
 
-    private ModalityType getModalityType() {
+    private ShowFormType getShowFormType() {
         boolean syncType;
         if(this.syncType != null)
             syncType = this.syncType;
         else
             syncType = heuristicSyncType();
 
-        return getModalityType(syncType);
+        return getShowFormType(syncType);
     }
 }

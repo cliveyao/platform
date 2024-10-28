@@ -6,10 +6,9 @@ import lsfusion.interop.form.event.EventBus;
 import java.io.IOException;
 import java.util.Map;
 
-// такая дебильная схема с Dispatcher'ом чтобы модульность не нарушать
 public interface ClientActionDispatcher {
 
-    void execute(FormClientAction action);
+    void execute(FormClientAction action) throws IOException;
 
     Integer execute(ReportClientAction action);
 
@@ -29,9 +28,9 @@ public interface ClientActionDispatcher {
 
     int execute(ConfirmClientAction action);
 
-    void execute(LogMessageClientAction action);
-
     void execute(OpenFileClientAction action);
+
+    void execute(OpenUriClientAction action);
 
     void execute(AudioClientAction action);
 
@@ -40,6 +39,8 @@ public interface ClientActionDispatcher {
     void execute(HideFormClientAction action);
 
     void execute(ProcessFormChangesClientAction action);
+
+    void execute(ProcessNavigatorChangesClientAction action);
 
     Object execute(RequestUserInputClientAction action);
 
@@ -55,7 +56,7 @@ public interface ClientActionDispatcher {
 
     String execute(LoadLinkClientAction action);
 
-    boolean execute(CopyToClipboardClientAction action);
+    void execute(CopyToClipboardClientAction action);
 
     Map<String, RawFileData> execute(UserLogsClientAction action);
 
@@ -66,10 +67,20 @@ public interface ClientActionDispatcher {
     void execute(ActivateFormClientAction action);
 
     void execute(MaximizeFormClientAction action);
-    
+
+    void execute(CloseFormClientAction action);
+
     void execute(ChangeColorThemeClientAction action);
-    
+
     void execute(ResetWindowsLayoutClientAction action);
+    
+    void execute(OrderClientAction action);
+    
+    void execute(FilterClientAction action);
+
+    void execute(FilterGroupClientAction action);
+
+    void execute(ClientWebAction action);
 
     EventBus getEventBus();
 

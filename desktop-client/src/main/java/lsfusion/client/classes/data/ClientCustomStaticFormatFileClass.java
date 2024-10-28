@@ -5,7 +5,7 @@ import lsfusion.client.ClientResourceBundle;
 import lsfusion.client.form.property.ClientPropertyDraw;
 import lsfusion.client.form.property.cell.classes.controller.FilePropertyEditor;
 import lsfusion.client.form.property.cell.classes.controller.PropertyEditor;
-import lsfusion.client.form.property.cell.classes.view.CustomStaticFormatFileRenderer;
+import lsfusion.client.form.property.cell.classes.view.FilePropertyRenderer;
 import lsfusion.client.form.property.cell.view.PropertyRenderer;
 import lsfusion.interop.classes.DataType;
 
@@ -17,7 +17,7 @@ import java.text.ParseException;
 public class ClientCustomStaticFormatFileClass extends ClientStaticFormatFileClass {
 
     public final String filterDescription;
-    public final String filterExtensions[];
+    public final String[] filterExtensions;
 
     public ClientCustomStaticFormatFileClass(String filterDescription, String[] filterExtensions, boolean multiple, boolean storeName) {
         super(multiple, storeName);
@@ -30,14 +30,13 @@ public class ClientCustomStaticFormatFileClass extends ClientStaticFormatFileCla
         return filterExtensions;
     }
 
-    public byte getTypeId() {
-        return DataType.CUSTOMSTATICFORMATFILE;
+    @Override
+    public String getDescription() {
+        return toString();
     }
 
-    public void serialize(DataOutputStream outStream) throws IOException {
-        super.serialize(outStream);
-
-        //todo:
+    public byte getTypeId() {
+        return DataType.CUSTOMSTATICFORMATFILE;
     }
 
     public String formatString(Object obj) throws ParseException {
@@ -45,7 +44,7 @@ public class ClientCustomStaticFormatFileClass extends ClientStaticFormatFileCla
     }
 
     public PropertyRenderer getRendererComponent(ClientPropertyDraw property) {
-        return new CustomStaticFormatFileRenderer(property, filterExtensions[0]);
+        return new FilePropertyRenderer(property, filterExtensions[0]);
     }
 
     public PropertyEditor getDataClassEditorComponent(Object value, ClientPropertyDraw design) {

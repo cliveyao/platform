@@ -1,0 +1,56 @@
+
+.data-grid-header-cell {
+    padding: 0 0.125rem;
+    font-weight: normal;
+}
+
+.cell-with-background,
+/*common scheme*/
+.cell-with-background .background-inherit,
+/*hack to increase selectivity (assuming that cell-with-background is always in table-container-boxed)*/
+.table-container-boxed .cell-with-background.background-inherit,
+.table-container-boxed .cell-with-background .background-inherit {
+    background-color: var(--bs-table-bg);
+}
+
+.data-grid-footer-cell {
+    padding: 0 0.125rem;
+    font-weight: normal;
+}
+
+/* ------------ background ----------------- */
+:root {
+    /*override in StyleDefaults init*/
+    --selected-row-background-color: var(--selection-color-rgba);
+    --focused-cell-background-color: var(--selection-color-rgba);
+}
+
+.table-active > td,
+.table-active > td .background-inherit {
+    box-shadow: inset 0 0 0 9999px var(--selected-row-background-color);
+}
+
+.focused-cell,
+.focused-cell .background-inherit {
+    box-shadow: inset 0 0 0 9999px var(--focused-cell-background-color) !important;
+}
+
+.dropdown-menu {
+    list-style-type: none; /* Remove bullets */
+    padding: 0; /* Remove padding */
+    margin: 0; /* Remove margins */
+}
+
+.arrow.btn {
+    padding: 0.1rem 0.25rem;
+}
+
+.btn-toolbar .btn {
+    background: transparent;
+}
+
+/*loading_async.gif is too large icon, it should be the same size as other tree icons*/
+.loading-async-image {
+    width: 16px;
+    height: 16px;
+}

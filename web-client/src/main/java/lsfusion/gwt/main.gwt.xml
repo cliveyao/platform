@@ -1,6 +1,6 @@
 <!DOCTYPE module PUBLIC "-//Google Inc.//DTD Google Web Toolkit 2.8.2//EN"
         "http://www.gwtproject.org/doctype/2.8.2/gwt-module.dtd">
-        
+
 <module rename-to="main"> <!-- without rename name will be with packages i.e lsfusion.gwt.main -->
     <!-- this name is used in web.xml dispatch endpoint and in main.jsp nocache.js (gwt-maven-plugin in web-client/pom.xml uses default name, apparently because it needs full path)  -->
     <!-- in case of rename edit also initialization of FileUtils.APP_CLIENT_IMAGES_FOLDER_URL in LogicsProviderImpl -->
@@ -14,25 +14,25 @@
 
     <!-- to be able to get browser locale on the server side (LSFRemoteAuthenticationProvider) -->
     <set-configuration-property name="locale.useragent" value="Y"/>
-    
-    <!-- Declaration of supported locales and removal of the "default" locale  
-         http://www.gwtproject.org/doc/latest/DevGuideI18nLocale.html#LocaleDefault 
+
+    <!-- Declaration of supported locales and removal of the "default" locale
+         http://www.gwtproject.org/doc/latest/DevGuideI18nLocale.html#LocaleDefault
      -->
     <extend-property name="locale" values="ru,en,be,uk"/>
     <set-property name="locale" value="ru,en,be,uk"/>
     <set-property-fallback name="locale" value="en"/>
-    
+
     <set-configuration-property name="locale.cookie" value="LSFUSION_LOCALE"/>
 
     <set-property name="user.agent" value="gecko1_8,safari"/>
-    
+
     <!-- note:
          Раскомментить при разработке для быстрой компиляции.
          При этом будет работать только в firefox и только с английской локалью
      -->
-    <!--<set-property name="user.agent" value="safari" />-->
-    <!--<set-property name="user.agent" value="gecko1_8" />-->
-    <!--<set-property name="locale" value="ru" />-->
+<!--    <set-property name="user.agent" value="safari" />-->
+<!--    <set-property name="user.agent" value="gecko1_8" />-->
+<!--    <set-property name="locale" value="ru" />-->
 
     <!-- выключить обфускацию стилей -->
     <set-configuration-property name="CssResource.style" value="pretty" />
@@ -41,6 +41,8 @@
     <set-property name="compiler.stackMode" value="emulated" />
     <set-configuration-property name="compiler.emulatedStack.recordLineNumbers" value="true"/>
     <set-configuration-property name="compiler.emulatedStack.recordFileNames" value="true"/>
+
+    <set-property name="jre.checks.checkLevel" value="MINIMAL" />
 
     <!--Super Dev Mode doesn't like <script> tags. We have some in Uploader. Adding this just to ignore errors.-->
     <set-configuration-property name='xsiframe.failIfScriptTag' value='FALSE'/>
@@ -60,33 +62,10 @@
 
     <!-- - - - - - - - - - - BASE - - - - - - - - - - - - - - - - -->
 
-    <stylesheet src="static/css/WindowBox.css" />
-
     <!-- GIN configuration -->
     <inherits name="com.google.gwt.inject.Inject"/>
     <inherits name="net.customware.gwt.dispatch.Dispatch"/>
     <inherits name="com.bfr.client.Selection"/>
-
-    <!-- Standard FlexPanelImpl implementation. -->
-    <replace-with class="lsfusion.gwt.client.base.view.FlexPanelImplStandard">
-        <when-type-is class="lsfusion.gwt.client.base.view.FlexPanelImpl"/>
-    </replace-with>
-
-    <!-- IE-10 FlexPanelImpl implementation. -->
-    <replace-with class="lsfusion.gwt.client.base.view.FlexPanelImplIE">
-        <when-type-is class="lsfusion.gwt.client.base.view.FlexPanelImpl"/>
-        <any>
-            <when-property-is name="user.agent" value="ie10"/>
-        </any>
-    </replace-with>
-
-    <!-- Webkit FlexPanelImpl implementation. -->
-    <replace-with class="lsfusion.gwt.client.base.view.FlexPanelImplWebkit">
-        <when-type-is class="lsfusion.gwt.client.base.view.FlexPanelImpl"/>
-        <any>
-            <when-property-is name="user.agent" value="opera"/>
-        </any>
-    </replace-with>
 
     <!-- - - - - - - - - - - CELL VIEW - - - - - - - - - - - - - - - - -->
 
@@ -101,41 +80,11 @@
         <when-type-is class="lsfusion.gwt.client.base.view.grid.CellBasedWidgetImpl"/>
     </replace-with>
 
-    <!-- IE-specific CellBasedWidgetImpl implementation. -->
-    <replace-with class="lsfusion.gwt.client.base.view.grid.CellBasedWidgetImplTrident">
-        <when-type-is class="lsfusion.gwt.client.base.view.grid.CellBasedWidgetImpl"/>
-        <any>
-            <when-property-is name="user.agent" value="ie6"/>
-            <when-property-is name="user.agent" value="ie8"/>
-        </any>
-    </replace-with>
-
     <!-- StandardBase CellBasedWidgetImpl implementation. -->
     <replace-with class="lsfusion.gwt.client.base.view.grid.CellBasedWidgetImplStandardBase">
         <when-type-is class="lsfusion.gwt.client.base.view.grid.CellBasedWidgetImpl"/>
         <any>
             <when-property-is name="user.agent" value="safari"/>
-            <when-property-is name="user.agent" value="ie9"/>
-            <when-property-is name="user.agent" value="ie10"/>
-        </any>
-    </replace-with>
-
-    <!-- Mozilla-specific CellTable implementation. -->
-    <replace-with class="lsfusion.gwt.client.base.view.grid.DataGridImplMozilla">
-        <when-type-is class="lsfusion.gwt.client.base.view.grid.DataGridImpl"/>
-        <any>
-            <when-property-is name="user.agent" value="gecko1_8"/>
-        </any>
-    </replace-with>
-
-    <!-- IE-specific CellTable implementation. -->
-    <replace-with class="lsfusion.gwt.client.base.view.grid.DataGridImplTrident">
-        <when-type-is class="lsfusion.gwt.client.base.view.grid.DataGridImpl"/>
-        <any>
-            <when-property-is name="user.agent" value="ie6"/>
-            <when-property-is name="user.agent" value="ie8"/>
-            <when-property-is name="user.agent" value="ie9"/>
-            <when-property-is name="user.agent" value="ie10"/>
         </any>
     </replace-with>
 
@@ -146,14 +95,8 @@
     <!--  GWT dispatch -->
     <inherits name='net.customware.gwt.dispatch.Dispatch' />
 
-    <!--  Color Picker -->
-    <inherits name="net.auroris.ColorPicker.client"/>
-
     <!-- GWT DnD -->
     <inherits name='com.allen_sauer.gwt.dnd.gwt-dnd'/>
-
-    <!-- GWT modified theme -->
-    <stylesheet src="static/css/clean-reduced.css"/>
 
     <!-- GWT file upload -->
     <inherits name="org.moxieapps.gwt.uploader.Uploader"/>
@@ -161,22 +104,4 @@
     <!-- GWT browser selection -->
     <inherits name='com.bfr.client.Selection'/>
     <inherits name="org.vectomatic.libgwtsvg"/>
-
-    <stylesheet src="static/css/MainFrame.css"/>
-    <stylesheet src="static/css/DataGrid.css"/>
-
-    <define-property name="is.user.agent.ie11" values="true,false" />
-    <property-provider name="is.user.agent.ie11">
-        <![CDATA[
-          {
-            var ua = window.navigator.userAgent.toLowerCase();
-            var an = window.navigator.appName.toLowerCase();
-            if ((an == 'netscape') && ua.indexOf('trident') != -1 && ua.indexOf('gecko') != -1) {
-              return 'true';
-            } else {
-              return 'false';
-            }
-          }
-        ]]>
-    </property-provider>
 </module>

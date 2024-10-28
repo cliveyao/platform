@@ -6,9 +6,11 @@ title: 'Оператор ACTIVATE'
 
 ### Синтаксис 
 
-    ACTIVATE FORM formName
-    ACTIVATE TAB formName.componentSelector
-    ACTIVATE PROPERTY formPropertyId
+```
+ACTIVATE FORM formName
+ACTIVATE TAB formName.componentSelector
+ACTIVATE PROPERTY formPropertyId
+```
 
 ### Описание
 
@@ -42,7 +44,7 @@ FORM myForm 'Моя форма'
 
 DESIGN myForm {
     NEW tabbedPane FIRST {
-        type = TABBED;
+        tabbed = TRUE;
         NEW contacts {
             caption = 'Контакты';
             MOVE BOX(u);

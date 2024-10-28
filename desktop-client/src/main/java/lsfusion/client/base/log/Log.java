@@ -16,13 +16,14 @@ import javax.swing.text.Caret;
 import javax.swing.text.DefaultCaret;
 import java.awt.*;
 import java.awt.event.FocusEvent;
-import java.beans.PropertyChangeEvent;
-import java.beans.PropertyChangeListener;
 import java.lang.ref.WeakReference;
 import java.text.DateFormat;
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import java.util.function.Consumer;
 
+import static lsfusion.base.BaseUtils.isRedundantString;
 import static lsfusion.client.ClientResourceBundle.getString;
 import static lsfusion.client.base.view.SwingDefaults.getRequiredForeground;
 
@@ -37,8 +38,8 @@ public final class Log {
 
     private static WeakReference<LogPanel> logPanelRef = new WeakReference<>(null);
 
-    public static JPanel recreateLogPanel() {
-        LogPanel logPanel = new LogPanel();
+    public static JPanel recreateLogPanel(Consumer<Boolean> visibilityConsumer) {
+        LogPanel logPanel = new LogPanel(visibilityConsumer);
 
         logPanelRef = new WeakReference<>(logPanel);
         text = "";
@@ -47,13 +48,7 @@ public final class Log {
     }
 
     private static LogPanel getLogPanel() {
-        LogPanel logPanel = logPanelRef.get();
-        // пока таким образом определим есть ли он на экране
-        if (logPanel != null && logPanel.getTopLevelAncestor() != null) {
-            return logPanel;
-        }
-
-        return null;
+        return logPanelRef.get();
     }
 
     private static void print(String itext) {
@@ -119,14 +114,14 @@ public final class Log {
             message += "\n" + getString("errors.contact.administrator");
 
         Pair<String, String> exStacks = RemoteInternalException.getExStacks(remote);
-        error(message, null, null, exStacks.first, exStacks.second, false);
+        error(message, null, null, null, exStacks.first, exStacks.second, false);
     }
 
-    public static void messageWarning(String message, List<String> titles, List<List<String>> data) {
-        error(message, titles, data, "", null, true);
+    public static void messageWarning(String message, Color backgroundColor, List<String> titles, List<List<String>> data) {
+        error(message, backgroundColor, titles, data, "", null, true);
     }
     
-    public static void error(String message, List<String> titles, List<List<String>> data, String javaStack, String lsfStack, boolean warning) {
+    public static void error(String message, Color backgroundColor, List<String> titles, List<List<String>> data, String javaStack, String lsfStack, boolean warning) {
         if (ConnectionLostManager.isConnectionLost()) {
             return;
         }
@@ -152,11 +147,20 @@ public final class Log {
         titlePanel.setBackground(null);
         titlePanel.setBorder(null);
 
-        double screenWidth = (MainFrame.instance != null ? MainFrame.instance.getRootPane().getWidth() : Toolkit.getDefaultToolkit().getScreenSize().width)  * 0.9;
+        double maxWidth = (MainFrame.instance != null ? MainFrame.instance.getRootPane().getWidth() : Toolkit.getDefaultToolkit().getScreenSize().width)  * 0.9;
+        double maxHeight = (MainFrame.instance != null ? MainFrame.instance.getRootPane().getHeight() : Toolkit.getDefaultToolkit().getScreenSize().height)  * 0.3;
         double titleWidth = titlePanel.getPreferredSize().getWidth();
         double titleHeight = titlePanel.getPreferredSize().getHeight();
-        titlePanel.setPreferredSize(new Dimension((int) Math.min(screenWidth, titleWidth), (int) (titleHeight * Math.ceil(titleWidth / screenWidth))));
-        labelPanel.add(titlePanel);
+
+        if(titleHeight > maxHeight) {
+            JScrollPane scroll = new JScrollPane(titlePanel);
+            scroll.setPreferredSize(new Dimension((int) Math.min(maxWidth, titleWidth), (int) maxHeight));
+            titlePanel.setCaretPosition(0);
+            labelPanel.add(scroll);
+        } else {
+            titlePanel.setPreferredSize(new Dimension((int) Math.min(maxWidth, titleWidth), (int) (titleHeight * Math.ceil(titleWidth / maxWidth))));
+            labelPanel.add(titlePanel);
+        }
         labelPanel.add(Box.createHorizontalGlue());
         
         JPanel messagePanel = new JPanel();
@@ -201,39 +205,43 @@ public final class Log {
         mainPanel.add(messagePanel);
         mainPanel.add(south);
 
-        String opt[];
-        final String okOption = getString("dialog.ok");
+        List<String> opt = new ArrayList<>();
+        final String copyOption = getString("client.copyToClipboard");
+        final String closeOption = getString("client.close");
         final String moreOption = getString("client.more");
-        if (javaStack.length() > 0) {
-            opt = new String[]{okOption, moreOption};
-        } else {
-            opt = new String[]{okOption};
-        }
+        if (!warning && !javaStack.isEmpty())
+            opt.add(copyOption);
+        opt.add(closeOption);
+        if (!javaStack.isEmpty())
+            opt.add(moreOption);
+
         final JOptionPane optionPane = new JOptionPane(mainPanel, warning ? JOptionPane.WARNING_MESSAGE : JOptionPane.ERROR_MESSAGE,
-                                     JOptionPane.YES_NO_OPTION,
-                                     null,
-                                     opt,
-                okOption);
+                JOptionPane.YES_NO_OPTION, null, opt.toArray(), closeOption);
+        if(backgroundColor != null) {
+            optionPane.setBackground(backgroundColor);
+        }
 
         final JDialog dialog = new JDialog(MainFrame.instance, MainFrame.instance  != null ? MainFrame.instance.getTitle() : "lsfusion", Dialog.ModalityType.APPLICATION_MODAL);
         dialog.setContentPane(optionPane);
         dialog.setMinimumSize(dialog.getPreferredSize());
         dialog.pack();
 
-        optionPane.addPropertyChangeListener(new PropertyChangeListener() {
-            public void propertyChange(PropertyChangeEvent e) {
-                Object value = optionPane.getValue();
-                if (dialog.isVisible() && (value.equals(okOption) || value.equals(-1))) {
-                    dialog.dispose();
-                } else if (value.equals(moreOption)) {
-                    boolean southWasVisible = south.isVisible();
-                    south.setVisible(!southWasVisible);
-                    optionPane.setValue(JOptionPane.UNINITIALIZED_VALUE);
-                    dialog.setMinimumSize(dialog.getPreferredSize());
-                    if (southWasVisible) {
-                        dialog.pack();
-                    }
+        optionPane.addPropertyChangeListener(e -> {
+            Object value = optionPane.getValue();
+            if (dialog.isVisible() && (value.equals(closeOption) || value.equals(-1))) {
+                dialog.dispose();
+            } else if (value.equals(moreOption)) {
+                boolean southWasVisible = south.isVisible();
+                south.setVisible(!southWasVisible);
+                optionPane.setValue(JOptionPane.UNINITIALIZED_VALUE);
+                dialog.setMinimumSize(dialog.getPreferredSize());
+                if (southWasVisible) {
+                    dialog.pack();
                 }
+            } else if(value.equals(copyOption)) {
+                SwingUtils.copyToClipboard(message +
+                        (isRedundantString(javaStack) ? "" : ("\n" + javaStack)) +
+                        (isRedundantString(lsfStack) ? "" : ("\n" + lsfStack)));
             }
         });
 

@@ -2,6 +2,9 @@ package lsfusion.server.base.task;
 
 import lsfusion.base.BaseUtils;
 import lsfusion.base.Result;
+import lsfusion.server.base.controller.stack.StackMessage;
+import lsfusion.server.base.controller.stack.StackNewThread;
+import lsfusion.server.base.controller.stack.ThisMessage;
 import lsfusion.server.base.controller.stack.ThrowableWithStack;
 import lsfusion.server.base.controller.thread.ExecutorFactory;
 import lsfusion.server.base.controller.thread.ThreadUtils;
@@ -75,7 +78,15 @@ public abstract class Task {
 
     public abstract Set<Task> getAllDependencies();
 
+    @StackNewThread
+    @StackMessage("scheduler.form.scheduled.task")
+    @ThisMessage
     public abstract void run(Logger logger);
+
+    @Override
+    public String toString() {
+        return getCaption();
+    }
 
     // не так важно какой
     public void dependProceeded(BusinessLogics BL, Executor executor, ExecutionContext context, Object monitor, AtomicInteger taskCount, Logger logger,
@@ -143,13 +154,13 @@ public abstract class Task {
             run(logger);
         } else {
             ExecutorService service = ExecutorFactory.createTaskMirrorSyncService(BaseUtils.immutableCast(context));
-            final Result<Long> threadId = new Result<>();
+            final Result<Thread> thread = new Result<>();
             Future future = service.submit(() -> {
-                threadId.set(Thread.currentThread().getId());
+                thread.set(Thread.currentThread());
                 try {
                     Task.this.run(logger);
                 } finally {
-                    threadId.set(null);
+                    thread.set(null);
                 }
             });
             service.shutdown();
@@ -157,7 +168,7 @@ public abstract class Task {
             try {
                 future.get(propertyTimeout, TimeUnit.SECONDS);
             } catch (TimeoutException e) {
-                ThreadUtils.interruptThread(BL.getDbManager(), threadId.result, future);
+                ThreadUtils.interruptThread(BL.getDbManager(), thread.result, future);
             }
         }
 

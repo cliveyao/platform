@@ -1,65 +1,184 @@
 package lsfusion.gwt.client.form.design.view;
 
-import com.google.gwt.dom.client.Style;
+import com.google.gwt.dom.client.Element;
+import com.google.gwt.user.client.Event;
 import com.google.gwt.user.client.ui.Widget;
-import lsfusion.gwt.client.base.Dimension;
+import lsfusion.gwt.client.base.*;
 import lsfusion.gwt.client.base.focus.DefaultFocusReceiver;
-import lsfusion.gwt.client.base.view.ResizableSimplePanel;
+import lsfusion.gwt.client.base.jsni.NativeSIDMap;
+import lsfusion.gwt.client.base.size.GSize;
+import lsfusion.gwt.client.base.view.*;
+import lsfusion.gwt.client.base.view.grid.DataGrid;
+import lsfusion.gwt.client.form.controller.FormsController;
 import lsfusion.gwt.client.form.controller.GFormController;
 import lsfusion.gwt.client.form.design.GComponent;
 import lsfusion.gwt.client.form.design.GContainer;
-import lsfusion.gwt.client.form.design.view.flex.*;
+import lsfusion.gwt.client.form.design.view.flex.LinearContainerView;
+import lsfusion.gwt.client.form.object.table.TableContainer;
 import lsfusion.gwt.client.form.object.table.grid.GGrid;
+import lsfusion.gwt.client.form.object.table.grid.GGridProperty;
+import lsfusion.gwt.client.view.MainFrame;
 
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
 
-public class GFormLayout extends ResizableSimplePanel {
+import static lsfusion.gwt.client.base.GwtClientUtils.nvl;
 
-    private GFormController form;
+public class GFormLayout extends ResizableComplexPanel {
 
-    private GContainer mainContainer;
+    private final GFormController form;
 
-    private Map<GContainer, GAbstractContainerView> containerViews = new HashMap<>();
-    private Map<GComponent, Widget> baseComponentViews = new HashMap<>();
+    private final GContainer mainContainer;
 
-    private ArrayList<GComponent> defaultComponents = new ArrayList<>();
-    private ArrayList<DefaultFocusReceiver> defaultFocusReceivers = new ArrayList<>();
+    private final NativeSIDMap<GContainer, GAbstractContainerView> containerViews = new NativeSIDMap<>();
+    private final NativeSIDMap<GContainer, Widget> containerCaptions = new NativeSIDMap<>();
+    private final Map<GComponent, ComponentViewWidget> baseComponentViews = new HashMap<>();
+
+    private final ArrayList<GComponent> defaultComponents = new ArrayList<>();
+    private final ArrayList<DefaultFocusReceiver> defaultFocusReceivers = new ArrayList<>();
+
+    public final ResizableComplexPanel attachContainer;
 
     public GFormLayout(GFormController iform, GContainer mainContainer) {
         this.form = iform;
-
         this.mainContainer = mainContainer;
 
+        attachContainer = new ResizableComplexPanel();
+        attachContainer.setVisible(false);
         addContainers(mainContainer);
-        setFillWidget(getContainerView(mainContainer).getView());
-        
-        getWidget().getElement().getStyle().setOverflow(Style.Overflow.AUTO);
+
+        Widget view = getMainView();
+        setPercentMain(view);
+
+        // this is shrinked container and needs scrolling / padding
+        FlexPanel.registerContentScrolledEvent(view);
+
+        add(attachContainer);
+
+       GwtClientUtils.addClassName(this, "form");
+
+        DataGrid.initSinkMouseEvents(this);
+    }
+
+    public void addTooltip(Widget header, GContainer container) {
+        boolean isMain = container.main;
+        TooltipManager.initTooltip(header, new TooltipManager.TooltipHelper() {
+            @Override
+            public String getTooltip(String dynamicTooltip) {
+                return nvl(dynamicTooltip, isMain ? form.form.getTooltip() : container.getTooltip());
+            }
+
+            @Override
+            public String getPath() {
+                return isMain ? form.form.getPath() : container.getPath();
+            }
+
+            @Override
+            public String getCreationPath() {
+                return isMain ? form.form.getCreationPath() : container.getCreationPath();
+            }
+        });
+    }
+
+    public FormsController getFormsController() {
+        return form.getFormsController();
+    }
+
+    public Widget getMainView() {
+        return getContainerView(mainContainer).getView();
     }
 
     private static GAbstractContainerView createContainerView(GFormController form, GContainer container) {
-        if (container.isLinear()) {
-            return new LinearContainerView(container);
-        } else if (container.isSplit()) {
-            return new SplitContainerView(container);
-        } else if (container.isTabbed()) {
+        if (container.tabbed)
             return new TabbedContainerView(form, container);
-        } else if (container.isColumns()) {
-            return new ColumnsContainerView(container);
-        } else if(container.isScroll()) {
-            return new ScrollContainerView(container);
-        } else {
-            throw new IllegalStateException("Incorrect container type");
+        else if (container.isCustomDesign())
+            return new CustomContainerView(form, container);
+        else
+            return new LinearContainerView(form, container);
+    }
+
+    @Override
+    public void onBrowserEvent(Event event) {
+        if(form.getTargetAndPreview(getElement(), event) == null)
+            return;
+
+        super.onBrowserEvent(event);
+
+        form.checkGlobalMouseEvent(event);
+    }
+
+    @Override
+    public void onResize() {
+        if (form.isActive()) {
+            super.onResize();
         }
     }
 
+
+    public static Widget createContainerCaptionWidget(GFormController form, GContainer parentContainer, boolean isPopup, boolean hasBorder) {
+        if (parentContainer != null && parentContainer.tabbed) {
+            return createTabCaptionWidget();
+        } else {
+            if (isPopup) {
+                return new PopupButton(form);
+            } else if (hasBorder) {
+                return MainFrame.useBootstrap ? new SimpleWidget("h6") : new LabelWidget();
+            }
+        }
+        return null;
+    }
+
+    public static Widget createTabCaptionWidget() {
+        return createLabelCaptionWidget();
+    }
+
+    public static Widget createLabelCaptionWidget() {
+        return new LabelWidget();
+    }
+
+    public static Widget createModalWindowCaptionWidget() {
+        return new SimpleWidget("h5");
+    }
+
     // creating containers (all other components are created when creating controllers)
-    private GAbstractContainerView addContainers(GContainer container) {
+    private void addContainers(GContainer container) {
         GAbstractContainerView containerView = createContainerView(form, container);
 
         containerViews.put(container, containerView);
-        add(container, containerView.getView(), null);
+
+        Widget captionWidget;
+        boolean alreadyInitialized = false;
+        if(container.main) {
+            Pair<Widget, Boolean> formCaptionWidgetAsync = form.getCaptionWidget();
+
+            captionWidget = formCaptionWidgetAsync.first;
+            alreadyInitialized = formCaptionWidgetAsync.second;
+        } else
+            captionWidget = createContainerCaptionWidget(form, container.container,
+                    container.popup, container.caption != null || container.collapsible);
+
+        if (captionWidget != null) {
+            updateComponentClass(container.captionClass, captionWidget, "caption");
+
+            addTooltip(captionWidget, container);
+
+            String caption = container.caption;
+            BaseImage image = container.image;
+            if(alreadyInitialized) {
+                BaseImage.updateText(captionWidget, caption);
+                BaseImage.updateImage(image, captionWidget);
+            } else
+                BaseImage.initImageText(captionWidget, caption, image, ImageHtmlOrTextType.CONTAINER);
+
+            containerCaptions.put(container, captionWidget);
+        }
+
+        Widget viewWidget = containerView.getView();
+        add(container, new ComponentWidget(viewWidget, captionWidget != null ? new CaptionWidget(captionWidget, container.captionAlignmentHorz, container.captionAlignmentVert) : null), null);
+
+        // debug info
+        viewWidget.getElement().setAttribute("lsfusion-container-type", container.getContainerType());
 
         for (GComponent child : container.children) {
             if(child instanceof GGrid)
@@ -68,32 +187,75 @@ public class GFormLayout extends ResizableSimplePanel {
                 addContainers((GContainer) child);
             }
         }
-
-        // debug info
-        if (container.sID != null) {
-            Widget view = containerView.getView();
-            view.getElement().setAttribute("lsfusion-container", container.sID);
-            view.getElement().setAttribute("lsfusion-container-type", container.type.name());
-        }
-
-        return containerView;
     }
     public void addBaseComponent(GComponent component, Widget view, DefaultFocusReceiver focusReceiver) {
+        addBaseComponent(component, new ComponentWidget(view), focusReceiver);
+    }
+    public void addBaseComponent(GComponent component, ComponentWidget view, DefaultFocusReceiver focusReceiver) {
         assert !(component instanceof GContainer);
-        baseComponentViews.put(component, view);
+        baseComponentViews.put(component, view.widget);
         add(component, view, focusReceiver);
     }
 
-    public void add(GComponent key, Widget view, DefaultFocusReceiver focusReceiver) {
+    public void setShowIfVisible(GComponent component, boolean visible) {
+        ComponentViewWidget widget = baseComponentViews.get(component);
+        if(widget != null) {
+            widget.setShowIfVisible(visible);
+        }
+    }
+
+    public void setElementClass(GComponent component, String elementClass) {
+        component.elementClass = elementClass;
+
+        Widget widget = containerViews.get(component.container).getChildWidget(component);
+        if(widget != null) // if the component is a base component it can be hidden, but the class can be changed anyway (however elementClass will be changed and it will be used when adding view)
+            updateComponentClass(elementClass, widget, BaseImage.emptyPostfix);
+        else
+            assert !(component instanceof GContainer);
+    }
+
+    public void setCaptionClass(GContainer component, String elementClass) {
+        component.captionClass = elementClass;
+
+        updateComponentClass(elementClass, containerViews.get(component.container).getCaptionView(component), "caption");
+    }
+
+    public void setValueClass(GContainer component, String valueClass) {
+        component.valueClass = valueClass;
+
+//        Widget widget = component instanceof GContainer ? containerViews.get((GContainer) component).getView() : baseComponentViews.get(component);
+        updateComponentClass(valueClass, containerViews.get(component).getView(), "value");
+    }
+
+    public void setValueClass(GGridProperty component, String valueClass) {
+        component.valueClass = valueClass;
+
+        TableContainer tableContainer = (TableContainer)baseComponentViews.get(component).getSingleWidget().widget;
+        tableContainer.updateElementClass(component);
+    }
+
+    public static void updateComponentClass(String elementClass, Widget widget, String postfix) {
+        BaseImage.updateClasses(widget.getElement(), elementClass, postfix);
+    }
+
+    public static void setDebugInfo(Widget widget, String debugInfo) {
+        widget.getElement().setAttribute("lsfusion-container", debugInfo);
+    }
+
+    public void add(GComponent key, ComponentWidget view, DefaultFocusReceiver focusReceiver) {
+        // debug info
+        if (key.sID != null)
+            view.widget.setDebugInfo(key.sID);
+
         GAbstractContainerView containerView;
         if(key.container != null && (containerView = containerViews.get(key.container)) != null) { // container can be null when component should be layouted manually, containerView can be null when it is removed 
-            containerView.add(key, view);
+            containerView.add(key, view, attachContainer);
 
             maybeAddDefaultFocusReceiver(key, focusReceiver);
         }
     }
 
-    public void remove(GComponent key, Widget view) {
+    public void remove(GComponent key) {
         assert !(key instanceof GContainer);
         GAbstractContainerView containerView;
         if (key.container != null && (containerView = containerViews.get(key.container)) != null) { // see add method
@@ -103,10 +265,10 @@ public class GFormLayout extends ResizableSimplePanel {
         }
     }
 
-    public void removeBaseComponent(GComponent key, Widget view) {
+    public void removeBaseComponent(GComponent key) {
         assert !(key instanceof GContainer);
         baseComponentViews.remove(key);
-        remove(key, view);
+        remove(key);
     }
 
     private void maybeAddDefaultFocusReceiver(GComponent key, DefaultFocusReceiver focusReceiver) {
@@ -124,9 +286,9 @@ public class GFormLayout extends ResizableSimplePanel {
         }
     }
 
-    public boolean focusDefaultWidget() {
+    public boolean focusDefaultWidget(FocusUtils.Reason reason) {
         for (DefaultFocusReceiver dc : defaultFocusReceivers) {
-            if (dc.focus()) {
+            if (dc.focus(reason)) {
                 return true;
             }
         }
@@ -136,44 +298,92 @@ public class GFormLayout extends ResizableSimplePanel {
     public GAbstractContainerView getContainerView(GContainer container) {
         return containerViews.get(container);
     }
-    public Widget getComponentView(GComponent component) {
-        if(component instanceof GContainer)
-            return getContainerView((GContainer) component).getView();
-        return baseComponentViews.get(component);
+
+    public Widget getContainerCaption(GContainer container) {
+        return containerCaptions.get(container);
     }
 
-    public void hideEmptyContainerViews(int requestIndex) {
-        autoShowHideContainers(mainContainer, requestIndex);
+    public void update(int requestIndex) {
+        updateContainersVisibility(mainContainer, requestIndex);
+
+        updatePanels();
     }
 
-    private void autoShowHideContainers(GContainer container, long requestIndex) {
+    public void updatePanels() {
+        FlexPanel.updatePanels(getMainView());
+
+        onResize();
+    }
+
+    private boolean updateContainersVisibility(GContainer container, long requestIndex) {
         GAbstractContainerView containerView = getContainerView(container);
-        int childCnt = containerView.getChildrenCount();
         boolean hasVisible = false;
-        for (int i = 0; i < childCnt; ++i) {
+        int size = containerView.getChildrenCount();
+        boolean[] childrenVisible = new boolean[size];
+        for (int i = 0; i < size; ++i) {
             GComponent child = containerView.getChild(i);
-            Widget childView = containerView.getChildView(i);
 
-            if(child instanceof GGrid)
-                child = ((GGrid)child).record;
+            boolean childVisible;
             if (child instanceof GContainer)
-                autoShowHideContainers((GContainer) child, requestIndex);
+                childVisible = updateContainersVisibility((GContainer) child, requestIndex);
+            else {
+                ComponentViewWidget childView = baseComponentViews.get(child); // we have to use baseComponentView (and not a wrapper in getChildView), since it has relevant visible state
+                childVisible = childView != null && childView.isVisible();
 
-            if (childView.isVisible()) // it's important to be after child autoShowHideContainers
-                hasVisible = true;
+                if (child instanceof GGrid) {
+                    GContainer record = ((GGrid) child).record;
+                    if(record != null)
+                        updateContainersVisibility(record, requestIndex);
+                }
+            }
+
+            childrenVisible[i] = childVisible;
+            hasVisible = hasVisible || childVisible;
         }
-        containerView.getView().setVisible(hasVisible);
-        containerView.updateLayout(requestIndex);
+        containerView.updateLayout(requestIndex, childrenVisible);
+        return hasVisible;
     }
 
-    @Override
-    public Dimension getMaxPreferredSize() {
-        Dimension result = GAbstractContainerView.getMaxPreferredSize(mainContainer, containerViews, false); // в BOX container'е берем явный size (предполагая что он используется не как базовый размер с flex > 0, а конечный)
-        setDebugDimensionsAttributes(containerViews.get(mainContainer).getView(), result);
-        return result;
+    public void initPreferredSize(GSize maxWidth, GSize maxHeight) {
+        Widget main = getMainView();
+        Element element = main.getElement();
+
+        FlexPanel.setPrefHeight(element, mainContainer.getHeight());
+        FlexPanel.setPrefWidth(element, mainContainer.getWidth());
+
+        boolean fixWidthOnInit = mainContainer.width == -3;
+        boolean fixHeightOnInit = mainContainer.height == -3;
+        if(!fixWidthOnInit && !fixHeightOnInit) //optimisation
+            return;
+
+        FlexPanel.setMaxPrefWidth(element, maxWidth);
+        FlexPanel.setMaxPrefHeight(element, maxHeight);
+
+        Result<Integer> grids = new Result<>(0);
+        if(main instanceof HasMaxPreferredSize)
+            ((HasMaxPreferredSize) main).setPreferredSize(true, grids);
+
+        try {
+            DataGrid.flushUpdateDOM(); // there can be some pending grid changes, and we need actual sizes
+
+            // there are 2 problems : rounding (we need to round up), however it coukd be fixed differently
+            // since we are changing for example grid basises (by changing fill to percent), we can get extra scrollbars in grids (which is not what we want), so we just add some extraOffset
+            // 1 is for rounding
+            if (fixWidthOnInit)
+                FlexPanel.setPrefWidth(element, GwtClientUtils.getOffsetWidth(element).add(DataGrid.nativeScrollbarWidth * grids.result + 1));
+
+            if (fixHeightOnInit)
+                FlexPanel.setPrefHeight(element, GwtClientUtils.getOffsetHeight(element).add(DataGrid.nativeScrollbarHeight * grids.result + 1));
+        } finally {
+            FlexPanel.setMaxPrefWidth(element, (GSize) null);
+            FlexPanel.setMaxPrefHeight(element, (GSize) null);
+
+            if(main instanceof HasMaxPreferredSize)
+                ((HasMaxPreferredSize) main).setPreferredSize(false, grids);
+        }
     }
 
-    public static void setDebugDimensionsAttributes(Widget w, Dimension result) {
-        w.getElement().setAttribute("lsfusion-size", "(" + result.width + ", " + result.height + ")");
+    public Map<GComponent, ComponentViewWidget> getBaseComponentViews() {
+        return baseComponentViews;
     }
 }

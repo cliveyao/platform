@@ -117,9 +117,9 @@ public class SessionTableUsage<K,V> implements MapKeysInterface<K>, TableOwner {
 //    public String stack;
 
     public SessionTableUsage(String debugInfo, SQLSession sql, final Query<K, V> query, BaseClass baseClass, QueryEnvironment env,
-                             final ImMap<K, Type> keyTypes, final ImMap<V, Type> propertyTypes, int selectTop) throws SQLException, SQLHandledException { // здесь порядок особо не важен, так как assert что getUsage'а не будет
+                             final ImMap<K, Type> keyTypes, final ImMap<V, Type> propertyTypes, ImOrderMap<V, Boolean> orders, int selectTop) throws SQLException, SQLHandledException { // здесь порядок особо не важен, так как assert что getUsage'а не будет
         this(debugInfo, query.mapKeys.keys().toOrderSet(), query.properties.keys().toOrderSet(), keyTypes::get, propertyTypes::get);
-        writeRows(sql, query, baseClass, env, SessionTable.matExprLocalQuery, selectTop);
+        writeRows(sql, query, baseClass, env, SessionTable.matExprLocalQuery, orders, selectTop);
     }
 
     public Join<V> join(ImMap<K, ? extends Expr> joinImplement) {
@@ -208,16 +208,17 @@ public class SessionTableUsage<K,V> implements MapKeysInterface<K>, TableOwner {
     }
 
     public void writeRows(SQLSession session, IQuery<K, V> query, BaseClass baseClass, QueryEnvironment env, boolean updateClasses) throws SQLException, SQLHandledException {
-        writeRows(session, query, baseClass, env, updateClasses, 0);
+        writeRows(session, query, baseClass, env, updateClasses, MapFact.EMPTYORDER(), 0);
     }
     
     protected IQuery<KeyField, PropertyField> fullMap(IQuery<K, V> query) {
         return query.map(mapKeys, mapProps);
     }
 
-    public void writeRows(SQLSession session, IQuery<K, V> query, BaseClass baseClass, QueryEnvironment env, boolean updateClasses, int selectTop) throws SQLException, SQLHandledException {
+    public void writeRows(SQLSession session, IQuery<K, V> query, BaseClass baseClass, QueryEnvironment env, boolean updateClasses, ImOrderMap<V, Boolean> orders, int selectTop) throws SQLException, SQLHandledException {
         try {
-            table = table.rewrite(session, fullMap(query), baseClass, env, this, updateClasses, selectTop);
+            ImRevMap<V, PropertyField> reverseMapProps = mapProps.reverse();
+            table = table.rewrite(session, fullMap(query), baseClass, env, this, updateClasses, orders.mapOrderKeys(reverseMapProps::get), selectTop);
         } catch (Throwable t) {
             aspectException(session, env.getOpOwner());
             throw ExceptionUtils.propagate(t, SQLException.class, SQLHandledException.class);
@@ -289,9 +290,15 @@ public class SessionTableUsage<K,V> implements MapKeysInterface<K>, TableOwner {
     private Query<K, V> getQuery(ImMap<K, DataObject> mapValues) {
         QueryBuilder<K, V> query = new QueryBuilder<>(mapKeys.valuesSet(), mapValues);
         Join<V> tableJoin = join(query.getMapExprs());
-        query.addProperties(tableJoin.getExprs());
+        for(V prop : mapProps.values())
+            query.addProperty(prop, tableJoin.getExpr(prop));
         query.and(tableJoin.getWhere());
         return query.getQuery();
+    }
+
+    public ImMap<V, Expr> getExprs() {
+        Join<V> join = join(getMapKeys());
+        return mapProps.valuesSet().mapValues(join::getExpr);
     }
 
     public ImSet<Object> readDistinct(V prop, SQLSession session, OperationOwner owner) throws SQLException, SQLHandledException {

@@ -14,8 +14,6 @@ import java.util.*;
 import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import static lsfusion.client.ClientResourceBundle.getString;
-
 public class PingThread extends Thread {
 
     private final static Logger logger = Logger.getLogger(MainController.class);
@@ -30,7 +28,6 @@ public class PingThread extends Thread {
     private final int interval = 30;//calculate ping every 30 seconds
     private final int sendInterval = 120;//every hour (120 calculate intervals)
 
-    private long oldIn, oldOut;
     private long sum;
     private int counter;
 
@@ -143,14 +140,9 @@ public class PingThread extends Thread {
             }
 
             if (counter % 5 == 0) {
-                long newIn = MainController.getBytesReceived();
-                long newOut = MainController.getBytesSent();
-
-                MainController.setStatusText(getString("pingthread.statusMessage", sum / queue.size(), newOut - oldOut, newIn - oldIn, newOut, newIn));
+//                MainController.setStatusText(getString("pingthread.statusMessage", sum / queue.size(), newOut - oldOut, newIn - oldIn, newOut, newIn));
 
                 counter = 0;
-                oldIn = newIn;
-                oldOut = newOut;
             }
 
             try {

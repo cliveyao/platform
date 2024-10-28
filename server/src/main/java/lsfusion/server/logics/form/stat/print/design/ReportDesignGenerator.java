@@ -31,6 +31,10 @@ import java.awt.*;
 import java.io.InputStream;
 import java.math.BigDecimal;
 import java.sql.SQLException;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -109,7 +113,7 @@ public class ReportDesignGenerator {
 
     public Map<ReportNode, JasperDesign> generate() throws JRException {
         try {
-            BaseLogicsModule baseLM = ThreadLocalContext.getBusinessLogics().LM;
+            BaseLogicsModule baseLM = ThreadLocalContext.getBaseLM();
             try(DataSession session = ThreadLocalContext.createSession()) {
                 charWidth = (Integer) baseLM.reportCharWidth.read(session);
                 rowHeight = (Integer) baseLM.reportRowHeight.read(session);
@@ -153,11 +157,16 @@ public class ReportDesignGenerator {
 
     private ImList<ReportDrawField> getReportDrawFields(GroupObjectEntity group, StaticDataGenerator.Hierarchy hierarchy, final MAddExclMap<PropertyReaderEntity, Type> types) {
         return formInterface.getUserOrder(group, hierarchy.getProperties(group)).mapListValues((PropertyDrawEntity prop) -> {
-            ReportDrawField reportField = formView.get(prop).getReportDrawField(charWidth, getPropGroupColumnsCount(prop), types != null ? types.get(prop) : prop.getType());
+            ReportDrawField reportField = formView.get(prop).getReportDrawField(charWidth, getPropGroupColumnsCount(prop), types != null ? types.get(prop) : prop.getReaderType());
 
             Integer widthUser = formInterface.getUserWidth(prop);
             if (widthUser != null)
                 reportField.setWidthUser(widthUser);
+
+            String userPattern = formInterface.getUserPattern(prop);
+            if(userPattern != null)
+                reportField.pattern = userPattern;
+
             return reportField;
         });
     }
@@ -314,6 +323,9 @@ public class ReportDesignGenerator {
             JRDesignTextField textField = ReportUtils.createTextField(style, dataExpr, toStretch);
             textField.setHorizontalTextAlign(reportField.alignment);
             textField.setBlankWhenNull(true);
+            if(reportField.markupHtml) {
+                textField.setMarkup(JRCommonText.MARKUP_HTML);
+            }
             setPattern(textField, reportField);
             setBackground(textField, reportField);
             setForeground(textField, reportField);
@@ -331,11 +343,13 @@ public class ReportDesignGenerator {
     private void setPattern(JRDesignTextField dataField, ReportDrawField reportField) {
         String pattern = reportField.pattern;
         if (pattern != null && needToFixExcelSeparatorProblem(pattern, reportField)) {
-            JRDesignExpression expr = null;
             pattern = ReportUtils.createPatternExpressionForExcelSeparatorProblem(pattern, reportField.sID, reportField.valueClass);
             assert pattern != null;
             dataField.setPatternExpression(ReportUtils.createExpression(pattern, reportField.valueClass));
         } else {
+            if (needToConvertExcelDateTime(reportField)) {
+                dataField.setExpression(ReportUtils.createConvertExcelDateTimeExpression(reportField.sID, reportField.valueClass, pattern));
+            }
             dataField.setPattern(pattern);
         }
     }
@@ -346,6 +360,11 @@ public class ReportDesignGenerator {
             return (cls == Double.class || cls == BigDecimal.class) && pattern.matches(ReportUtils.EXCEL_SEPARATOR_PROBLEM_REGEX);
         }
         return false;
+    }
+
+    private boolean needToConvertExcelDateTime(ReportDrawField reportField) {
+        return (printType == FormPrintType.XLS || printType == FormPrintType.XLSX)
+                && reportField.valueClass == LocalDate.class || reportField.valueClass == LocalTime.class || reportField.valueClass == LocalDateTime.class || reportField.valueClass == Instant.class;
     }
     
     private void setBackground(JRDesignTextField dataField, ReportDrawField reportField) {

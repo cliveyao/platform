@@ -76,7 +76,7 @@ in '{scheduler.in.dow.scheduled.task}' = ABSTRACT BOOLEAN (DOW, ScheduledTask);
 in '{scheduler.in.dow.scheduled.task}' = DATA BOOLEAN (DOW, UserScheduledTask); 
 in[DOW, ScheduledTask](DOW d, UserScheduledTask t) += in(d, t);
 
-daysOfWeek (ScheduledTask t)= GROUP CONCAT STRING[3](number(DOW d)) IF in (d,t), ', ' ORDER d;   
+daysOfWeek (ScheduledTask t)= GROUP CONCAT STRING[3](numberM(DOW d)) IF in (d,t), ', ' ORDER d;   
 
 CLASS ABSTRACT ScheduledTaskDetail '{scheduler.scheduled.task.detail}';
 TABLE scheduledTaskDetail (ScheduledTaskDetail);
@@ -167,7 +167,8 @@ runSetupSchedulerApply '{scheduler.run.setup.scheduler}'  {
     apply();
 }
 isStartedScheduler '{scheduler.is.started.scheduler}'  = DATA BOOLEAN ();
-isStoppedScheduler '{scheduler.is.stopped.scheduler}' () = NOT isStartedScheduler();
+isStoppedScheduler = NOT isStartedScheduler();
+onlySystemTasks '{scheduler.only.system.tasks}' = DATA BOOLEAN();
 
 threadCountScheduler '{scheduler.thread.count.scheduler}' = DATA INTEGER ();
 
@@ -182,8 +183,7 @@ changedSchedulerTask (ScheduledTask t) = GROUP SUM 1 IF (((CHANGED (runAtStart(t
                                          OR CHANGED (active(t))) OR
                                                 (((CHANGED (active(ScheduledTaskDetail td)) OR CHANGED (order(td)) OR CHANGED(script(td)) 
                                          OR CHANGED (scheduledTask(td)) OR CHANGED (action(td)) 
-                                         OR CHANGED (ignoreExceptions(td)) OR CHANGED (timeout(td)) OR CHANGED (parameter(td)))
-                                         AND active(scheduledTask(td))) AND scheduledTask(td)==t) OR 
+                                         OR CHANGED (ignoreExceptions(td)) OR CHANGED (timeout(td)) OR CHANGED (parameter(td)))) AND scheduledTask(td)==t) OR 
                                                 CHANGED(in(DOW dow, t))) AND isStartedScheduler() AND t IS ScheduledTask AND td IS ScheduledTaskDetail AND dow IS DOW;
                                                 
 executeScheduledTask '{scheduler.execute.scheduled.task}'  INTERNAL  'lsfusion.server.physics.admin.scheduler.action.ExecuteScheduledTaskAction' (ScheduledTask) CONFIRM;                                                                                                                                 
@@ -194,7 +194,17 @@ WHEN DROPPED(ScheduledTaskDetail td IS ScheduledTaskDetail) AND PREV(active(td))
     setupScheduledTask(PREV(scheduledTask(td)));
 
 allTasks '{scheduler.form.scheduled.task.filter.all}' = DATA LOCAL NESTED BOOLEAN () TOOLBAR; 
-           
+
+json '{scheduler.script.scheduled.task.detail}' (ScheduledTaskDetail td) = JSON FROM text = (OVERRIDE script(td), ''), type = 'action';
+changeScript(ScheduledTaskDetail std) {
+    INPUT s = TEXT DO {
+        stringToFile(s);
+        LOCAL text = TEXT();
+        IMPORT JSON FROM resultFile() TO() text;
+        script(std) <- text();
+    }
+}
+
 FORM scheduledTask '{scheduler.form.scheduled.tasks}'
 
     PROPERTIES() threadCountScheduler
@@ -208,10 +218,16 @@ FORM scheduledTask '{scheduler.form.scheduled.tasks}'
          
     OBJECTS td=ScheduledTaskDetail
     PROPERTIES (td) active, ignoreExceptions, order, captionAction, 
-                    codeAction READONLY, parameter, 
-                    timeout, script PANEL
+                    codeAction ON CHANGE { INPUT s = codeAction(td) DO action(td) <- actionCanonicalName(s); }, 
+                    parameter, timeout, script PANEL SHOWIF NOT isWeb()
+    
+    OBJECTS std = ScheduledTaskDetail
+    PROPERTIES json(std) PANEL CUSTOM 'interpreter' SHOWIF isWeb() ON CHANGE changeScript(std)
+    EVENTS ON CHANGE td { SEEK scheduledTask.std = td; }
+    
     PROPERTIES (td) NEW[UserScheduledTaskDetail], DELETE GRID
     PROPERTIES (td) READONLY SHOWIF allTasks() nameScheduledTask, startTime, period
+    ORDERS order(td)
     
     PROPERTIES allTasksTd = allTasks() DRAW td 
     FILTERS scheduledTask(td) = t OR allTasks()
@@ -240,7 +256,7 @@ FORM scheduledTask '{scheduler.form.scheduled.tasks}'
     PROPERTIES (dow) number, staticCaption 
     PROPERTIES (dow, t) in 
     
-    PROPERTIES () TOOLBAR stopSchedulerApply SHOWIF isStartedScheduler() , runSetupSchedulerApply SHOWIF isStoppedScheduler() 
+    PROPERTIES () TOOLBAR onlySystemTasks SHOWIF onlySystemTasks() READONLY, stopSchedulerApply SHOWIF isStartedScheduler() , runSetupSchedulerApply SHOWIF isStoppedScheduler() 
     
     ORDERS number(dow)
 ;
@@ -248,14 +264,14 @@ FORM scheduledTask '{scheduler.form.scheduled.tasks}'
 DESIGN scheduledTask {
     NEW specContainer {
         fill = 1; 
-        type = SPLITV;
+        lines = 1;
         MOVE BOX(t);
         NEW south {
             fill = 2;
-            type = TABBED;
+            tabbed = TRUE;
             NEW property {
                 caption = '{scheduler.form.scheduled.task.caption.properties}';
-                type = SPLITH;
+                horizontal = TRUE;
                 MOVE BOX(td) {
                     PROPERTY(parameter(td)) {
                         valueSize = (-1, 18);
@@ -268,16 +284,24 @@ DESIGN scheduledTask {
                     panelCaptionVertical = TRUE;
                     fill = 0.5;
                 }
+                MOVE PROPERTY(json(std)) {
+                    panelCaptionVertical = TRUE;
+                    fill = 1;
+                }
             }
             NEW logContainer {
                 caption = '{scheduler.form.scheduled.task.caption.log}';
-                type = SPLITH;
+                horizontal = TRUE;
                 MOVE BOX(tl) {
                     TOOLBARLEFT(tl) {
                         MOVE PROPERTY(allTasksTl);
                     }
                 }
-                MOVE BOX(ctl);
+                MOVE BOX(ctl) {
+                    GRID(ctl) {
+                        height = 0;
+                    }
+                }
             }
             NEW dowContainer {
                 caption = '{scheduler.form.scheduled.task.caption.filter.by.days}';
@@ -294,8 +318,9 @@ DESIGN scheduledTask {
         }
     }
     NEW bottom {
-        type = CONTAINERH;
+        horizontal = TRUE;
         align = END;
+        MOVE PROPERTY(onlySystemTasks());
         MOVE PROPERTY(runSetupSchedulerApply());
         MOVE PROPERTY(stopSchedulerApply());
     }
@@ -310,5 +335,33 @@ FORM scheduledTaskProperties '{scheduler.form.scheduled.task.properties}'
 NAVIGATOR {
     scheduler {
         NEW Scheduler.scheduledTask FIRST;
+    }
+}
+// default tasks
+
+createScheduledTask '{scheduler.default.data.load.default.scheduled.task}'(STRING[100] iname, DATETIME startTime, INTEGER integer, SchedulerStartType type)  {
+    NEW s = UserScheduledTask {
+        name(s) <- iname;
+        active(s) <- TRUE;
+        startDate(s) <- startTime;
+        period(s) <- integer;
+        schedulerStartType(s) <- type;
+    }
+}
+
+createScheduledTaskDetail '{scheduler.default.data.load.default.scheduled.task.detail}'(STRING[100] iname, INTEGER order, STRING prop)  {
+    NEW d = UserScheduledTaskDetail {
+        order(d) <- order;
+        active(d) <- TRUE;
+        action(d) <- actionCanonicalName(prop);
+        scheduledTask(d) <- scheduledTask(iname);
+    }
+}
+
+onFinallyStarted() + {
+    IF (NOT GROUP SUM 1 IF d IS ScheduledTask) AND actionCanonicalName('Service.recalculateStatsAction[]') AND actionCanonicalName('Service.vacuumDBAction[]') THEN {
+        createScheduledTask ('{scheduler.default.data.load.default.service.db}', dateTimeToDateTime(currentDate(), 03:00), 86400, SchedulerStartType.afterStart);
+        createScheduledTaskDetail ('{scheduler.default.data.load.default.service.db}', 1, 'Service.recalculateStatsAction[]');
+        createScheduledTaskDetail ('{scheduler.default.data.load.default.service.db}', 2, 'Service.vacuumDBAction[]');
     }
 }

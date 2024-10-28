@@ -1,12 +1,10 @@
 package lsfusion.server.data.expr.formula;
 
-import lsfusion.base.col.interfaces.immutable.ImList;
 import lsfusion.server.data.expr.formula.conversion.*;
 import lsfusion.server.data.query.exec.MStaticExecuteEnvironment;
 import lsfusion.server.data.sql.syntax.SQLSyntax;
 import lsfusion.server.data.type.Type;
 import lsfusion.server.data.type.exec.TypeEnvironment;
-import lsfusion.server.data.type.reader.ClassReader;
 import lsfusion.server.logics.classes.data.DataClass;
 import lsfusion.server.logics.classes.data.StringClass;
 
@@ -43,7 +41,7 @@ public class SumFormulaImpl extends ArithmeticFormulaImpl {
         public String getSource(DataClass type1, DataClass type2, String src1, String src2, SQLSyntax syntax, MStaticExecuteEnvironment env, boolean isToString) {
             Type type = conversion.getType(type1, type2);
             if (type != null || isToString) {
-                return "(" + src1 + "+" + src2 + ")";
+                return "(" + src1 + "+" + src2 + ")"; // here also cast maybe should be used
             }
             return null;
         }
@@ -51,17 +49,8 @@ public class SumFormulaImpl extends ArithmeticFormulaImpl {
     
     public static String castToVarString(String source, StringClass resultType, Type operandType, SQLSyntax syntax, TypeEnvironment typeEnv) {
         if(!(operandType instanceof StringClass) || syntax.doesNotTrimWhenSumStrings())
-            source = resultType.toVar().getCast(source, syntax, typeEnv, operandType);
+            source = resultType.toVar().getCast(source, syntax, typeEnv, operandType, Type.CastType.TOSTRING);
         return source;
-    }
-
-    public static ImList<String> castToVarStrings(ImList<String> exprs, final ImList<? extends ClassReader> readers, final Type resultType, final SQLSyntax syntax, final TypeEnvironment typeEnv) {
-        return exprs.mapListValues((i, value) -> {
-            ClassReader reader = readers.get(i);
-            if(reader instanceof Type)
-                value = castToVarString(value, ((StringClass)resultType), (Type)reader, syntax, typeEnv);
-            return value;
-        });
     }
 
     public static class StringSumConversionSource extends AbstractConversionSource {

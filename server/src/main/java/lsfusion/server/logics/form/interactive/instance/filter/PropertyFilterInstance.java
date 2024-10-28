@@ -18,6 +18,7 @@ import lsfusion.server.logics.form.interactive.instance.FormInstance;
 import lsfusion.server.logics.form.interactive.instance.object.CustomObjectInstance;
 import lsfusion.server.logics.form.interactive.instance.object.GroupObjectInstance;
 import lsfusion.server.logics.form.interactive.instance.object.ObjectInstance;
+import lsfusion.server.logics.form.interactive.instance.property.ActionOrPropertyObjectInstance;
 import lsfusion.server.logics.form.interactive.instance.property.PropertyDrawInstance;
 import lsfusion.server.logics.form.interactive.instance.property.PropertyObjectInstance;
 import lsfusion.server.logics.form.interactive.instance.property.PropertyObjectInterfaceInstance;
@@ -30,23 +31,32 @@ import java.sql.SQLException;
 
 public abstract class PropertyFilterInstance<P extends PropertyInterface> extends FilterInstance {
 
-    protected final PropertyObjectInstance<P> property;
+    public final PropertyObjectInstance<P> property;
     public final boolean resolveAdd;
 
     public PropertyFilterInstance(PropertyObjectInstance<P> property, boolean resolveAdd) {
         this.property = property;
         this.resolveAdd = resolveAdd;
         this.toDraw = null;
+        this.propertyDraw = null;
     }
     
-    private final GroupObjectInstance toDraw; // only for user filters
+    public final GroupObjectInstance toDraw; // only for user filters
+    public final PropertyDrawInstance<P> propertyDraw;
+
+    public PropertyFilterInstance(PropertyObjectInstance<P> property, boolean resolveAdd, GroupObjectInstance toDraw, PropertyDrawInstance<P> propertyDraw) {
+        this.property = property;
+        this.resolveAdd = resolveAdd;
+        this.toDraw = toDraw;
+        this.propertyDraw = propertyDraw;
+    }
 
     public PropertyFilterInstance(DataInputStream inStream, FormInstance form) throws IOException, SQLException, SQLHandledException {
         super(inStream,form);
-        PropertyDrawInstance<P> propertyDraw = form.getPropertyDraw(inStream.readInt());
-        PropertyObjectInstance<P> propertyObject = (PropertyObjectInstance<P>) propertyDraw.getValueProperty();
+        propertyDraw = form.getPropertyDraw(inStream.readInt());
+        PropertyObjectInstance<P> propertyObject = (PropertyObjectInstance<P>) propertyDraw.getFilterProperty();
         if(inStream.readBoolean())
-            propertyObject = propertyObject.getRemappedPropertyObject(RemoteForm.deserializePropertyKeys(propertyDraw, inStream, form)); 
+            propertyObject = propertyObject.getRemappedPropertyObject(RemoteForm.deserializeKeysValues(inStream, form), false);
         property = propertyObject;
         toDraw = propertyDraw.toDraw;
         resolveAdd = false;
@@ -109,5 +119,9 @@ public abstract class PropertyFilterInstance<P extends PropertyInterface> extend
 
     protected void fillObjects(MSet<ObjectInstance> objects) {
         property.fillObjects(objects);
+    }
+
+    public boolean hasProperty(ActionOrPropertyObjectInstance valueProperty) {
+        return property.equals(valueProperty);
     }
 }

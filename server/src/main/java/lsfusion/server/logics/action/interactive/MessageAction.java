@@ -1,7 +1,7 @@
 package lsfusion.server.logics.action.interactive;
 
 import lsfusion.base.col.SetFact;
-import lsfusion.interop.action.MessageClientAction;
+import lsfusion.interop.action.MessageClientType;
 import lsfusion.server.data.sql.exception.SQLHandledException;
 import lsfusion.server.data.value.ObjectValue;
 import lsfusion.server.logics.action.SystemAction;
@@ -12,41 +12,54 @@ import lsfusion.server.logics.property.oraction.PropertyInterface;
 import lsfusion.server.physics.dev.i18n.LocalizedString;
 
 import java.sql.SQLException;
+import java.util.ArrayList;
+
+import static lsfusion.base.BaseUtils.nvl;
 
 public class MessageAction extends SystemAction {
-    protected final String title;
-    private boolean noWait = false;
+    private PropertyInterface messageInterface;
+    private PropertyInterface headerInterface;
 
-    public <I extends PropertyInterface> MessageAction(LocalizedString caption, String title) {
-        super(caption, SetFact.singletonOrder(new PropertyInterface()));
+    private boolean noWait;
+    private MessageClientType type;
 
-        this.title = title;
+    public MessageAction(LocalizedString caption, boolean hasHeader) {
+        super(caption, SetFact.toOrderExclSet(hasHeader ? 2 : 1, i -> new PropertyInterface()));
+
+        this.messageInterface = getOrderInterfaces().get(0);
+        this.headerInterface = hasHeader ? getOrderInterfaces().get(1) : null;
     }
 
-    public <I extends PropertyInterface> MessageAction(LocalizedString caption, String title, boolean noWait) {
-        this(caption, title);
+    public MessageAction(LocalizedString caption, boolean hasHeader, boolean noWait, MessageClientType type) {
+        this(caption, hasHeader);
 
         this.noWait = noWait;
+        this.type = type;
     }
 
     public FlowResult aspectExecute(ExecutionContext<PropertyInterface> context) throws SQLException, SQLHandledException {
-        ObjectValue objValue = context.getSingleKeyValue();
-        showMessage(context, objValue.getValue());
+        ObjectValue messageObject = context.getKeyValue(messageInterface);
+        String message = messageObject.getType().formatMessage(messageObject.getValue());
+
+        String header = null;
+        if(headerInterface != null) {
+            ObjectValue headerObject = context.getKeyValue(headerInterface);
+            header = headerObject.getType().formatMessage(headerObject.getValue());
+        }
+
+        showMessage(context, message, nvl(header, "lsFusion"));
         return FlowResult.FINISH;
     }
 
-    protected void showMessage(ExecutionContext<PropertyInterface> context, Object msgValue) throws SQLException, SQLHandledException {
-        if (noWait) {
-            context.delayUserInteraction(new MessageClientAction(String.valueOf(msgValue), title));
-        } else {
-            context.requestUserInteraction(new MessageClientAction(String.valueOf(msgValue), title));
-        }
+    protected void showMessage(ExecutionContext<PropertyInterface> context, String message, String header) throws SQLException, SQLHandledException {
+        context.message(context.getRemoteContext(), message, header, new ArrayList<>(), new ArrayList<>(), type, noWait);
     }
 
     @Override
     public boolean hasFlow(ChangeFlowType type) {
-        // потому как важен порядок, в котором выдаются MESSAGE'и, иначе компилятор начнет их переставлять
         if(type == ChangeFlowType.SYNC)
+            return true;
+        if(type == ChangeFlowType.INTERACTIVEWAIT)
             return true;
         return super.hasFlow(type);
     }

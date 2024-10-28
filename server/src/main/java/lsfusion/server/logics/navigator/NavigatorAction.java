@@ -1,20 +1,28 @@
 package lsfusion.server.logics.navigator;
 
+import lsfusion.server.base.AppServerImage;
 import lsfusion.server.logics.action.Action;
+import lsfusion.server.logics.form.interactive.controller.remote.serialization.ConnectionContext;
 import lsfusion.server.logics.form.struct.FormEntity;
-import lsfusion.server.logics.form.struct.property.async.AsyncExec;
-import lsfusion.server.physics.dev.i18n.LocalizedString;
+import lsfusion.server.logics.form.interactive.action.async.AsyncExec;
 
 public class NavigatorAction extends NavigatorElement {
-    private final Action action;
+    private final Action<?> action;
     private final FormEntity form;
 
-    public NavigatorAction(Action action, String canonicalName, LocalizedString caption, FormEntity form, String icon, DefaultIcon defaultIcon) {
-        super(canonicalName, caption);
+    public NavigatorAction(Action<?> action, String canonicalName, FormEntity form) {
+        super(canonicalName);
         
         this.action = action;
         this.form = form;
-        setImage(icon, defaultIcon);
+    }
+
+    @Override
+    public String getDefaultIcon() {
+        boolean top = isParentRoot();
+        if(form != null)
+            return top ? AppServerImage.FORMTOP : AppServerImage.FORM;
+        return top ? AppServerImage.ACTIONTOP : AppServerImage.ACTION;
     }
 
     @Override
@@ -28,8 +36,8 @@ public class NavigatorAction extends NavigatorElement {
     }
 
     @Override
-    public AsyncExec getAsyncExec() {
-        return action.getAsyncExec();
+    public AsyncExec getAsyncExec(ConnectionContext context) {
+        return Action.getAsyncExec(action.getAsyncEventExec(false), context);
     }
 
     public FormEntity getForm() {

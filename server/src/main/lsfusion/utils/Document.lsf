@@ -2,15 +2,12 @@ MODULE Document;
 
 REQUIRE System, Numerator, Authentication, Time, Utils;
 
-// Стандартные группы
+// Document groups
 GROUP documentHeader '{document.document.header}' : base;
 GROUP documentSum '{document.document.sum}': public;
 GROUP documentPrm '{document.document.prm}': public;
 
-// Макросы по созданию документов
-
 // ----- Tables ----- //
-
 META defineDocumentTables (object)
     TABLE object (###object);
     TABLE object##Detail (###object##Detail);
@@ -69,7 +66,6 @@ META defineDocumentInterfaceRelation (object)
     @defineDocumentInterfaceRelation(object, ###object##Detail);
 END
 
-// Итоги
 META defineDocumentHeaderCount (object, detailClass, caption)
     count##detailClass '{document.count.detail.of}'###caption (o) =
         GROUP SUM 1 BY object(detailClass d) MATERIALIZED IN documentSum;
@@ -235,7 +231,7 @@ META defineDocumentDataTimePrefix (object, prefix, caption)
     @defineDocumentDataTimePrefix (object, ###object##Detail, prefix, caption);
 END
 
-//-- Дата
+// Date
 META defineDocumentHeaderDatePrefix (objectClass, prefix, caption)
     prefix##Date '{document.date.of}'##caption = DATA DATE (objectClass) IN documentHeader;
 END
@@ -263,7 +259,7 @@ META defineDocumentInterfaceDatePrefix (object, prefix, caption)
     @defineDocumentInterfaceDetailDatePrefix(object, prefix, caption);
 END
 
-// Примечание
+// Note
 META defineDocumentHeaderNote (objectClass)
     note '{document.note}' = DATA ISTRING[500] (objectClass) CHARWIDTH 30 IN documentPrm MATERIALIZED;
 END
@@ -410,7 +406,7 @@ END
 META defineDocumentAbstractHeaderClosed (objectClass)
     isClosed '{documents.is.closed}' = ABSTRACT BOOLEAN(objectClass) MATERIALIZED;
     isOpened '{documents.is.opened}' (objectClass o) = o IS objectClass AND NOT isClosed(o) MATERIALIZED;
-    INDEX isOpened(objectClass o), o;
+    INDEX isOpened(objectClass o);
     close '{documents.close}' (o)  ABSTRACT LIST ( objectClass);
 END
 
@@ -423,7 +419,7 @@ END
 
 META defineDocumentDetailClosed (object, detailClass)
     isClosed '{documents.is.closed}' (detailClass d) = isClosed(object(d));
-    isOpened '{documents.is.opened}' (detailClass d) = isPosted(d) AND NOT isClosed(d);
+    isOpened '{documents.is.opened}' (detailClass d) = isPosted(d) AND isOpened(object(d));
 END
 
 META defineDocumentDetailClosed (object)
@@ -449,7 +445,7 @@ DESIGN customUser { security { MOVE PROPERTY(allowedEditClosedDocuments(u)); } }
 
 // In dex
 META defineDocumentDetailIndex (object, detailClass)
-    dataIndex '{document.data.index.detail.class}' = DATA INTEGER (detailClass) INDEXED; 
+    dataIndex '{document.data.index.detail.class}' = DATA INTEGER (detailClass); 
     defaultIndex '{document.default.index.detail.class}' (detailClass d) =
         PARTITION SUM 1
         ORDER d BY object(d) CHARWIDTH 4;
@@ -505,7 +501,7 @@ META defineDocumentInterfaceDetailIndex (object)
     @defineDocumentInterfaceDetailIndex(object, ###object##Detail);
 END
 
-// Action'ы
+// Actions
 META defineDocumentDetailActionsCustom (object, detailClass)
     delete##detailClass '{document.delete.detail.class.object}'(###object o)  { 
         //FOR object##detailClass (d) == o DO {
@@ -601,7 +597,7 @@ END
 // ----- Description ----- //
 META defineDocumentHeaderDescription(objectClass, caption)
     description '{document.description.object}' (objectClass o) =
-        STRING[200](CONCAT ' ', caption, '{document.desription.number} ' + seriesNumber(o), '{document.desription.of} ' + date(o)) CHARWIDTH 30;
+        STRING[200](CONCAT ' ', caption IF o IS objectClass, '{document.desription.number} ' + seriesNumber(o), '{document.desription.of} ' + date(o)) CHARWIDTH 30;
 END
 META defineDocumentAbstractHeaderDescription(objectClass)
     description '{document.description.object}' = ABSTRACT STRING[200] (objectClass) CHARWIDTH 30 MATERIALIZED;
@@ -702,8 +698,6 @@ META defineDocumentInterface (object)
     @defineDocumentDetailActions(user###object);
 END
 
-// ------------------------------------- Дополнительные метакоды ------------------------------- //
-
 // -- Quantity
 META defineDocumentDetailQuantityCustomPrefix (detail, prefix, caption)
     prefix###quantity '{document.quantity.of}'###caption = DATA NUMERIC[16,5] (###detail) CHARWIDTH 7;
@@ -747,7 +741,7 @@ META defineDocumentInterfaceDetailQuantity (object)
     @defineDocumentInterfaceDetailQuantityPrefix(object, , );
 END
 
-// Итоги
+// Header total
 
 META defineDocumentHeaderQuantityCustomPrefix (object, detail, prefix, caption)
     prefix###quantity###detail '{document.quantity.total.of}'###caption (object) = GROUP SUM prefix###quantity(###detail idetail) BY object(idetail) IN documentSum CHARWIDTH 8 MATERIALIZED;
@@ -783,10 +777,10 @@ END
 
 // -- Price
 META defineDocumentDetailPriceCustomPrefix (detail, prefix, caption)
-    prefix###price '{document.price}'###caption = DATA NUMERIC[16,4] (###detail) CHARWIDTH 7;
+    prefix###price '{document.price}'###caption = DATA NUMERIC[16,4] (###detail) CHARWIDTH 7 PATTERN '#,##0.00##';
 END
 META defineDocumentAbstractDetailPriceCustomPrefix (detail, prefix, caption)
-    prefix###price '{document.price}'###caption = ABSTRACT NUMERIC[16,4] (###detail) CHARWIDTH 7 MATERIALIZED;
+    prefix###price '{document.price}'###caption = ABSTRACT NUMERIC[16,4] (###detail) CHARWIDTH 7 MATERIALIZED PATTERN '#,##0.00##';
 END
 META defineDocumentInterfaceDetailPriceCustomPrefix (detail, prefix, caption)
     @defineDocumentAbstractDetailPriceCustomPrefix(detail, prefix, caption);
@@ -826,10 +820,10 @@ END
 
 // -- Sum
 META defineDocumentDetailSumCustom (detail, currencyProp)
-    sum '{document.sum.detail}' (###detail detail) = NUMERIC[18,4](round((quantity(detail) * price(detail)), currencyProp(detail))) CHARWIDTH 9;
+    sum '{document.sum.detail}' (###detail detail) = NUMERIC[18,4](round((quantity(detail) * price(detail)), currencyProp(detail))) CHARWIDTH 9 PATTERN '#,##0.00##';
 END
 META defineDocumentDetailSumCustomRound (detail, roundProp)
-    sum###detail '{document.sum.detail}' (detail) = NUMERIC[18,4](round((quantity###detail(detail) * price###detail(detail)), roundProp###detail(detail))) CHARWIDTH 9;
+    sum###detail '{document.sum.detail}' (detail) = NUMERIC[18,4](round((quantity###detail(detail) * price###detail(detail)), roundProp###detail(detail))) CHARWIDTH 9 PATTERN '#,##0.00##';
 END
 META defineDocumentDetailSumCustom (detail)
     @defineDocumentDetailSumCustom(detail, currency);
@@ -862,10 +856,10 @@ END
 
 //--
 META defineDocumentDetailDataSumCustomPrefix (detail, prefix, caption)
-    prefix###sum '{document.sum.of}'###caption = DATA NUMERIC[18,4] (###detail) CHARWIDTH 9;
+    prefix###sum '{document.sum.of}'###caption = DATA NUMERIC[18,4] (###detail) CHARWIDTH 9 PATTERN '#,##0.00##';
 END
 META defineDocumentAbstractDetailDataSumCustomPrefix (detail, prefix, caption)
-    prefix###sum '{document.sum.of}'###caption = ABSTRACT NUMERIC[18,4] (###detail) CHARWIDTH 9 MATERIALIZED;
+    prefix###sum '{document.sum.of}'###caption = ABSTRACT NUMERIC[18,4] (###detail) CHARWIDTH 9 MATERIALIZED PATTERN '#,##0.00##';
 END
 
 META defineDocumentInterfaceDetailDataSumCustomPrefix (detail, prefix, caption)
@@ -909,9 +903,9 @@ META deriveDocumentDetailSum(object, quantityProp)
     @deriveDocumentDetailSum(object, currency, quantityProp);
 END
 
-// Итоги
+// Header total
 META defineDocumentHeaderSumCustom (object, detail, caption)
-    sum###detail '{document.sum.of}'###caption (object) = GROUP SUM sum(###detail idetail) BY object(idetail) CHARWIDTH 10 IN documentSum;
+    sum###detail '{document.sum.of}'###caption (object) = GROUP SUM sum(###detail idetail) BY object(idetail) CHARWIDTH 10 IN documentSum PATTERN '#,##0.00##';
 END
 META defineDocumentInterfaceHeaderSumCustom (object, detail, caption)
     @defineDocumentHeaderSumCustom (object, detail, caption);
@@ -935,7 +929,7 @@ META defineDocumentInterfaceHeaderSum (object)
 END
 
 META defineDocumentHeaderSumCustomPrefix (object, detail, prefix, caption)
-    prefix###sum###detail '{document.sum.of}'###caption (object) = GROUP SUM prefix###sum(###detail idetail) BY object(idetail) CHARWIDTH 10 IN documentSum;
+    prefix###sum###detail '{document.sum.of}'###caption (object) = GROUP SUM prefix###sum(###detail idetail) BY object(idetail) CHARWIDTH 10 IN documentSum PATTERN '#,##0.00##';
 END
 META defineDocumentInterfaceHeaderSumCustomPrefix (object, detail, prefix, caption)
     @defineDocumentHeaderSumCustomPrefix(object, detail, prefix, caption);
@@ -951,7 +945,7 @@ META defineDocumentInterfaceHeaderSumPrefix (object, prefix, caption)
 END
 
 META defineDocumentDetailDiffSumCustomPrefix (detail, prop, prefixA, prefixB, caption)
-    diff###prop '{document.sum.of} '###caption (###detail detail) =  prefixA###prop(detail) (-) prefixB###prop(detail);
+    diff###prop '{document.sum.of} '###caption (###detail detail) =  prefixA###prop(detail) (-) prefixB###prop(detail) PATTERN '#,##0.00##';
 END
 
 META defineDocumentInterfaceDetailDiffSumCustomPrefix (detail, prop, prefixA, prefixB, caption)
@@ -1050,7 +1044,7 @@ META defineDocumentInterfaceProperty (object, prop, caption)
     @defineDocumentInterfaceDetailProperty (object, prop, caption);
 END
 
-// ------------------------- Основной - агрегированный документы ---------------------------------- //
+// ------------------------- Aggregations ---------------------------------- //
 
 META defineDocumentAggregationHeader(primObject, aggrObject, aggrProperty)
     aggrObject = AGGR ###aggrObject WHERE aggrProperty(###primObject primObject) MATERIALIZED INDEXED;

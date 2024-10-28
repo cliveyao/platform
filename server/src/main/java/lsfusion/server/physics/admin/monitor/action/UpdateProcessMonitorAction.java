@@ -1,35 +1,26 @@
 package lsfusion.server.physics.admin.monitor.action;
 
 import com.google.common.base.Throwables;
-import lsfusion.base.col.MapFact;
 import lsfusion.base.col.SetFact;
 import lsfusion.base.col.interfaces.immutable.ImMap;
 import lsfusion.base.col.interfaces.immutable.ImOrderSet;
-import lsfusion.base.col.interfaces.immutable.ImRevMap;
 import lsfusion.base.col.interfaces.immutable.ImSet;
 import lsfusion.base.col.interfaces.mutable.MExclSet;
 import lsfusion.base.col.interfaces.mutable.MSet;
 import lsfusion.server.base.controller.thread.ThreadUtils;
-import lsfusion.server.data.OperationOwner;
 import lsfusion.server.data.expr.formula.SQLSyntaxType;
-import lsfusion.server.data.expr.key.KeyExpr;
-import lsfusion.server.data.query.build.Join;
 import lsfusion.server.data.sql.SQLSession;
 import lsfusion.server.data.sql.exception.SQLHandledException;
 import lsfusion.server.data.value.DataObject;
 import lsfusion.server.data.value.NullValue;
 import lsfusion.server.data.value.ObjectValue;
-import lsfusion.server.data.where.Where;
 import lsfusion.server.language.ScriptingErrorLog;
 import lsfusion.server.language.ScriptingLogicsModule;
 import lsfusion.server.language.property.LP;
 import lsfusion.server.logics.action.controller.context.ExecutionContext;
-import lsfusion.server.logics.action.session.change.PropertyChange;
-import lsfusion.server.logics.action.session.table.SingleKeyTableUsage;
 import lsfusion.server.logics.classes.data.StringClass;
 import lsfusion.server.logics.classes.data.integral.LongClass;
 import lsfusion.server.logics.classes.data.time.DateTimeClass;
-import lsfusion.server.logics.property.Property;
 import lsfusion.server.logics.property.classes.ClassPropertyInterface;
 import lsfusion.server.logics.property.data.SessionDataProperty;
 import lsfusion.server.physics.admin.Settings;
@@ -43,10 +34,9 @@ import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Map;
-import java.util.function.Function;
 
 import static lsfusion.base.BaseUtils.trimToEmpty;
-import static lsfusion.server.logics.classes.data.time.DateTimeConverter.*;
+import static lsfusion.base.DateConverter.sqlTimestampToLocalDateTime;
 
 public class UpdateProcessMonitorAction extends ProcessDumpAction {
 
@@ -60,7 +50,7 @@ public class UpdateProcessMonitorAction extends ProcessDumpAction {
         try {
             boolean readAllocatedBytes = Settings.get().isReadAllocatedBytes();
             String processType = trimToEmpty((String) findProperty("nameProcessType[]").read(context));
-            context.getSession().cancel(context.stack, SetFact.singleton((SessionDataProperty) findProperty("processType[]").property));
+            context.cancel(SetFact.singleton((SessionDataProperty) findProperty("processType[]").property));
 
             updateProcessMonitor(context, processType, readAllocatedBytes);
 
@@ -110,158 +100,102 @@ public class UpdateProcessMonitorAction extends ProcessDumpAction {
                 "querySQLProcess[STRING[10]]", "addressUserSQLProcess[STRING[10]]",
                 "dateTimeSQLProcess[STRING[10]]", "isActiveSQLProcess[STRING[10]]", "inTransactionSQLProcess[STRING[10]]",
                 "startTransactionSQLProcess[STRING[10]]", "attemptCountSQLProcess[STRING[10]]", "statusSQLProcess[STRING[10]]",
-                "statusMessageSQLProcess[STRING[10]]", "computerProcess[STRING[10]]", "userProcess[STRING[10]]", "lockOwnerIdProcess[STRING[10]]",
+                "statusMessageSQLProcess[STRING[10]]", "waitEventTypeSQLProcess[STRING[10]]", "waitEventSQLProcess[STRING[10]]",
+                "computerProcess[STRING[10]]", "userProcess[STRING[10]]", "lockOwnerIdProcess[STRING[10]]",
                 "lockOwnerNameProcess[STRING[10]]", "fullQuerySQLProcess[STRING[10]]", "idSQLProcess[STRING[10]]",
                 "isDisabledNestLoopProcess[STRING[10]]", "queryTimeoutProcess[STRING[10]]", "debugInfoSQLProcess[STRING[10]]",
                 "threadNameSQLProcess[STRING[10]]", "threadStackTraceSQLProcess[STRING[10]]"));
 
-        int rowsJava = writeRowsJava(context, propsJava, javaProcesses);
-        int rowsSQL = writeRowsSQL(context, propsSQL, sqlProcesses);
-        if (rowsJava == 0 && rowsSQL == 0)
-            findAction("formRefresh[]").execute(context);
-
+        LP.change(context, propsJava, javaProcesses, StringClass.get(10), (key, value, lp) -> getJavaMapValue(lp, value, key));
+        LP.change(context, propsSQL, sqlProcesses, StringClass.get(10), (key, value, lp) -> getSQLMapValue(lp, value, key));
     }
 
-    private Function<LP, ObjectValue> getJavaMapValueGetter(final JavaProcess javaProcessValue, final String idThread) {
-        return prop -> getJavaMapValue(prop, javaProcessValue, idThread);
-    }
-
-    private Function<LP, ObjectValue> getSQLMapValueGetter(final SQLProcess sqlProcessValue, final String idThread) {
-        return prop -> getSQLMapValue(prop, sqlProcessValue, idThread);
-    }
-
-    private ObjectValue getJavaMapValue(LP<?> prop, JavaProcess javaProcess, String idThread) {
+    private Object getJavaMapValue(LP<?> prop, JavaProcess javaProcess, String idThread) {
         switch (prop.property.getName()) {
             case "idThreadProcess":
-                return idThread == null ? NullValue.instance : new DataObject(idThread);
+                return idThread;
             case "stackTraceJavaProcess":
-                return javaProcess.stackTrace == null ? NullValue.instance : new DataObject(javaProcess.stackTrace);
+                return javaProcess.stackTrace;
             case "nameJavaProcess":
-                return javaProcess.name == null ? NullValue.instance : new DataObject(javaProcess.name);
+                return javaProcess.name;
             case "statusJavaProcess":
-                return javaProcess.status == null ? NullValue.instance : new DataObject(javaProcess.status);
+                return javaProcess.status;
             case "lockNameJavaProcess":
-                return javaProcess.lockName == null ? NullValue.instance : new DataObject(javaProcess.lockName);
+                return javaProcess.lockName;
             case "lockOwnerIdProcess":
-                return javaProcess.lockOwnerId == null ? NullValue.instance : new DataObject(javaProcess.lockOwnerId);
+                return javaProcess.lockOwnerId;
             case "lockOwnerNameProcess":
-                return javaProcess.lockOwnerName == null ? NullValue.instance : new DataObject(javaProcess.lockOwnerName);
+                return javaProcess.lockOwnerName;
             case "nameComputerJavaProcess":
-                return javaProcess.computer == null ? NullValue.instance : new DataObject(javaProcess.computer);
+                return javaProcess.computer;
             case "nameUserJavaProcess":
-                return javaProcess.user == null ? NullValue.instance : new DataObject(javaProcess.user);
+                return javaProcess.user;
             case "lsfStackTraceProcess":
-                return javaProcess.lsfStackTrace == null ? NullValue.instance : new DataObject(javaProcess.lsfStackTrace);
+                return javaProcess.lsfStackTrace;
             case "threadAllocatedBytesProcess":
-                return javaProcess.threadAllocatedBytes == null ? NullValue.instance : new DataObject(javaProcess.threadAllocatedBytes, LongClass.instance);
+                return javaProcess.threadAllocatedBytes;
             case "lastThreadAllocatedBytesProcess":
-                return javaProcess.lastThreadAllocatedBytes == null ? NullValue.instance : new DataObject(javaProcess.lastThreadAllocatedBytes, LongClass.instance);
+                return javaProcess.lastThreadAllocatedBytes;
             default:
-                return NullValue.instance;
+                return null;
         }
     }
 
-    private ObjectValue getSQLMapValue(LP<?> prop, SQLProcess sqlProcess, String idThread) {
+    private Object getSQLMapValue(LP<?> prop, SQLProcess sqlProcess, String idThread) {
         switch (prop.property.getName()) {
             case "idThreadProcess":
-                return idThread == null ? NullValue.instance : new DataObject(idThread);
+                return idThread;
             case "dateTimeCallProcess":
-                return sqlProcess.dateTimeCall == null ? NullValue.instance : new DataObject(getWriteDateTime(sqlProcess.dateTimeCall), DateTimeClass.instance);
+                return sqlProcess.dateTimeCall;
             case "querySQLProcess":
-                return sqlProcess.query == null ? NullValue.instance : new DataObject(sqlProcess.query);
+                return sqlProcess.query;
             case "fullQuerySQLProcess":
-                return sqlProcess.fullQuery == null ? NullValue.instance : new DataObject(sqlProcess.fullQuery);
+                return sqlProcess.fullQuery;
             case "userProcess":
-                return sqlProcess.user == null ? NullValue.instance : new DataObject(sqlProcess.user);
+                return sqlProcess.user;
             case "computerProcess":
-                return sqlProcess.computer == null ? NullValue.instance : new DataObject(sqlProcess.computer);
+                return sqlProcess.computer;
             case "addressUserSQLProcess":
-                return sqlProcess.addressUser == null ? NullValue.instance : new DataObject(sqlProcess.addressUser);
+                return sqlProcess.addressUser;
             case "dateTimeSQLProcess":
-                return sqlProcess.dateTime == null ? NullValue.instance : new DataObject(getWriteDateTime(sqlProcess.dateTime), DateTimeClass.instance);
+                return sqlProcess.dateTime;
             case "isActiveSQLProcess":
-                return DataObject.create(sqlProcess.isActive != null && sqlProcess.isActive);
+                return (sqlProcess.isActive != null && sqlProcess.isActive ? true : null);
             case "inTransactionSQLProcess":
                 if (sqlProcess.baseInTransaction != null && sqlProcess.fusionInTransaction != null && sqlProcess.fusionInTransaction)
                     ServerLoggers.assertLog(sqlProcess.baseInTransaction.equals(true), "FUSION AND BASE INTRANSACTION DIFFERS");
-                return DataObject.create(sqlProcess.baseInTransaction != null ? sqlProcess.baseInTransaction : sqlProcess.fusionInTransaction);
+                return (sqlProcess.baseInTransaction != null ? sqlProcess.baseInTransaction : sqlProcess.fusionInTransaction) ? true : null;
             case "startTransactionSQLProcess":
-                return sqlProcess.startTransaction == null ? NullValue.instance : new DataObject(getWriteDateTime(new Timestamp(sqlProcess.startTransaction)), DateTimeClass.instance);
+                return sqlProcess.startTransaction != null ? sqlTimestampToLocalDateTime(new Timestamp(sqlProcess.startTransaction)) : null;
             case "attemptCountSQLProcess":
-                return sqlProcess.attemptCount == null ? NullValue.instance : new DataObject(sqlProcess.attemptCount);
+                return sqlProcess.attemptCount;
             case "statusSQLProcess":
-                return sqlProcess.status == null ? NullValue.instance : new DataObject(sqlProcess.status);
+                return sqlProcess.status;
             case "statusMessageSQLProcess":
-                return sqlProcess.statusMessage == null ? NullValue.instance : new DataObject(sqlProcess.statusMessage.getMessage());
+                return sqlProcess.statusMessage != null ? sqlProcess.statusMessage.getMessage() : null;
+            case "waitEventTypeSQLProcess":
+                return sqlProcess.waitEventType;
+            case "waitEventSQLProcess":
+                return sqlProcess.waitEvent;
             case "lockOwnerIdProcess":
-                return sqlProcess.lockOwnerId == null ? NullValue.instance : new DataObject(sqlProcess.lockOwnerId);
+                return sqlProcess.lockOwnerId;
             case "lockOwnerNameProcess":
-                return sqlProcess.lockOwnerName == null ? NullValue.instance : new DataObject(sqlProcess.lockOwnerName);
+                return sqlProcess.lockOwnerName;
             case "idSQLProcess":
-                return sqlProcess.sqlId == null ? NullValue.instance : new DataObject(sqlProcess.sqlId);
+                return sqlProcess.sqlId;
             case "isDisabledNestLoopProcess":
-                return DataObject.create(sqlProcess.isDisabledNestLoop != null && sqlProcess.isDisabledNestLoop);
+                return sqlProcess.isDisabledNestLoop != null && sqlProcess.isDisabledNestLoop ? true : null;
             case "queryTimeoutProcess":
-                return sqlProcess.queryTimeout == null ? NullValue.instance : new DataObject(sqlProcess.queryTimeout);
+                return sqlProcess.queryTimeout;
             case "debugInfoSQLProcess":
-                return sqlProcess.debugInfo == null ? NullValue.instance : new DataObject(sqlProcess.debugInfo);
+                return sqlProcess.debugInfo;
             case "threadNameSQLProcess":
-                return sqlProcess.threadName == null ? NullValue.instance : new DataObject(sqlProcess.threadName);
+                return sqlProcess.threadName;
             case "threadStackTraceSQLProcess":
-                return sqlProcess.threadStackTrace == null ? NullValue.instance : new DataObject(sqlProcess.threadStackTrace);
+                return sqlProcess.threadStackTrace;
             default:
-                return NullValue.instance;
+                return null;
         }
-    }
-
-    private int writeRowsJava(ExecutionContext context, final ImOrderSet<LP> props, ImMap<String, JavaProcess> processes) throws SQLException, SQLHandledException {
-
-        ImMap<ImMap<String, DataObject>, ImMap<LP, ObjectValue>> rows;
-
-        rows = processes.mapKeyValues(value -> MapFact.singleton("key", new DataObject(value, StringClass.get(10))), (key, value) -> props.getSet().mapValues(getJavaMapValueGetter(value, key)));
-
-        SingleKeyTableUsage<LP> importTable = new SingleKeyTableUsage<>("updpm:wr", StringClass.get(10), props, key -> ((LP<?>)key).property.getType());
-        OperationOwner owner = context.getSession().getOwner();
-        SQLSession sql = context.getSession().sql;
-        importTable.writeRows(sql, rows, owner);
-
-        ImRevMap<String, KeyExpr> mapKeys = importTable.getMapKeys();
-        Join<LP> importJoin = importTable.join(mapKeys);
-        Where where = importJoin.getWhere();
-        try {
-            for (LP lcp : props) {
-                PropertyChange propChange = new PropertyChange(MapFact.singletonRev(lcp.listInterfaces.single(), mapKeys.singleValue()), importJoin.getExpr(lcp), where);
-                context.getEnv().change(lcp.property, propChange);
-            }
-        } finally {
-            importTable.drop(sql, owner);
-        }
-        return rows.size();
-    }
-
-    private int writeRowsSQL(ExecutionContext context, final ImOrderSet<LP> props, ImMap<String, SQLProcess> processes) throws SQLException, SQLHandledException {
-
-        ImMap<ImMap<String, DataObject>, ImMap<LP, ObjectValue>> rows;
-
-        rows = processes.mapKeyValues(value -> MapFact.singleton("key", new DataObject(value, StringClass.get(10))), (key, value) -> props.getSet().mapValues(getSQLMapValueGetter(value, key)));
-
-        SingleKeyTableUsage<LP> importTable = new SingleKeyTableUsage<>("updpm:wr", StringClass.get(10), props, key -> ((LP<?>)key).property.getType());
-        OperationOwner owner = context.getSession().getOwner();
-        SQLSession sql = context.getSession().sql;
-        importTable.writeRows(sql, rows, owner);
-
-        ImRevMap<String, KeyExpr> mapKeys = importTable.getMapKeys();
-        Join<LP> importJoin = importTable.join(mapKeys);
-        Where where = importJoin.getWhere();
-        try {
-            for (LP lcp : props) {
-                PropertyChange propChange = new PropertyChange(MapFact.singletonRev(lcp.listInterfaces.single(), mapKeys.singleValue()), importJoin.getExpr(lcp), where);
-                context.getEnv().change(lcp.property, propChange);
-            }
-        } finally {
-            importTable.drop(sql, owner);
-        }
-        return rows.size();
     }
 
     private ImOrderSet<LP> getProps(LP<?>[] properties) {

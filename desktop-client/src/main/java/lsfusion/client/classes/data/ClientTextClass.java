@@ -1,15 +1,14 @@
 package lsfusion.client.classes.data;
 
 import lsfusion.client.ClientResourceBundle;
-import lsfusion.client.classes.ClientType;
 import lsfusion.client.classes.ClientTypeClass;
 import lsfusion.client.form.controller.ClientFormController;
 import lsfusion.client.form.property.ClientPropertyDraw;
 import lsfusion.client.form.property.cell.classes.controller.PropertyEditor;
 import lsfusion.client.form.property.cell.classes.controller.TextPropertyEditor;
-import lsfusion.client.form.property.cell.classes.controller.rich.RichTextPropertyEditor;
 import lsfusion.client.form.property.cell.classes.view.TextPropertyRenderer;
 import lsfusion.client.form.property.cell.view.PropertyRenderer;
+import lsfusion.client.form.property.table.view.AsyncChangeInterface;
 import lsfusion.interop.classes.DataType;
 import lsfusion.interop.form.property.ExtInt;
 
@@ -18,18 +17,15 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 
 public class ClientTextClass extends ClientStringClass implements ClientTypeClass {
+    private final String type;
 
-    public final boolean rich;
-
-    public ClientTextClass(boolean rich) {
-        super(false, false, ExtInt.UNLIMITED);
-        this.rich = rich;
+    public ClientTextClass() {
+        this(null);
     }
 
-    @Override
-    public void serialize(DataOutputStream outStream) throws IOException {
-        super.serialize(outStream);
-        outStream.writeBoolean(rich);
+    public ClientTextClass(String type) {
+        super(false, false, ExtInt.UNLIMITED);
+        this.type = type;
     }
 
     @Override
@@ -37,14 +33,8 @@ public class ClientTextClass extends ClientStringClass implements ClientTypeClas
         return this;
     }
 
-    @Override
     public byte getTypeId() {
         return DataType.TEXT;
-    }
-
-    @Override
-    public ClientType getDefaultType() {
-        return this;
     }
 
     @Override
@@ -54,20 +44,21 @@ public class ClientTextClass extends ClientStringClass implements ClientTypeClas
 
     @Override
     public String toString() {
-        return ClientResourceBundle.getString("logics.classes.text") + (rich ? " (rich)" : "");
+        return ClientResourceBundle.getString("logics.classes.text") + (type != null ? " (" + type + ")" : "");
     }
 
     public PropertyRenderer getRendererComponent(ClientPropertyDraw property) {
-        return new TextPropertyRenderer(property, rich);
+        return new TextPropertyRenderer(property, false);
     }
 
     @Override
-    public PropertyEditor getChangeEditorComponent(Component ownerComponent, ClientFormController form, ClientPropertyDraw property, Object value) {
-        return rich ? new RichTextPropertyEditor(ownerComponent, value, property.design) : new TextPropertyEditor(ownerComponent, value, property.design);
+    public PropertyEditor getChangeEditorComponent(Component ownerComponent, ClientFormController form, ClientPropertyDraw property, AsyncChangeInterface asyncChange, Object value) {
+        return new TextPropertyEditor(ownerComponent, value, property.design, asyncChange);
     }
 
-    public PropertyEditor getDataClassEditorComponent(Object value, ClientPropertyDraw property) {
-        return rich ? new RichTextPropertyEditor(value, property.design) : new TextPropertyEditor(value, property.design);
+    @Override
+    public PropertyEditor getDataClassEditorComponent(Object value, ClientPropertyDraw property, AsyncChangeInterface asyncChange) {
+        return  new TextPropertyEditor(null, value, property.design, asyncChange);
     }
 
 }

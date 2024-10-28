@@ -6,7 +6,9 @@ The `BEFORE` statement calls an [action](Actions.md) before calling another acti
 
 ### Syntax
 
-    BEFORE action(param1, ..., paramN) DO aspectAction;
+```
+BEFORE action(param1, ..., paramN) DO aspectAction;
+```
 
 ### Description
 
@@ -30,5 +32,7 @@ The `BEFORE` statement defines an action (let's call it an *aspect*) that will b
 
 ```lsf
 changeName(Sku s, STRING[100] name)  { name(s) <- name; }
-BEFORE changeName(Sku s, STRING[100] name) DO MESSAGE 'Changing user name'; // The message will be shown before each call to changeName
+
+// The message will be shown before each call to changeName
+BEFORE changeName(Sku s, STRING[100] name) DO MESSAGE 'Changing user name'; 
 ```

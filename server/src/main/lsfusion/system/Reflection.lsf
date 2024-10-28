@@ -41,8 +41,8 @@ CLASS Form '{reflection.form}';
 TABLE form (Form);
 TABLE formNames (STRING[100]);
 
-caption '{reflection.caption.form}' = DATA STRING[250] (Form);
-canonicalName '{reflection.canonical.name.form}' = DATA STRING[100] (Form);
+caption '{reflection.caption.form}' = DATA ISTRING[250] (Form) CHARWIDTH 20 IN id;
+canonicalName '{reflection.canonical.name.form}' = DATA STRING[100] (Form) CHARWIDTH 20 IN id;
 form '{reflection.form}' (sid) = GROUP AGGR Form form WHERE form IS Form BY canonicalName(form) MATERIALIZED TABLE formNames; // for profiler
 is (Form form) = form IS Form;
 
@@ -74,12 +74,29 @@ caption '{reflection.caption.action.or.property}' = DATA ISTRING[250] (ActionOrP
 annotation '{reflection.annotation.action.or.property}' = DATA STRING[100] (ActionOrProperty);
 class '{reflection.class.action.or.property}' = DATA STRING[100] (ActionOrProperty);
 
+isProperty(ActionOrProperty aop) = aop IS Property;
+
 dbName '{reflection.db.name.property}' = DATA STRING[100] (Property) IN base;
 leftTo = FORMULA PG 'left($1, strpos($1, $2) - 1)', MS 'LEFT($1, CHARINDEX($2, $1) - 1)';
 loggable '{reflection.loggable.property}' = DATA BOOLEAN (Property);
 userLoggable '{reflection.user.loggable.property}' = DATA BOOLEAN (Property);
 stored '{reflection.stored.property}' = DATA BOOLEAN (Property);
 isSetNotNull '{reflection.is.set.not.null.property}' = DATA BOOLEAN (Property);
+disableInputList '{reflection.disable.input.list}' = DATA BOOLEAN (Property);
+
+CLASS SelectType '{reflection.select}' {
+    Button '{reflection.select.type.button}',
+    ButtonGroup '{reflection.select.type.button.group}',
+    Dropdown '{reflection.select.type.dropdown}',
+    List '{reflection.select.type.list}',
+    No '{reflection.select.type.no}'
+}
+select '{reflection.select}' = DATA SelectType (Property);
+nameSelect '{reflection.select}' (Property property) = basicStaticName(select(property));
+staticCaptionSelect '{reflection.select}' (Property property) = staticCaption(select(property));
+
+updateSelect  INTERNAL  'lsfusion.server.physics.admin.service.action.UpdateSelectAction' (Property, STRING);
+
 return '{reflection.return.property}' = DATA STRING[100] (Property);
 complexity '{reflection.complexity.property}' = DATA LONG (Property);
 tableSID '{reflection.table.sid.property}' = DATA STRING[100] (Property);
@@ -103,6 +120,8 @@ DESIGN options {
     } 
 }
 
+canonicalNameWithPostfix(ActionOrProperty aop) = CONCAT '_', canonicalName(aop), IF aop IS Action THEN 'action' ELSE 'property';
+actionOrPropertyCanonicalNameWithPostfix '{reflection.property}' (cn) = GROUP AGGR ActionOrProperty aop WHERE aop IS ActionOrProperty BY canonicalNameWithPostfix(aop);
 propertyCanonicalName '{reflection.property}' (cn) = GROUP AGGR Property property WHERE property IS Property BY canonicalName(property);
 actionCanonicalName '{reflection.action}' (cn) = GROUP AGGR Action property WHERE property IS Action BY canonicalName(property);
 propertyTable '{reflection.property}' (string, sID) = GROUP AGGR Property property WHERE stored(property) BY tableSID(property), dbName(property);
@@ -140,8 +159,10 @@ TABLE formPropertyDraw (Form, PropertyDraw);
 TABLE propertyDraw (PropertyDraw);
 TABLE propertyDrawCustomUser (PropertyDraw, CustomUser);
 
-sid '{reflection.sid.property.draw}' = DATA STRING[100] (PropertyDraw) IN id;
-caption '{reflection.caption.property.draw}' = DATA STRING[250] (PropertyDraw);
+actionOrProperty = DATA ActionOrProperty (PropertyDraw);
+canonicalNameActionOrProperty '{reflection.action.or.property}' (PropertyDraw p) = canonicalName(actionOrProperty(p)) IN id CHARWIDTH 20;
+sid '{reflection.sid.property.draw}' = DATA STRING[100] (PropertyDraw) IN id CHARWIDTH 20;
+caption '{reflection.caption.property.draw}' = DATA STRING[250] (PropertyDraw) CHARWIDTH 20;
 form '{reflection.form.property.draw}' = DATA Form (PropertyDraw) INDEXED;
 nameForm '{reflection.form.property.draw}' (PropertyDraw pd) = canonicalName(form(pd)) IN id;
 groupObject '{reflection.group.object.property.draw}' = DATA GroupObject (PropertyDraw);
@@ -160,11 +181,14 @@ captionShow '{reflection.show.property.draw.custom.user}' (PropertyDraw property
 columnCaption '{reflection.column.caption.property.draw.custom.user}' = DATA STRING[100] (PropertyDraw, CustomUser);
 columnCaption '{reflection.column.caption.property.draw}' = DATA STRING[100] (PropertyDraw);
 
-columnPattern '{reflection.column.pattern.property.draw.custom.user}' = DATA STRING[100] (PropertyDraw, CustomUser);
-columnPattern '{reflection.column.pattern.property.draw}' = DATA STRING[100] (PropertyDraw);
+columnPattern '{reflection.column.pattern.property.draw.custom.user}' = DATA STRING[100] (PropertyDraw, CustomUser) CHARWIDTH 15;
+columnPattern '{reflection.column.pattern.property.draw}' = DATA STRING[100] (PropertyDraw) CHARWIDTH 15;
 
 columnWidth '{reflection.column.width.property.draw.custom.user}' = DATA INTEGER (PropertyDraw, CustomUser);
 columnWidth '{reflection.column.width.property.draw}' = DATA INTEGER (PropertyDraw);
+
+columnFlex '{reflection.column.flex.property.draw.custom.user}' = DATA DOUBLE (PropertyDraw, CustomUser);
+columnFlex '{reflection.column.flex.property.draw}' = DATA DOUBLE (PropertyDraw);
 
 columnOrder '{reflection.column.order.property.draw.custom.user}' = DATA INTEGER (PropertyDraw, CustomUser);
 columnOrder '{reflection.column.order.property.draw}' = DATA INTEGER (PropertyDraw);
@@ -177,7 +201,9 @@ columnAscendingSort '{reflection.column.ascending.sort.property.draw}' = DATA BO
 
 hasUserPreferences '{reflection.has.user.preferences.group.object.custom.user}'= DATA BOOLEAN (GroupObject, CustomUser);
 countShowPropertyDraw(g, CustomUser u) = GROUP SUM 1 IF show(PropertyDraw property, u) == PropertyDrawShowStatus.Show BY groupObject(property);
+countUserPreferences '{authentication.users.number}' (GroupObject g) = GROUP SUM 1 IF hasUserPreferences(g, CustomUser u);
 CONSTRAINT hasUserPreferences(GroupObject g, CustomUser u) AND NOT countShowPropertyDraw(g, u) MESSAGE '{reflection.constraint.has.user.preferences}';
+
 hasUserPreferences '{reflection.has.user.preferences.group.object}' = DATA BOOLEAN (GroupObject);
 countShowPropertyDraw(g) = GROUP SUM 1 IF show(PropertyDraw property) == PropertyDrawShowStatus.Show BY groupObject(property);
 CONSTRAINT hasUserPreferences(GroupObject g) AND NOT countShowPropertyDraw(g) MESSAGE '{reflection.constraint.has.user.preferences}';
@@ -211,7 +237,7 @@ sid '{reflection.sid.table}' = DATA ISTRING[100] (Table);
 table '{reflection.table}' (sID) = GROUP AGGR Table table WHERE table IS Table BY sid (table);
 rows '{reflection.row.table}' = DATA INTEGER (Table);
 skipVacuum '{reflection.skip.vacuum.table}' = DATA BOOLEAN (Table);
-table '{reflection.table}' = DATA Table (TableKey);
+table '{reflection.table}' = DATA Table (TableKey) NONULL DELETE;
 sidTable (TableKey tableKey) = sid(table(tableKey));
 
 CLASS TableKey '{reflection.table.key}';
@@ -229,7 +255,7 @@ overQuantity '{reflection.quantity.table.key}' (TableKey tableKey) = OVERRIDE qu
 CLASS TableColumn '{reflection.table.column}';
 TABLE tableColumn (TableColumn);
 
-table '{reflection.table.table.column}' = DATA Table(TableColumn);
+table '{reflection.table.table.column}' = DATA Table(TableColumn) NONULL DELETE;
 sid '{reflection.sid.table.column}' = DATA ISTRING[100] (TableColumn);
 tableSID (sid) = GROUP MAX Table table BY sid(table);
 
@@ -253,22 +279,39 @@ percentNotNull '{reflection.percent.not.null}' (TableColumn tableColumn) = IF ro
                                                           ELSE NUMERIC[15,2](notNullQuantity(tableColumn)) / rows (table(tableColumn)) * 100;
 sparseColumns '{reflection.sparse.columns}' (table) = GROUP SUM 1 BY table(TableColumn tableColumn) IF percentNotNull(tableColumn) < 50;
 
-notRecalculate '{reflection.not.recalculate}' = DATA BOOLEAN (TableColumn);
+//todo: remove after onFinallyStarted migration
+notRecalculate '{reflection.not.recalculate.materializations}' = DATA BOOLEAN (TableColumn);
+notRecalculateMaterializations '{reflection.not.recalculate.materializations}' = DATA BOOLEAN (TableColumn);
 
-recalculateAggregation '{reflection.recalculate.aggregation}'  INTERNAL  'lsfusion.server.physics.admin.service.action.RecalculateTableColumnAction' (TableColumn);
-recalculateAggregationWithDependencies '{reflection.recalculate.aggregation.with.dependencies}'  INTERNAL  'lsfusion.server.physics.admin.service.action.RecalculateTableColumnWithDependenciesAction' (TableColumn);
-recalculateAggregationWithDependents '{reflection.recalculate.aggregation.with.dependents}'  INTERNAL  'lsfusion.server.physics.admin.service.action.RecalculateTableColumnWithDependentsAction' (TableColumn);
-checkAggregation '{reflection.check.aggregation}'  INTERNAL  'lsfusion.server.physics.admin.service.action.CheckTableColumnAction' (TableColumn);
-checkAggregation(ISTRING[100] string)  { checkAggregation(tableColumnSID(string)); }
+//todo: remove after onFinallyStarted migration
+recalculateAggregation '{reflection.recalculate.materializations}'  INTERNAL  'lsfusion.server.physics.admin.service.action.RecalculateTableColumnAction' (TableColumn);
+recalculateMaterializations '{reflection.recalculate.materializations}'  INTERNAL  'lsfusion.server.physics.admin.service.action.RecalculateTableColumnAction' (TableColumn);
+//todo: remove after onFinallyStarted migration
+recalculateAggregationWithDependencies '{reflection.recalculate.materializations.with.dependencies}'  INTERNAL  'lsfusion.server.physics.admin.service.action.RecalculateTableColumnWithDependenciesAction' (TableColumn);
+recalculateMaterializationsWithDependencies '{reflection.recalculate.materializations.with.dependencies}'  INTERNAL  'lsfusion.server.physics.admin.service.action.RecalculateTableColumnWithDependenciesAction' (TableColumn);
+//todo: remove after onFinallyStarted migration
+recalculateAggregationWithDependents '{reflection.recalculate.materializations.with.dependents}'  INTERNAL  'lsfusion.server.physics.admin.service.action.RecalculateTableColumnWithDependentsAction' (TableColumn);
+recalculateMaterializationsWithDependents '{reflection.recalculate.materializations.with.dependents}'  INTERNAL  'lsfusion.server.physics.admin.service.action.RecalculateTableColumnWithDependentsAction' (TableColumn);
+//todo: remove after onFinallyStarted migration
+checkAggregation '{reflection.check.materializations}'  INTERNAL  'lsfusion.server.physics.admin.service.action.CheckTableColumnAction' (TableColumn);
+checkMaterializations '{reflection.check.materializations}'  INTERNAL  'lsfusion.server.physics.admin.service.action.CheckTableColumnAction' (TableColumn);
+checkAggregation(ISTRING[100] string)  { checkMaterializations(tableColumnSID(string)); }
+checkMaterializations(ISTRING[100] string)  { checkMaterializations(tableColumnSID(string)); }
 dropDB  INTERNAL  'lsfusion.server.physics.admin.service.action.DropColumnAction' (DropColumn);
 drop '{reflection.drop.drop.column}' (DropColumn cl)  { 
     dropDB(cl);
     DELETE cl;
 }
 
-recalculateColumnsAggregations '{reflection.recalculate.column.aggregations}' (Table table)  { 
+//todo: remove after onFinallyStarted migration
+recalculateColumnsAggregations '{reflection.recalculate.columns.materializations}' (Table table)  { 
     FOR table == table(TableColumn tableColumn) AND tableColumn IS TableColumn DO {
-        recalculateAggregation(tableColumn);    
+        recalculateMaterializations(tableColumn);    
+    }
+}
+recalculateColumnsMaterializations '{reflection.recalculate.columns.materializations}' (Table table)  {
+    FOR table == table(TableColumn tableColumn) AND tableColumn IS TableColumn DO {
+        recalculateMaterializations(tableColumn);
     }
 }
 checkClasses '{reflection.check.classes}'  INTERNAL  'lsfusion.server.physics.admin.service.action.CheckTableClassesAction' (Table);
@@ -281,13 +324,17 @@ pack '{reflection.pack.table}'  INTERNAL  'lsfusion.server.physics.admin.service
 
 disableClasses '{reflection.disable.classes}' = DATA BOOLEAN (Table);
 disableStatsTable '{reflection.disable.stats}' (Table t) = notRecalculateStats(t);
-disableAggregations '{reflection.disable.aggregations}' (TableColumn tc) = notRecalculate(tc);
+//todo: remove after onFinallyStarted migration
+disableAggregations '{reflection.disable.materializations}' (TableColumn tc) = notRecalculateMaterializations(tc);
+disableMaterializations '{reflection.disable.materializations}' (TableColumn tc) = notRecalculateMaterializations(tc); 
 disableClasses '{reflection.disable.classes}' = DATA BOOLEAN (TableColumn);
 disableStatsTableColumn '{reflection.disable.stats}' = DATA BOOLEAN (TableColumn);
 
 disableClasses '{reflection.disable.classes}' (ISTRING[100] sid) = disableClasses(tableSID(sid));
 disableStatsTable '{reflection.disable.stats}' (ISTRING[100] sid) = disableStatsTable(tableSID(sid));
-disableAggregations (ISTRING[100] sid) = disableAggregations(tableColumnSID(sid));
+//todo: remove after onFinallyStarted migration
+disableAggregations (ISTRING[100] sid) = disableMaterializations(tableColumnSID(sid));
+disableMaterializations (ISTRING[100] sid) = disableMaterializations(tableColumnSID(sid));
 disableStatsTableColumn '{reflection.disable.stats}' (ISTRING[100] sid) = disableStatsTableColumn(tableColumnSID(sid));
 
 CLASS DropColumn '{reflection.drop.column}';
@@ -299,11 +346,17 @@ sidTable '{reflection.sid.table.drop.column}' = DATA STRING[100] (DropColumn);
 time '{reflection.time.drop.column}' = DATA DATETIME (DropColumn);
 revision '{reflection.revision.drop.column}' = DATA STRING[10] (DropColumn);
 
+dropColumns INTERNAL  'lsfusion.server.physics.admin.service.action.DropColumnsAction' ();
+dropAllColumns '{reflection.drop.drop.columns}' ()  {
+    dropColumns();
+    DELETE DropColumn cl WHERE sid(cl) AND sidTable(cl);
+}
+
 CLASS GroupObject '{reflection.group.object}';
 TABLE groupObjectCustomUser (GroupObject, CustomUser);
 TABLE groupObject (GroupObject);
 
-sid '{reflection.sid.group.object}' = DATA STRING[100] (GroupObject) IN id;
+sid '{reflection.sid.group.object}' = DATA STRING[100] (GroupObject) IN id CHARWIDTH 10;
 form '{reflection.form.group.object}' = DATA Form (GroupObject);
 canonicalNameForm (GroupObject groupObject) = canonicalName (form(groupObject)) IN id;
 captionForm (GroupObject groupObject) = caption (form(groupObject)) IN id; 
@@ -358,12 +411,14 @@ FORM physicalModel '{reflection.form.physical.model}'
     OBJECTS tc=TableColumn
     PROPERTIES(tc) READONLY sid, caption, canonicalName, annotation, property, return, quantity CHANGEABLE ON CHANGE changeQuantity(tc), quantityTop,
                    notNullQuantity CHANGEABLE ON CHANGE changeNotNullQuantity(tc), percentNotNull, lastRecalculateProperty
-    PROPERTIES(tc) GRID disableAggregations, disableClasses, disableStatsTableColumn, recalculateAggregation, recalculateAggregationWithDependencies, 
-            recalculateAggregationWithDependents, checkAggregation
+    PROPERTIES(tc) GRID disableMaterializations, disableClasses, disableStatsTableColumn, recalculateMaterializations, recalculateMaterializationsWithDependencies, 
+            recalculateMaterializationsWithDependents, checkMaterializations
 
     OBJECTS dc=DropColumn
     PROPERTIES(dc) READONLY sidTable, sid, time, revision
     PROPERTIES(dc) drop GRID
+    
+    PROPERTIES() dropAllColumns DRAW dc TOOLBAR
 
     FILTERGROUP filtersForm
         FILTER '{reflection.form.physical.model.filter.table}' table(tc)==t 'F8' DEFAULT
@@ -376,7 +431,7 @@ DESIGN physicalModel {
     BOX {
         NEW container BEFORE TOOLBARBOX{
             fill = 1;
-            type = TABBED;
+            tabbed = TRUE;
             NEW modelContainer {
                 fill = 1;
                 caption = '{reflection.form.physical.model.caption.tables}';
@@ -410,58 +465,80 @@ FORM navigatorElements '{reflection.form.navigator.elements}'
 ;
 
 FORM forms '{reflection.form.forms}'
+    OBJECTS f = Form PANEL
+    PROPERTIES(f) SELECTOR canonicalName, caption
 
-    OBJECTS tf=Form
-    PROPERTIES(tf) READONLY canonicalName, caption
+    OBJECTS g = GroupObject
+    PROPERTIES(g) sid READONLY, hasUserPreferences, countUserPreferences READONLY
+    FILTERS form(g) = f
 
-    OBJECTS u=CustomUser PANEL
-    PROPERTIES(u) SELECTOR firstName, lastName, login
+    // global
+    OBJECTS p = PropertyDraw
+    PROPERTIES(p) READONLY canonicalNameActionOrProperty, sid, caption 
+    PROPERTIES(p) BACKGROUND RGB(224,224,255) captionShow, columnCaption, columnPattern, columnWidth, columnOrder, columnSort, columnAscendingSort
+    ORDERS captionShow(p), columnOrder(p)
+    FILTERS groupObject(p) = g
 
-    OBJECTS g=GroupObject
-    PROPERTIES(g) sid READONLY, fontSize, isFontBold, isFontItalic, pageSize, headerHeight, hasUserPreferences
-    PROPERTIES(g,u) fontSize, isFontBold, isFontItalic, pageSize, headerHeight, hasUserPreferences
+    // user
+    OBJECTS u = CustomUser
+    PROPERTIES(u) READONLY firstName, lastName, login
+    PROPERTIES(g, u) hasUserPreferences, fontSize, isFontBold, isFontItalic, pageSize, headerHeight
+    FILTERGROUP userPreferences
+        FILTER '{reflection.has.user.preferences.group.object.custom.user}' hasUserPreferences(g, u) DEFAULT
+
+    OBJECTS pu = PropertyDraw
+    PROPERTIES(pu) READONLY canonicalNameActionOrProperty, sid, caption
+    PROPERTIES(pu, u) BACKGROUND RGB(224,224,255) captionShow, columnCaption, columnPattern, columnWidth, columnFlex, columnOrder, columnSort, columnAscendingSort
+    ORDERS captionShow(pu, u), columnOrder(pu, u)
+    FILTERS groupObject(pu) = g
     
-    OBJECTS fg=FormGrouping
+    OBJECTS up = CustomUser
+    PROPERTIES(up) READONLY firstName, lastName, login
+    PROPERTIES(pu, up) BACKGROUND RGB(224,224,255) captionShow, columnCaption, columnPattern, columnWidth, columnFlex, columnOrder, columnSort, columnAscendingSort
+    FILTERGROUP userShow
+        FILTER '{reflection.show.property.draw.custom.user}' show(pu, up) = PropertyDrawShowStatus.Show DEFAULT
+
+    // grouping
+    OBJECTS fg = FormGrouping
     PROPERTIES(fg) name, itemQuantity
+    FILTERS groupObject(fg) = g
 
-    OBJECTS p=PropertyDraw
-    PROPERTIES(p) READONLY sid, caption
-
-    PROPERTIES(p) captionShow
-    PROPERTIES(p,u) captionShow
-    PROPERTIES(p) columnCaption
-    PROPERTIES(p,u) columnCaption
-    PROPERTIES(p) columnPattern
-    PROPERTIES(p,u) columnPattern
-    PROPERTIES(p) columnWidth
-    PROPERTIES(p,u) columnWidth
-    PROPERTIES(p) columnOrder
-    PROPERTIES(p,u) columnOrder
-    PROPERTIES(p) columnSort
-    PROPERTIES(p) columnAscendingSort
-    PROPERTIES(p,u) columnSort
-    PROPERTIES(p,u) columnAscendingSort
-    PROPERTIES(fg,p) groupOrder, sum, max, pivot 
-
-    FILTERS
-        form(g) == tf,
-        form(p) == tf,
-        groupObject(fg)==g 
-
-    FILTERGROUP filtersForm
-        FILTER '{reflection.form.forms.filter.group.object}' groupObject(p)==g 'F8'
+    OBJECTS pfg = PropertyDraw
+    PROPERTIES(pfg) READONLY canonicalNameActionOrProperty, sid, caption
+    PROPERTIES(fg, pfg) groupOrder, sum, max, pivot
+    FILTERS groupObject(pfg) = g
 ;
 
 DESIGN forms {
     OBJECTS {
-        NEW groupingContainer BEFORE BOX(p) {
-            type = CONTAINERH;
+        NEW pane FIRST {
             fill = 1;
-            MOVE BOX(g) {
-                fill = 2;
+            horizontal = TRUE;
+            NEW leftPane {
+                align = STRETCH;
+                MOVE PROPERTY(canonicalName(f)) { align = STRETCH; }
+                MOVE PROPERTY(caption(f)) { align = STRETCH; }
+                MOVE BOX(g);
             }
-            MOVE BOX(fg) {
-                fill = 1;
+            NEW rightPane {
+                fill = 2;
+                tabbed = TRUE;
+                NEW global {
+                    caption = '{reflection.property.draw}';
+                    MOVE BOX(p);
+                }
+                NEW user {
+                    caption = '{authentication.custom.user}';
+                    MOVE BOX(u);
+                    MOVE BOX(pu) { fill = 2; }
+                    MOVE BOX(up);
+                }
+                NEW grouping {
+                    horizontal = TRUE;
+                    caption = '{reflection.form.grouping}';
+                    MOVE BOX(fg);
+                    MOVE BOX(pfg) { fill = 3; }
+                }
             }
         }
     }
@@ -472,7 +549,8 @@ dumb (PropertyGroup pg) = ' ' IF pg IS PropertyGroup;
 FORM properties '{reflection.form.properties}'
     OBJECTS p=Property
     PROPERTIES(p) READONLY caption, canonicalName, dbName, annotation, tableSID, return, class, complexity, parent, number,
-     quantity, notNullQuantity, userLoggable CHANGEABLE, loggable, stored CHANGEABLE, isSetNotNull CHANGEABLE, lastRecalculate
+        quantity, notNullQuantity, userLoggable CHANGEABLE, loggable, stored CHANGEABLE, isSetNotNull CHANGEABLE, 
+        disableInputList CHANGEABLE, staticCaptionSelect CHANGEABLE, lastRecalculate
 
     TREE treePropertiesObject tps=PropertyGroup PARENT parent(tps), ps=Property
     PROPERTIES(tps) READONLY caption, SID, d1=dumb, d2=dumb, d3=dumb, d4=dumb, d5=dumb, parent, number, d6=dumb, d7=dumb, d8=dumb, d9=dumb
@@ -489,7 +567,7 @@ DESIGN properties {
     BOX {
         NEW container BEFORE TOOLBARBOX {
             fill = 1;
-            type = TABBED;
+            tabbed = TRUE;
 
             NEW treeContainer {
                 fill = 1;
@@ -525,7 +603,7 @@ DESIGN actions {
     BOX {
         NEW container BEFORE TOOLBARBOX {
             fill = 1;
-            type = TABBED;
+            tabbed = TRUE;
 
             NEW treeContainer {
                 fill = 1;

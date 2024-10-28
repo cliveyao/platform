@@ -6,6 +6,7 @@ import lsfusion.client.ClientResourceBundle;
 import lsfusion.client.form.controller.ClientFormController;
 import lsfusion.client.form.object.ClientGroupObject;
 import lsfusion.client.form.object.ClientGroupObjectValue;
+import lsfusion.client.form.object.table.tree.view.TreeGroupTable;
 import lsfusion.client.form.property.ClientPropertyDraw;
 import org.jdesktop.swingx.treetable.DefaultTreeTableModel;
 import org.jdesktop.swingx.treetable.MutableTreeTableNode;
@@ -56,7 +57,7 @@ public class GroupTreeTableModel extends DefaultTreeTableModel {
             return ClientResourceBundle.getString("form.tree");
         }
 
-        return getColumnProperty(column).getEditCaption();
+        return getColumnProperty(column).getChangeCaption();
     }
 
     @Override
@@ -177,9 +178,13 @@ public class GroupTreeTableModel extends DefaultTreeTableModel {
     }
 
     public ClientPropertyDraw getColumnProperty(int col) {
-        return col != 0
+        return col > 0
                ? columnProperties.get(col - 1)
                : null;
+    }
+    
+    public List<ClientPropertyDraw> getProperties(ClientGroupObject group) {
+        return groupPropsMap.get(group);
     }
 
     public ClientPropertyDraw getProperty(Object node, int column) {
@@ -207,16 +212,16 @@ public class GroupTreeTableModel extends DefaultTreeTableModel {
         return nodes;
     }
 
-    public void updateKeys(ClientGroupObject group, List<ClientGroupObjectValue> keys, List<ClientGroupObjectValue> parents, Map<ClientGroupObjectValue, Boolean> expandables) {
+    public void updateKeys(ClientGroupObject group, List<ClientGroupObjectValue> keys, List<ClientGroupObjectValue> parents, Map<ClientGroupObjectValue, Integer> expandables) {
         // приводим переданную структуру в нормальную - child -> parent
         OrderedMap<ClientGroupObjectValue, ClientGroupObjectValue> parentTree = new OrderedMap<>();
         for (int i = 0; i < keys.size(); i++) {
             ClientGroupObjectValue key = keys.get(i);
 
-            ClientGroupObjectValue parentPath = new ClientGroupObjectValue(key); // значение для непосредственного родителя
-            parentPath.removeAll(group.objects); // удаляем значение ключа самого groupObject, чтобы получить путь к нему из "родителей"
-            parentPath.putAll(parents.get(i)); //рекурсивный случай - просто перезаписываем значения для ObjectInstance'ов
-            parentTree.put(key, parentPath);
+            // 1 param - значение для непосредственного родителя
+            // 2 param - удаляем значение ключа самого groupObject, чтобы получить путь к нему из "родителей"
+            // 3 param - рекурсивный случай - просто перезаписываем значения для ObjectInstance'ов
+            parentTree.put(key, new ClientGroupObjectValue(key, group.objects, parents.get(i)));
         }
 
         Map<ClientGroupObjectValue, List<ClientGroupObjectValue>> childTree = BaseUtils.groupList(parentTree);
@@ -230,7 +235,7 @@ public class GroupTreeTableModel extends DefaultTreeTableModel {
     void synchronize(TreeGroupNode parent,
                      ClientGroupObject syncGroup,
                      Map<ClientGroupObjectValue, List<ClientGroupObjectValue>> tree,
-                     Map<ClientGroupObjectValue, Boolean> expandables) {
+                     Map<ClientGroupObjectValue, Integer> expandables) {
         List<ClientGroupObjectValue> syncChilds = tree.get(parent.key);
         if (syncChilds == null) {
             syncChilds = new ArrayList<>();
@@ -274,8 +279,8 @@ public class GroupTreeTableModel extends DefaultTreeTableModel {
 
             boolean expandable = false;
             if (syncGroup.mayHaveChildren()) {
-                Boolean e = expandables.get(key);
-                expandable = e == null || e;
+                Integer e = expandables.get(key);
+                expandable = e == null || e > 0;
             }
             child.setExpandable(expandable);
 
@@ -378,5 +383,17 @@ public class GroupTreeTableModel extends DefaultTreeTableModel {
 
     public int getPropertyColumnIndex(ClientPropertyDraw property) {
         return columnProperties.indexOf(property) + 1;
+    }
+
+    public int getColumnIndexAtX(int xPosition, TreeGroupTable treeGroupTable) {
+        if (xPosition < 0)
+            return -1;
+
+        for(int column = 0; column < getColumnCount(); column++) {
+            xPosition = xPosition - treeGroupTable.getColumn(column).getWidth();
+            if (xPosition < 0)
+                return getColumnProperty(column) != null ? column : -1;
+        }
+        return -1;
     }
 }

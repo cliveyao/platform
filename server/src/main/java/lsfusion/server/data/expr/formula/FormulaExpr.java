@@ -6,6 +6,7 @@ import lsfusion.base.col.MapFact;
 import lsfusion.base.col.interfaces.immutable.ImList;
 import lsfusion.base.col.interfaces.immutable.ImMap;
 import lsfusion.base.col.interfaces.immutable.ImOrderSet;
+import lsfusion.base.col.interfaces.immutable.ImRevMap;
 import lsfusion.base.col.interfaces.mutable.MMap;
 import lsfusion.base.mutability.TwinImmutableObject;
 import lsfusion.server.base.caches.IdentityLazy;
@@ -108,7 +109,8 @@ public class FormulaExpr extends StaticClassExpr implements FormulaExprInterface
         if(compile instanceof ToString)
             return toString(expr);
 
-        return expr.getFormula().getSource(new ListExprSource(expr.getFParams(), needValue || expr.getFormula().hasNotNull()) {
+        ImList<BaseExpr> params = expr.getFParams();
+        return expr.getFormula().getSource(new ListExprSource(params, needValue || expr.getFormula().hasNotNull(params)) {
             public CompileSource getCompileSource() {
                 return compile;
             }
@@ -261,21 +263,23 @@ public class FormulaExpr extends StaticClassExpr implements FormulaExprInterface
     }
 
     public static Expr createCustomFormula(final String formula, final FormulaClass valueClass, ImMap<String, ? extends Expr> params) {
-        return createCustomFormula(new CustomFormulaSyntax(formula), valueClass, params, false); 
-    }
-    
-    public static Expr createCustomFormula(final CustomFormulaSyntax formula, final FormulaClass valueClass, ImMap<String, ? extends Expr> params, boolean hasNotNull) {
+        final CustomFormulaSyntax formulaSyntax = new CustomFormulaSyntax(formula, params.keys());
+
         ImOrderSet<String> keys = params.keys().toOrderSet();
 
-        CustomFormulaImpl formulaImpl = createCustomFormulaImpl(formula, valueClass, hasNotNull, keys);
-        
         ImList<Expr> exprs = keys.mapList(params);
-        return create(formulaImpl, exprs);
+
+        return create(createJoinCustomFormulaImpl(formulaSyntax, valueClass, false, keys), exprs);
     }
 
-    public static CustomFormulaImpl createCustomFormulaImpl(CustomFormulaSyntax formula, FormulaClass valueClass, boolean hasNotNull, ImOrderSet<String> keys) {
-        ImMap<String, Integer> mapParams = keys.mapOrderValues((int i) -> i);
-        return new CustomFormulaImpl(formula, mapParams, valueClass, hasNotNull);
+    public static JoinCustomFormulaImpl createJoinCustomFormulaImpl(CustomFormulaSyntax formula, FormulaClass valueClass, boolean hasNotNull, ImOrderSet<String> keys) {
+        ImRevMap<String, Integer> mapParams = keys.mapOrderRevValues((int i) -> i);
+        return new JoinCustomFormulaImpl(formula, mapParams, valueClass, hasNotNull);
+    }
+
+    public static UnionCustomFormulaImpl createUnionCustomFormulaImpl(CustomFormulaSyntax formula, FormulaClass valueClass, ImOrderSet<String> keys) {
+        ImRevMap<String, Integer> mapParams = keys.mapOrderRevValues((int i) -> i);
+        return new UnionCustomFormulaImpl(formula, mapParams, valueClass);
     }
 
     public static Expr create(final FormulaJoinImpl formula, ImList<? extends Expr> exprs) {
@@ -287,7 +291,7 @@ public class FormulaExpr extends StaticClassExpr implements FormulaExprInterface
     }
 
     private static Expr createBase(ImList<BaseExpr> exprs, final FormulaJoinImpl formula) {
-        return BaseExpr.create(formula.hasNotNull() ? new FormulaNullableExpr(exprs, formula) : new FormulaExpr(exprs, formula));
+        return BaseExpr.create(formula.hasNotNull(exprs) ? new FormulaNullableExpr(exprs, formula) : new FormulaExpr(exprs, formula));
     }
 }
 

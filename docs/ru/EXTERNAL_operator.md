@@ -6,13 +6,19 @@ title: 'Оператор EXTERNAL'
 
 ### Синтаксис
 
-    EXTERNAL externalCall [PARAMS paramExpr1, ..., paramExprN] [TO propertyId1. ..., propertyIdM]
+```
+EXTERNAL externalCall [PARAMS paramExpr1, ..., paramExprN] [TO propertyId1. ..., propertyIdM]
+```
 
 `externalCall` - внешний вызов, задается одним из следующих синтаксисов:
 
-    HTTP [requestType] connectionStrExpr [BODYURL bodyStrExpr] [HEADERS headersPropertyId] [COOKIES cookiesPropertyId] [HEADERSTO headersToPropertyId] [COOKIESTO cookiesToPropertyId]
-    SQL connectionStrExpr EXEC execStrExpr
-    LSF connectionStrExpr lsfExecType execStrExpr
+```
+HTTP [requestType] connectionStrExpr [BODYURL bodyStrExpr] [HEADERS headersPropertyId] [COOKIES cookiesPropertyId] [HEADERSTO headersToPropertyId] [COOKIESTO cookiesToPropertyId]
+TCP [CLIENT] connectionStrExpr
+UDP [CLIENT] connectionStrExpr
+SQL connectionStrExpr EXEC execStrExpr
+LSF connectionStrExpr lsfExecType execStrExpr
+```
 
 ### Описание
 
@@ -34,6 +40,18 @@ title: 'Оператор EXTERNAL'
     - `DELETE`
 
   Значением по умолчанию является `POST`.
+
+- `TCP`
+
+  Ключевое слово. Определяет, что оператор выполняет TCP-запрос.
+
+- `UDP`
+
+  Ключевое слово. Определяет, что оператор выполняет UDP-запрос.
+
+- `CLIENT`
+
+  Ключевое слово. Определяет, что запрос выполняется на клиенте. По умолчанию запрос выполняется на сервере.
 
 - `SQL`
 
@@ -90,15 +108,24 @@ externalHTTP()  {
     EXTERNAL HTTP GET 'https://www.cs.cmu.edu/~chuck/lennapg/len_std.jpg' TO exportFile;
     open(exportFile());
 
-    EXTERNAL HTTP 'http://tryonline.lsfusion.org/exec?action=getExamples' PARAMS JSONFILE('\{"mode"=1\}') TO exportFile; // фигурные скобки escape'ся так как используются в интернационализации
+    // фигурные скобки escape'ся так как используются в интернационализации
+    EXTERNAL HTTP 'http://tryonline.lsfusion.org/exec?action=getExamples' PARAMS JSONFILE('\{"mode"=1\}') TO exportFile; 
     IMPORT FROM exportFile() FIELDS () TEXT caption, TEXT code DO
         MESSAGE 'Example : ' + caption + ', code : ' + code;
 
-    EXTERNAL HTTP 'http://tryonline.lsfusion.org/exec?action=doSomething&someprm=$1' BODYURL 'otherprm=$2&andonemore=$3' PARAMS 1,2,'3'; // передает в BODY url-encoded второй и третий параметры
+    // передает в BODY url-encoded второй и третий параметры
+    EXTERNAL HTTP 'http://tryonline.lsfusion.org/exec?action=doSomething&someprm=$1' 
+             BODYURL 'otherprm=$2&andonemore=$3' 
+             PARAMS 1,2,'3'; 
 }
 externalSQL ()  {
-    EXPORT TABLE FROM bc=barcode(Article a) WHERE name(a) LIKE '%Мясо%'; // получаем все штрих-коды товаров с именем мясо
-    EXTERNAL SQL 'jdbc:mysql://$1/test?user=root&password=' EXEC 'select price AS pc, articles.barcode AS brc from $2 x JOIN articles ON x.bc=articles.barcode' PARAMS 'localhost',exportFile() TO exportFile; // читаем цены для считанных штрих-кодов
+    // получаем все штрих-коды товаров с именем мясо
+    EXPORT TABLE FROM bc=barcode(Article a) WHERE name(a) LIKE '%Мясо%';
+    // читаем цены для считанных штрих-кодов 
+    EXTERNAL SQL 'jdbc:mysql://$1/test?user=root&password=' 
+             EXEC 'select price AS pc, articles.barcode AS brc from $2 x JOIN articles ON x.bc=articles.barcode' 
+             PARAMS 'localhost',exportFile() 
+             TO exportFile;
 
     // для всех товаров с полученными штрих-кодами записываем цены
     LOCAL price = INTEGER (INTEGER);

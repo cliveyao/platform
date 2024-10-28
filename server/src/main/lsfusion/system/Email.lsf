@@ -1,6 +1,6 @@
 MODULE Email;
 
-REQUIRE System, Reflection;
+REQUIRE System, Reflection, SystemEvents;
 
 // -------------- Account ----------------- //
 CLASS Account '{email.account}';
@@ -9,6 +9,7 @@ TABLE account (Account);
 name '{email.name.account}' = DATA STRING[50](Account);
 password '{email.password.account}' = DATA STRING[50](Account) ECHO;
 disable '{email.disable.account}' = DATA BOOLEAN(Account);
+insecureSSL '{email.insecure.ssl}' = DATA BOOLEAN(Account); 
 
 // Sending
 smtpHost '{email.smtp.host.account}' = DATA STRING[50](Account);
@@ -37,15 +38,15 @@ isDefaultInbox '{email.is.default.inbox.account}' = DATA BOOLEAN (Account);
 defaultInboxAccount = GROUP MAX Account account IF isDefaultInbox(account);
 inboxAccount (STRING[100] fromAddress) = OVERRIDE accountFromAddress(fromAddress), defaultInboxAccount();
 
-emailSent '{email.email.sent}' = DATA LOCAL BOOLEAN ();
-
 // Receiving
 receiveHost '{email.receive.host.account}' = DATA STRING[50](Account);
 receivePort '{email.receive.port.account}' = DATA INTEGER(Account);
 
 CLASS ReceiveAccountType '{email.receive.account.type}' {
     POP3 '{email.receive.account.type.pop3}',
-    IMAP '{email.receive.account.type.imap}'
+    POP3S '{email.receive.account.type.pop3s}',
+    IMAP '{email.receive.account.type.imap}',
+    IMAPS '{email.receive.account.type.imaps}'
 }
 TABLE receiveAccountType(ReceiveAccountType);
 
@@ -59,6 +60,16 @@ FORM receiveAccountTypes '{email.receive.account.type}'
 receiveAccountType = DATA ReceiveAccountType(Account);
 nameReceiveAccountType '{email.receive.account.type.account}' (Account account) = name(receiveAccountType(account));
 
+startTLS '{email.receive.start.tls}' = DATA BOOLEAN (Account);
+
+imapsMigrated = DATA BOOLEAN();
+onStarted() + { 
+    IF NOT imapsMigrated() THEN {
+        receiveAccountType(Account a) <- ReceiveAccountType.IMAPS WHERE receiveAccountType(a) == ReceiveAccountType.IMAP;
+        imapsMigrated() <- TRUE; 
+    }   
+}
+
 deleteMessages '{email.delete.messages.account}' = DATA BOOLEAN(Account);
 lastDays '{email.last.days.account}' = DATA INTEGER(Account) CHARWIDTH 10 NOFLEX;
 maxMessages '{email.max.messages.account}' = DATA INTEGER(Account) CHARWIDTH 10 NOFLEX;
@@ -67,9 +78,9 @@ ignoreExceptions '{email.ignore.exceptions.account}' = DATA BOOLEAN (Account);
 
 FORM account '{email.form.account}'
     OBJECTS a = Account PANEL
-    PROPERTIES(a) name, password, disable
+    PROPERTIES(a) name, password, disable, insecureSSL
     PROPERTIES(a) smtpHost, smtpPort, nameEncryptedConnectionType, fromAddress, isDefaultInbox 
-    PROPERTIES(a) receiveHost, receivePort, nameReceiveAccountType, 
+    PROPERTIES(a) receiveHost, receivePort, nameReceiveAccountType, startTLS,
                   deleteMessages, lastDays, maxMessages, unpack, ignoreExceptions
                    
     EDIT Account OBJECT a
@@ -79,13 +90,14 @@ DESIGN account {
     OBJECTS {
         NEW header {
             caption = '{email.form.account}';
-            type = CONTAINERH;
+            horizontal = TRUE;
             MOVE PROPERTY(name(a));
             MOVE PROPERTY(password(a));
             MOVE PROPERTY(disable(a));
+            MOVE PROPERTY(insecureSSL(a));
         }
         NEW email {
-            type = CONTAINERH;
+            horizontal = TRUE;
             NEW sending {
                 caption = '{email.form.account.sending}';
                 MOVE PROPERTY(smtpHost(a));
@@ -99,6 +111,7 @@ DESIGN account {
                 MOVE PROPERTY(receiveHost(a));
                 MOVE PROPERTY(receivePort(a));
                 MOVE PROPERTY(nameReceiveAccountType(a));
+                MOVE PROPERTY(startTLS(a));
                 MOVE PROPERTY(deleteMessages(a));
                 MOVE PROPERTY(lastDays(a));
                 MOVE PROPERTY(maxMessages(a));
@@ -124,23 +137,24 @@ FORM accounts '{email.form.accounts}'
 CLASS Email '{email.email}';
 TABLE email(Email);
 
-id = DATA STRING[200] (Email);  
-emailId = GROUP AGGR Email email WHERE email IS Email BY id (email);
- 
+id = DATA STRING (Email);  
 account = DATA Account (Email) NONULL DELETE;
+emailId = GROUP AGGR Email email BY account(email), id (email);
 
 uid = DATA LONG (Email);  
 emailAccountUID = GROUP AGGR Email email BY account(email), uid (email); 
 
-subject '{email.subject.email}' = DATA STRING[100] (Email);
+subject '{email.subject.email}' = DATA STRING (Email) CHARWIDTH 50;
 fromAddress '{email.from.address.email}' = DATA STRING[100] (Email);
 toAddress '{email.to.address.email}' = DATA STRING[100] (Email);
 dateTimeSent '{email.date.time.sent.email}' = DATA DATETIME (Email);
 dateSent '{email.date.sent.email}' = DATE(dateTimeSent(Email e));
 dateTimeReceived '{email.date.time.received.email}' = DATA DATETIME (Email);
-message '{email.message.email}' = DATA RICHTEXT (Email);
+message '{email.message.email}' = DATA HTMLTEXT (Email);
 emlFile '{email.eml.file.email}' = DATA FILE (Email);
 openEMLFile '{email.open.eml.file.email}' (Email email)  { open(emlFile(email)); }
+
+skipFilter(Email email, Account account, DATETIME minDateTime) = fromAddress(email) AND account(email) == account AND (NOT minDateTime OR dateTimeSent(email) >= minDateTime); 
 
 // Attachment
 CLASS AttachmentEmail '{email.attachment.email}';
@@ -161,7 +175,7 @@ attachmentEmail (id, email) = GROUP AGGR AttachmentEmail attachment WHERE attach
  
 name '{email.name.attachment.email}' = DATA STRING[255] (AttachmentEmail);
 file '{email.file.attachment.email}' = DATA FILE (AttachmentEmail);
-filename '{email.name.attachment.email}' (AttachmentEmail ae) = CONCAT '.', name(ae), getFileExtension(file(ae)); 
+filename '{email.name.attachment.email}' (AttachmentEmail ae) = CONCAT '.', name(ae), extension(file(ae)); 
 openFile '{email.open.file.attachment.email}' (AttachmentEmail attachmentEmail)  { open(file(attachmentEmail)); }
 saveFile '{email.save.file.attachment.email}' (AttachmentEmail attachmentEmail)  { WRITE CLIENT DIALOG file(attachmentEmail) TO name(attachmentEmail);}
 lastError '{email.last.error.attachment.email}' = DATA TEXT (AttachmentEmail);
@@ -190,10 +204,11 @@ FORM mail '{email.form.mail}'
     
     OBJECTS e=Email LAST
     PROPERTIES(e) READONLY subject, fromAddress, toAddress, dateTimeSent, 
-                           dateTimeReceived, importErrors, openEMLFile CHANGEABLE GRID, message PANEL
+                           dateTimeReceived, importErrors, openEMLFile CHANGEABLE GRID
+    PROPERTIES READONLY message '' = HTML(HTMLFILE(message(e))) PANEL
     PROPERTIES(e) NEWSESSION DELETE
     PROPERTIES(a) receiveEmailAction TOOLBAR DRAW e 
-    FILTERS account(e) = a
+    FILTERS account(e) = a, dateTimeReceived(e)
                     
     OBJECTS ae = AttachmentEmail
     PROPERTIES(ae) READONLY imported, importError, filename, lastError PANEL
@@ -202,41 +217,41 @@ FORM mail '{email.form.mail}'
 ;
 
 DESIGN mail {
-    BOX {
-        NEW specContainer {
+    OBJECTS {
+        NEW top {
             fill = 1;
-            type = SPLITV;
-            MOVE BOX(a);
-            NEW emailContainer {
-                fill = 3;
-                type = SPLITV;
-                MOVE BOX(e);
-                NEW tabbedContainer {
+            horizontal = TRUE;
+            MOVE BOX(a) { width = 300; }
+            MOVE BOX(e) { fill = 3; }
+        }
+        NEW content {
+            fill = 1;
+            height = 300;
+            tabbed = TRUE;
+            NEW message {
+                height = 200;
+                fill = 1;
+                caption = '{email.form.mail.caption.message}';
+                MOVE PROPERTY(message) {
                     fill = 1;
-                    type = TABBED;
-                    NEW textContainer {
-                        caption = '{email.form.mail.caption.message}';
-                        type = CONTAINERV;        
-                        MOVE PROPERTY(message(e)) {
-                            fill = 1;
-                            valueSize = ( -1, 200);
-                            panelCaptionVertical = TRUE;
-                        }
+                }
+            }
+            NEW attachments {
+                fill = 1;
+                caption = '{email.form.mail.caption.attachments}';
+                horizontal = TRUE;
+                MOVE BOX(ae) {
+                    PROPERTY(filename(ae)) { autoSize = TRUE; }
+                    GRID(ae) {
+                        height = 100;
                     }
-                    NEW attachment {
-                        fill = 1;
-                        caption = '{email.form.mail.caption.attachments}';
-                        type = CONTAINERH;
-                        MOVE BOX(ae);
-                        MOVE PROPERTY (lastError(ae)){ 
-                            panelCaptionVertical = TRUE;
-                            fill = 0.3;
-                        };
-                    }
+                }
+                MOVE PROPERTY (lastError(ae)){ 
+                    panelCaptionVertical = TRUE;
+                    fill = 0.3;
                 }
             }
         }
-        MOVE TOOLBARBOX;
     }
 }
 

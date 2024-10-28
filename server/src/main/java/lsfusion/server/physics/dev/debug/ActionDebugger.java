@@ -14,14 +14,22 @@ import lsfusion.base.col.interfaces.mutable.MOrderExclSet;
 import lsfusion.base.col.interfaces.mutable.SymmAddValue;
 import lsfusion.base.col.interfaces.mutable.add.MAddMap;
 import lsfusion.server.base.caches.IdentityLazy;
+import lsfusion.server.base.controller.thread.EventThreadInfo;
+import lsfusion.server.base.controller.thread.SyncType;
+import lsfusion.server.base.controller.thread.ThreadLocalContext;
 import lsfusion.server.data.sql.exception.SQLHandledException;
+import lsfusion.server.data.value.DataObject;
+import lsfusion.server.data.value.NullValue;
 import lsfusion.server.data.value.ObjectValue;
+import lsfusion.server.language.ScriptingErrorLog;
 import lsfusion.server.language.action.LA;
 import lsfusion.server.language.property.LP;
 import lsfusion.server.logics.BusinessLogics;
+import lsfusion.server.logics.LogicsInstance;
 import lsfusion.server.logics.action.Action;
 import lsfusion.server.logics.action.controller.context.ExecutionContext;
 import lsfusion.server.logics.action.controller.stack.ExecutionStack;
+import lsfusion.server.logics.action.controller.stack.TopExecutionStack;
 import lsfusion.server.logics.action.flow.FlowResult;
 import lsfusion.server.logics.action.session.DataSession;
 import lsfusion.server.logics.action.session.change.PropertyChange;
@@ -186,13 +194,16 @@ public class ActionDebugger implements DebuggerService {
     private void compileDelegateClasses(String outputFolder, List<InMemoryJavaFileObject> filesToCompile) {
         JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
 
-        DiagnosticListener diagnostics = new IgnoreDiagnosticListener();
+        DiagnosticCollector<JavaFileObject> diagnostics = new DiagnosticCollector();
 
         StandardJavaFileManager fileManager = compiler.getStandardFileManager(diagnostics, Locale.ENGLISH, null);
 
         JavaCompiler.CompilationTask task = compiler.getTask(null, fileManager, diagnostics, asList("-g", "-d", outputFolder), null, filesToCompile);
         if (!task.call()) {
-            throw new IllegalStateException("Compilation of debugger delegate files failed. ");
+            String details = "";
+            for (Diagnostic<?> diagLine : diagnostics.getDiagnostics())
+                details += "\n" + diagLine;
+            throw new IllegalStateException("Compilation of debugger delegate files failed. " + details);
         }
     }
 
@@ -256,20 +267,20 @@ public class ActionDebugger implements DebuggerService {
         }
 
         Class<?> delegatesHolderClass = delegatesHolderClasses.get(debugInfo.getModuleName());
-        if (delegatesHolderClass != null) {
-            try {
-                Method method = delegatesHolderClass.getMethod(getMethodName(debugInfo), DataSession.class, Property.class, PropertyChange.class);
-                method.invoke(delegatesHolderClass, dataSession, property, change);
-                return;
-            } catch (InvocationTargetException e) {
-                throw ExceptionUtils.propagate(e.getCause(), SQLException.class, SQLHandledException.class);
-            } catch (Exception e) {
-                logger.warn("Error while delegating to ActionDebugger: ", e);
-                dataSession.changePropertyImpl(property, change);
-            }
+        if(delegatesHolderClass == null) {
+            dataSession.changePropertyImpl(property, change);
+            return;
         }
 
-        dataSession.changePropertyImpl(property, change);
+        try {
+            Method method = delegatesHolderClass.getMethod(getMethodName(debugInfo), DataSession.class, Property.class, PropertyChange.class);
+            method.invoke(delegatesHolderClass, dataSession, property, change);
+        } catch (InvocationTargetException e) {
+            throw ExceptionUtils.propagate(e.getCause(), SQLException.class, SQLHandledException.class);
+        } catch (Exception e) {
+            logger.warn("Error while delegating to ActionDebugger: ", e);
+            dataSession.changePropertyImpl(property, change);
+        }
     }
 
     public void delegate(ClassDebugInfo debugInfo) throws SQLException, SQLHandledException {
@@ -278,15 +289,16 @@ public class ActionDebugger implements DebuggerService {
         }
 
         Class<?> delegatesHolderClass = delegatesHolderClasses.get(debugInfo.getModuleName());
-        if (delegatesHolderClass != null) {
-            try {
-                Method method = delegatesHolderClass.getMethod(getMethodName(debugInfo));
-                method.invoke(delegatesHolderClass);
-            } catch (InvocationTargetException e) {
-                throw ExceptionUtils.propagate(e.getCause(), SQLException.class, SQLHandledException.class);
-            } catch (Exception e) {
-                logger.warn("Error while delegating to ActionDebugger: ", e);
-            }
+        if (delegatesHolderClass == null)
+            return;
+
+        try {
+            Method method = delegatesHolderClass.getMethod(getMethodName(debugInfo));
+            method.invoke(delegatesHolderClass);
+        } catch (InvocationTargetException e) {
+            throw ExceptionUtils.propagate(e.getCause(), SQLException.class, SQLHandledException.class);
+        } catch (Exception e) {
+            logger.warn("Error while delegating to ActionDebugger: ", e);
         }
     }
     
@@ -301,6 +313,36 @@ public class ActionDebugger implements DebuggerService {
             throws SQLException, SQLHandledException {
         // StringEscapeUtils.unescapeJava call was removed, because statements string is not java string
         return evalAction(context, namespace, require, priorities, "{" + statements + "}", null);
+    }
+
+    public LogicsInstance logicsInstance;
+
+    public Object evalServer(String evalCode) {
+        TopExecutionStack stack = new TopExecutionStack("debugServiceEval");
+        EventThreadInfo debugServiceEval = new EventThreadInfo("debugServiceEval");
+        ThreadLocalContext.aspectBeforeEvent(logicsInstance, stack, debugServiceEval, false, SyncType.NOSYNC);
+        Object result;
+        try (DataSession dataSession = logicsInstance.getDbManager().createSession()){
+            logicsInstance.getBusinessLogics().systemEventsLM.findAction("evalServer[TEXT]").execute(dataSession, stack, new DataObject(evalCode));
+            result = logicsInstance.getBusinessLogics().systemEventsLM.findProperty("evalServerResult[]").read(dataSession);
+        } catch (ScriptingErrorLog.SemanticErrorException | SQLException | SQLHandledException e) {
+            throw Throwables.propagate(e);
+        }
+        ThreadLocalContext.aspectAfterEvent(debugServiceEval);
+        return result;
+    }
+
+    public void evalClient(String evalCode, String param) {
+        TopExecutionStack stack = new TopExecutionStack("debugServiceEval");
+        EventThreadInfo debugServiceEval = new EventThreadInfo("debugServiceEval");
+        ThreadLocalContext.aspectBeforeEvent(logicsInstance, stack, debugServiceEval, false, SyncType.NOSYNC);
+        try (DataSession dataSession = logicsInstance.getDbManager().createSession()){
+            logicsInstance.getBusinessLogics().systemEventsLM.findAction("evalInAllCurrentConnections[TEXT, TEXT]")
+                    .execute(dataSession, stack, new DataObject(evalCode), param != null ? new DataObject(param) : NullValue.instance);
+        } catch (ScriptingErrorLog.SemanticErrorException | SQLException | SQLHandledException e) {
+            throw Throwables.propagate(e);
+        }
+        ThreadLocalContext.aspectAfterEvent(debugServiceEval);
     }
 
     @SuppressWarnings("UnusedDeclaration") //this method is used by IDEA plugin
@@ -380,7 +422,7 @@ public class ActionDebugger implements DebuggerService {
 
         watchHack.set(false);
 
-        LA la = EvalUtils.evaluateAndFindAction(bl, null, namespace, require, priorities, locals, prevEventScope, script, "evalStub");
+        LA la = EvalUtils.evaluateAndFindAction(bl, null, namespace, require, priorities, locals, prevEventScope, script, "evalStub").first;
 
         boolean forExHack = watchHack.get();
         watchHack.set(null);

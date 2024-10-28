@@ -1,5 +1,5 @@
 ---
-title: 'Execution (auto)'
+title: 'For production'
 ---
 
 ## Installation
@@ -13,15 +13,17 @@ import TabItem from '@theme/TabItem';
 <TabItem value="win">
 
 Executable exe files:
-lsFusion **4.1** Server & Client (+ OpenJDK **11.0.9**, PostgreSQL **13.1**(x64) / **10.8**(x32), Tomcat **9.0.21**):
+**lsFusion 6.0-beta0** (OpenJDK **21.0.3**, PostgreSQL **16.3**, Tomcat **9.0.89**, IntelliJ IDEA Community Edition **2024.1.4**)
 
-- [x32](http://download.lsfusion.org/exe/lsfusion-4.1.exe)
-- [x64](http://download.lsfusion.org/exe/lsfusion-4.1-x64.exe)
-- <details><summary>Older versions</summary>
+- [x64](https://download.lsfusion.org/exe/lsfusion-6.0-beta0-x64.exe)
+- <details>
+  <summary>Older versions</summary>
 
-    - lsFusion 4.0 Server & Client
-        - [x32](https://download.lsfusion.org/exe/lsfusion-4.0.exe)
-        - [x64](https://download.lsfusion.org/exe/lsfusion-4.0-x64.exe)
+    - lsFusion 5.1 Server & Client
+        - [x64](https://download.lsfusion.org/exe/lsfusion-5.1-x64.exe)
+    - lsFusion 4.1 Server & Client
+        - [x32](https://download.lsfusion.org/exe/lsfusion-4.1.exe)
+        - [x64](https://download.lsfusion.org/exe/lsfusion-4.1-x64.exe)
     - lsFusion 3.1 Server & Client
         - [x32](https://download.lsfusion.org/exe/lsfusion-3.1.exe)
         - [x64](https://download.lsfusion.org/exe/lsfusion-3.1-x64.exe)
@@ -37,14 +39,14 @@ Subsequently, `$INSTALL_DIR$` refers to the folder selected during the installat
 </TabItem>
 <TabItem value="linux">
 
-Bash scripts using yum / apt (the latest stable releases are used as minor versions):
+Bash scripts using dnf / apt (the latest stable releases are used as minor versions):
 
-lsFusion **4** Server & Client (+ OpenJDK **1.8**, PostgreSQL **13**, Tomcat **9.0.21**):
+lsFusion **6** Server & Client (+ OpenJDK **11**, PostgreSQL **16**, Tomcat **9.0.89**):
 
-| OS                            | Command / Script |
-|-------------------------------| -----------------|
-| RHEL 7 / CentOS 7 / Fedora 29 | `source <(curl -s https://download.lsfusion.org/yum/install-lsfusion4)` |
-| Ubuntu 18 / Debian 9          | `source <(curl -s https://download.lsfusion.org/apt/install-lsfusion4)` <br/>PostgreSQL installs version **10**, since that is the only one in the central repository. |
+| OS                               | Command / Script                                                        |
+|----------------------------------|-------------------------------------------------------------------------|
+| RHEL 8+ / CentOS 8+ / Fedora 35+ | `source <(curl -s https://download.lsfusion.org/dnf/install-lsfusion6)` |
+| Ubuntu 18+ / Debian 9+           | `source <(curl -s https://download.lsfusion.org/apt/install-lsfusion6)` |
 
 </TabItem>
 </Tabs>
@@ -91,11 +93,11 @@ To give users access to the installed system, you must:
 Send users a link to `http://<web address of the web server (Client)>:8080`. When users open this link, they will be redirected by default to the login page, where, if necessary, they can install the desktop client via Java Web Start (requires Java (JDK) installed, for example, by following [this](https://developers.redhat.com/products/openjdk/download) link with registration or this one [without](https://github.com/ojdkbuild/ojdkbuild)). Web and desktop clients are updated automatically with [updates to the web server](#update) (Client)
 
 :::info
-Under Windows, you can also use desktop client [installers](http://download.lsfusion.org/exe/) (`lsfusion-desktop-*` files with the correct OS version and bit width). However, unlike installing with Java Web Start, a desktop client installed in this way will not be automatically updated. Therefore, you will need to update it manually by downloading the file of the new version of the desktop client (`lsfusion-client-4.<new version>.jar`) from [the central server](https://download.lsfusion.org/java) and replacing the `$INSTALL_DIR$/client.jar` file with it.
+Under Windows, you can also use desktop client [installers](https://download.lsfusion.org/exe/) (`lsfusion-desktop-*` files with the correct OS version and bit width). However, unlike installing with Java Web Start, a desktop client installed in this way will not be automatically updated. Therefore, you will need to update it manually by downloading the file of the new version of the desktop client (`lsfusion-client-6.<new version>.jar`) from [the central server](https://download.lsfusion.org/java/) and replacing the `$INSTALL_DIR$/client.jar` file with it.
 :::
 
-:::caution
-All paths and commands are given below for the major version 4 of the platform (for other versions just replace 4 with the required number, for example `lsfusion4-server` → `lsfusion11-server`)
+:::warning
+All paths and commands are given below for the major version 6 of the platform (for other versions just replace 6 with the required number, for example `lsfusion6-server` → `lsfusion11-server`)
 
 
 <Tabs groupId="operating-systems" defaultValue="win" values={[{label: 'Windows', value: 'win'}, {label: 'Linux', value: 'linux'}]}>
@@ -117,12 +119,12 @@ Programs installed separately (OpenJDK, PostgreSQL) are also updated separately 
 <Tabs groupId="operating-systems" defaultValue="win" values={[{label: 'Windows', value: 'win'}, {label: 'Linux', value: 'linux'}]}>
 <TabItem value="win">
 
-Platform components are also updated separately from each other. To do this, you must download the file of the new version of the component from [the central server](https://download.lsfusion.org/java) and replace the following file with it:
+Platform components are also updated separately from each other. To do this, you must download the file of the new version of the component from [the central server](https://download.lsfusion.org/java/) and replace the following file with it:
 
 |Component|Files|
 |-|-|
-|Application Server (Server)|File on the central server: `lsfusion-server-4.<new version>.jar`<br/>File to replace: `$INSTALL_DIR$/Server/server.jar`|
-|Web server (Client)|File on the central server: `lsfusion-server-4.<new version>.jar`<br/>File to replace: `$INSTALL_DIR$/Client/webapps/ROOT.war`<br/>To update Tomcat, you need to download the archive with the new version of Tomcat and unzip it to the `$INSTALL_DIR$/Client` folder without the `webapps` directory and the [startup parameters](#settings) file|
+|Application Server (Server)|File on the central server: `lsfusion-server-6.<new version>.jar`<br/>File to replace: `$INSTALL_DIR$/Server/server.jar`|
+|Web server (Client)|File on the central server: `lsfusion-server-5.<new version>.jar`<br/>File to replace: `$INSTALL_DIR$/Client/webapps/ROOT.war`<br/>To update Tomcat, you need to download the archive with the new version of Tomcat and unzip it to the `$INSTALL_DIR$/Client` folder without the `webapps` directory and the [startup parameters](#settings) file|
 </TabItem>
 <TabItem value="linux">
 
@@ -130,18 +132,24 @@ Platform components are also updated separately from each other. To do this, you
 
 #### Application Server (Server)
 
-| OS                            | Command                        |
-| ----------------------------- | ------------------------------ |
-| RHEL 7 / CentOS 7 / Fedora 29 | `yum update lsfusion4_server`  |
-| Ubuntu 18 / Debian 9          | `apt install lsfusion4_server` |
+| OS                               | Command                       |
+|----------------------------------|-------------------------------|
+| RHEL 8+ / CentOS 8+ / Fedora 35+ | `dnf update lsfusion6-server` |
+| Ubuntu 18+ / Debian 9+           | `apt update lsfusion6-server` |
 
 #### Web server (Client)
 
-| OS                            | Command                        |
-| ----------------------------- | ------------------------------ |
-| RHEL 7 / CentOS 7 / Fedora 29 | `yum update lsfusion4_client`  |
-| Ubuntu 18 / Debian 9          | `apt install lsfusion4_client` |
+| OS                               | Command                       |
+|----------------------------------|-------------------------------|
+| RHEL 8+ / CentOS 8+ / Fedora 35+ | `dnf update lsfusion6-client` |
+| Ubuntu 18+ / Debian 9+           | `apt update lsfusion6-client` |
 <!--- comment to prevent multiple error messages in IDEA --->
+
+#### Unstable versions
+Upgrade platform to a SNAPSHOT version : `source <(curl -s https://download.lsfusion.org/apt/update-lsfusion6) <platform version>`.
+
+For example, `source <(curl -s https://download.lsfusion.org/apt/update-lsfusion6) 6.0-SNAPSHOT`.
+
 </TabItem>
 </Tabs>
 
@@ -158,32 +166,28 @@ These programs can be excluded during installation using the corresponding graph
 
 The following are scripts for installing specific platform components:
 
-Database Server - PostgreSQL **11**:
+Database Server - PostgreSQL **16**:
 
-| OS                            | Command / Script                                                                                |
-| ----------------------------- | ----------------------------------------------------------------------------------------------- |
-| RHEL 7 / CentOS 7 / Fedora 29 | `source <(curl -s https://download.lsfusion.org/yum/install-lsfusion4-db)`                      |
-| Ubuntu 18 / Debian 9          | `source <(curl -s https://download.lsfusion.org/apt/install-lsfusion4-db)` <br/>PostgreSQL `10` |
+| OS                            | Command / Script                                                          |
+|-------------------------------|---------------------------------------------------------------------------|
+| Ubuntu 18+ / Debian 9+        | `source <(curl -s https://download.lsfusion.org/apt/install-lsfusion6-db)`|
 
-Application Server - lsFusion 4 Server (+ OpenJDK **1.8**):
+Application Server - lsFusion 6 Server (+ OpenJDK **11**):
 
 
-| OS                               | Command / Script                                                               |
-| -------------------------------- | ------------------------------------------------------------------------------ |
-| RHEL 7+ / CentOS 7+ / Fedora 29+ | `source <(curl -s https://download.lsfusion.org/yum/install-lsfusion4-server)` |
-| Ubuntu 18 / Debian 9             | `source <(curl -s https://download.lsfusion.org/apt/install-lsfusion4-server)` |
+| OS                            | Command / Script                                                               |
+|-------------------------------|--------------------------------------------------------------------------------|
+| Ubuntu 18 / Debian 9          | `source <(curl -s https://download.lsfusion.org/apt/install-lsfusion6-server)` |
  
-Web server - lsFusion 4 Client (+ Tomcat 9.0.20): 
+Web server - lsFusion 6 Client (+ Tomcat 9.0.89): 
 
-| OS                               | Command / Script                                                               |
-| -------------------------------- | ------------------------------------------------------------------------------ |
-| RHEL 7+ / CentOS 7+ / Fedora 29+ | `source <(curl -s https://download.lsfusion.org/yum/install-lsfusion4-client)` |
-| Ubuntu 18 / Debian 9             | `source <(curl -s https://download.lsfusion.org/apt/install-lsfusion4-client)` |
+| OS                            | Command / Script                                                               |
+| ------------------------------|--------------------------------------------------------------------------------|
+| Ubuntu 18 / Debian 9          | `source <(curl -s https://download.lsfusion.org/apt/install-lsfusion6-client)` |
 <!--- comment to prevent multiple error messages in IDEA --->
 </TabItem>
 </Tabs>
 
-When installing platform components on different computers, it is also necessary to [configure the parameters](#settings) to connect them to each other
 When installing platform components on different computers, it is also necessary to [configure the parameters](#settings) to connect them to each other
 
 | Components on different computers                   | Connection parameters                                                      | Configurable file                                                |
@@ -204,8 +208,8 @@ When installing under Windows, the above parameters are requested during the ins
 
 |Component|java|lsfusion|
 |-|-|-|
-|Application server (Server)|Java tab in the graphical interface `$INSTALL_DIR/Server/bin/lsfusion4_serverw.exe`<br/>[`classpath`](Launch_parameters.md#appjava) - the Classpath parameter in the same tab|`$INSTALL_DIR/Server/conf/settings.properties` file|
-|Web server (Client)|Java tab in the graphical interface `$INSTALL_DIR/Client/bin/lsfusion4_serverw.exe`|`$INSTALL_DIR/Client/conf/catalina/localhost/ROOT.xml` file|
+|Application server (Server)|Java tab in the graphical interface `$INSTALL_DIR/Server/bin/lsfusion6_serverw.exe`<br/>[`classpath`](Launch_parameters.md#appjava) - the Classpath parameter in the same tab|`$INSTALL_DIR/Server/conf/settings.properties` file|
+|Web server (Client)|Java tab in the graphical interface `$INSTALL_DIR/Client/bin/lsfusion6_serverw.exe`|`$INSTALL_DIR/Client/conf/catalina/localhost/ROOT.xml` file|
 |Desktop client|Java parameters are set inside the `j2se` tag in the jnlp file.||
 </TabItem>
 
@@ -213,8 +217,8 @@ When installing under Windows, the above parameters are requested during the ins
 
 |Component|java|lsfusion|
 |-|-|-|
-|Application server (Server)|The `FUSION_OPTS` parameter in the file `/etc/lsfusion4-server/lsfusion.conf`<br/>[`classpath`](Launch_parameters.md#appjava) - the `CLASSPATH` parameter in the same file|`/etc/lsfusion4-server/settings.properties` file|
-|Web server (Client)|The `CATALINA_OPTS` parameter in the file `/etc/lsfusion4-client/lsfusion.conf`|`/etc/lsfusion4-client/catalina/localhost/ROOT.xml` file|
+|Application server (Server)|The `FUSION_OPTS` parameter in the file `/etc/lsfusion6-server/lsfusion.conf`<br/>[`classpath`](Launch_parameters.md#appjava) - the `CLASSPATH` parameter in the same file|`/etc/lsfusion6-server/settings.properties` file|
+|Web server (Client)|The `CATALINA_OPTS` parameter in the file `/etc/lsfusion6-client/lsfusion.conf`|`/etc/lsfusion6-client/catalina/localhost/ROOT.xml` file|
 |Desktop client|Java parameters are set inside the `j2se` tag in the jnlp file.||
 </TabItem>
 </Tabs>
@@ -228,28 +232,28 @@ Any changes made to the startup parameters, as well as changes to lsFusion modul
 
 #### Application server (Server)
 ```shell script title="GUI"
-Control Panel > Admin > Services > lsFusion 4 Server
+Control Panel > Admin > Services > lsFusion 6 Server
 ```
 
 ```shell script title="Command line" 
 # Stop server
-$INSTALL_DIR/Server/bin/lsfusion4_server.exe //SS//lsfusion4_server
+$INSTALL_DIR/Server/bin/lsfusion6_server.exe //SS//lsfusion6_server
  
 # Start server
-$INSTALL_DIR/Server/bin/lsfusion4_server.exe //ES//lsfusion4_server
+$INSTALL_DIR/Server/bin/lsfusion6_server.exe //ES//lsfusion6_server
 ```
 
 #### Web server (Client)
 ```shell script title="GUI"
-Control Panel > Admin > Services > lsFusion 4 Client
+Control Panel > Admin > Services > lsFusion 6 Client
 ```
 
 ```shell script title="Command line"
 # Stop server
-$INSTALL_DIR/Client/bin/lsfusion4_client.exe //SS//lsfusion4_client
+$INSTALL_DIR/Client/bin/lsfusion6_client.exe //SS//lsfusion6_client
  
 # Start server
-$INSTALL_DIR/Client/bin/lsfusion4_client.exe //ES//lsfusion4_client
+$INSTALL_DIR/Client/bin/lsfusion6_client.exe //ES//lsfusion6_client
 ```
 </TabItem>
 <TabItem value="linux">
@@ -257,19 +261,19 @@ $INSTALL_DIR/Client/bin/lsfusion4_client.exe //ES//lsfusion4_client
 #### Application server (Server)
 ```shell script title="Command line" 
 # Stop server
-systemctl stop lsfusion4-server
+systemctl stop lsfusion6-server
  
 # Start server
-systemctl start lsfusion4-server
+systemctl start lsfusion6-server
 ```
 
 #### Web server (Client)
 ```shell script title="Command line"
 # Stop client
-systemctl stop lsfusion4-client
+systemctl stop lsfusion6-client
  
 # Start client
-systemctl start lsfusion4-client
+systemctl start lsfusion6-client
 ```
 
 </TabItem>
@@ -293,9 +297,9 @@ Platform logs are written to the following folders:
 
 
 | Component                   | Folder                          |
-| --------------------------- | ------------------------------- |
-| Application server (Server) | `/var/log/lsfusion4-server`     |
-| Web server (Client)         | `/var/log/lsfusion4-client`     |
+| --------------------------- |---------------------------------|
+| Application server (Server) | `/var/log/lsfusion6-server`     |
+| Web server (Client)         | `/var/log/lsfusion6-client`     |
 | Desktop client              | `/home/<username>/.fusion/logs` |
 <!--- comment to prevent multiple error messages in IDEA --->
 </TabItem>
@@ -321,7 +325,7 @@ Control Panel > Language and Regional Standards
 <TabItem value="linux">
 
 ```shell script title="Command line"
-localectl set-locale LANG=ru_RU.utf8
+localectl set-locale LANG=en_US.utf8
 ```
 <!--- comment to prevent multiple error messages in IDEA --->
 </TabItem>

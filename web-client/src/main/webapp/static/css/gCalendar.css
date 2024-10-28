@@ -19,11 +19,12 @@
 
 .event-highlight {
     background-color: var(--selection-color);
-    border: 1px solid var(--focus-color);
+    border: 1px solid var(--focused-cell-border-color);
 }
 
 .fc-h-event .fc-event-main, .fc-v-event .fc-event-main {
     color: var(--text-color);
+    display: flex;
 }
 
 .fc .fc-timegrid .fc-col-header {
@@ -222,22 +223,6 @@ a.fc-daygrid-day-number, a.fc-daygrid-day-number:hover {
     color: var(--text-color);
 }
 
-.tippy-box {
-    background-color: var(--background-color);
-    border: 1px solid var(--dialog-outer-border-color);
-    border-radius: var(--panel-border-radius);
-    color: var(--text-color);
-    font-size: inherit;
-}
-
-.tippy-box[data-placement^=top]>.tippy-arrow:before {
-    bottom: -8px;
-}
-
-.tippy-arrow {
-    color: var(--background-color);
-}
-
 .fc .fc-popover {
     background-color: var(--background-color);
     border: 1px solid var(--dialog-outer-border-color);
@@ -255,6 +240,6 @@ a.fc-daygrid-day-number, a.fc-daygrid-day-number:hover {
     min-width: 170px;
 }
 
-.fc .propertyPanelRendererValue {
+.fc .panel-renderer-value {
     box-sizing: unset;
 }

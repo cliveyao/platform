@@ -1,11 +1,8 @@
 package lsfusion.server.data.sql.syntax;
 
 import lsfusion.base.col.interfaces.immutable.ImList;
-import lsfusion.base.col.interfaces.immutable.ImOrderMap;
 import lsfusion.interop.form.property.ExtInt;
 import lsfusion.server.data.expr.formula.SQLSyntaxType;
-import lsfusion.server.data.expr.query.GroupType;
-import lsfusion.server.data.query.compile.CompileOrder;
 import lsfusion.server.data.query.exec.MStaticExecuteEnvironment;
 import lsfusion.server.data.table.SessionTable;
 import lsfusion.server.data.type.ConcatenateType;
@@ -13,7 +10,6 @@ import lsfusion.server.data.type.FunctionType;
 import lsfusion.server.data.type.Type;
 import lsfusion.server.data.type.exec.EnsureTypeEnvironment;
 import lsfusion.server.data.type.exec.TypeEnvironment;
-import lsfusion.server.data.type.reader.ClassReader;
 import lsfusion.server.logics.classes.data.ArrayClass;
 
 import java.sql.Date;
@@ -73,16 +69,15 @@ public interface SQLSyntax {
     String getDateType();
     int getDateSQL();
 
-    String getDateTimeType();
+    String getDateTimeType(ExtInt millisLength);
     int getDateTimeSQL();
 
-    String getZDateTimeType();
+    String getZDateTimeType(ExtInt millisLength);
     int getZDateTimeSQL();
 
-    String getTimeType();
+    String getTimeType(ExtInt millisLength);
     int getTimeSQL();
 
-    String getIntervalType();
     int getIntervalSQL();
 
     String getLongType();
@@ -91,7 +86,6 @@ public interface SQLSyntax {
     String getDoubleType();
     int getDoubleSQL();
 
-    String getBitType();
     int getBitSQL();
 
     String getBitString(Boolean value);
@@ -105,10 +99,23 @@ public interface SQLSyntax {
     String getByteArrayType();
     int getByteArraySQL();
 
-    String getColorType();
     int getColorSQL();
 
-    String getSelect(String from, String exprs, String where, String orderBy, String groupBy, String having, String top);
+    String getJSON();
+
+    String getJSONText();
+
+    String getTSVector();
+
+    String getTSQuery();
+
+    default String getSelect(String from, String exprs, String where) {
+        return getSelect(from, exprs, where, "", "", false);
+    }
+    default String getSelect(String from, String exprs, String where, String orderBy, String top, boolean distinct) {
+        return getSelect(from, exprs, where, orderBy, "", "", top, distinct);
+    }
+    String getSelect(String from, String exprs, String where, String orderBy, String groupBy, String having, String top, boolean distinct);
 
     boolean nullUnionTrouble();
     String getUnionOrder(String union,String orderBy, String top);
@@ -123,6 +130,8 @@ public interface SQLSyntax {
     String getMinute();
     String getEpoch();
     String getDateTime();
+
+    String getPrefixSearchQuery();
 
     String getInsensitiveLike();
 
@@ -191,11 +200,11 @@ public interface SQLSyntax {
     boolean supportsNoCount();
     String getVolatileStats(boolean on);
 
+    boolean supportsDeadLockPriority();
+
     String getChangeColumnType();
 
     String getStringCFunc();
-
-    String getOrderGroupAgg(GroupType groupType, Type resultType, ImList<String> exprs, ImList<ClassReader> readers, ImOrderMap<String, CompileOrder> orders, TypeEnvironment typeEnv);
 
     String getNotSafeConcatenateSource(ConcatenateType type, ImList<String> exprs, TypeEnvironment typeEnv);
 
@@ -218,8 +227,6 @@ public interface SQLSyntax {
 
     String getArrayConcatenate(ArrayClass arrayClass, String prm1, String prm2, TypeEnvironment env);
 
-    String getArrayAgg(String s, ClassReader classReader, TypeEnvironment typeEnv);
-
     String getArrayType(ArrayClass arrayClass, TypeEnvironment typeEnv);
 
     String getInArray(String element, String array);
@@ -228,7 +235,7 @@ public interface SQLSyntax {
 
     SQLSyntaxType getSyntaxType();
 
-    String getSafeCastNameFnc(Type type, boolean isInt);
+    String getSafeCastNameFnc(Type type, Integer sourceType);
 
     Date fixDate(Date value);
 

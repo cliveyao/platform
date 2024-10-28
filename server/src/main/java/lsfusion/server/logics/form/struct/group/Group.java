@@ -11,6 +11,7 @@ import lsfusion.base.col.interfaces.mutable.MExclMap;
 import lsfusion.base.col.interfaces.mutable.MList;
 import lsfusion.base.col.interfaces.mutable.MOrderSet;
 import lsfusion.server.base.caches.IdentityStartLazy;
+import lsfusion.server.base.caches.ManualLazy;
 import lsfusion.server.base.controller.thread.ThreadLocalContext;
 import lsfusion.server.base.version.NFFact;
 import lsfusion.server.base.version.Version;
@@ -19,6 +20,7 @@ import lsfusion.server.logics.classes.ValueClass;
 import lsfusion.server.logics.form.struct.ValueClassWrapper;
 import lsfusion.server.logics.form.struct.property.oraction.ActionOrPropertyClassImplement;
 import lsfusion.server.logics.property.oraction.ActionOrProperty;
+import lsfusion.server.physics.dev.debug.DebugInfo;
 import lsfusion.server.physics.dev.i18n.LocalizedString;
 import lsfusion.server.physics.dev.id.name.CanonicalNameUtils;
 
@@ -29,6 +31,8 @@ public class Group extends AbstractNode {
     public final LocalizedString caption;
 
     private NFOrderSet<AbstractNode> children = NFFact.orderSet(true);
+
+    private DebugInfo.DebugPoint debugPoint;
 
     public Group(String canonicalName, LocalizedString caption) {
         this.canonicalName = canonicalName;
@@ -89,6 +93,8 @@ public class Group extends AbstractNode {
         }
         children.add(prop, version);
         prop.setParent(this, version);
+        if(isSimple)
+            cleanParentActionOrPropertiesCaches();
     }
 
     @IdentityStartLazy
@@ -110,12 +116,7 @@ public class Group extends AbstractNode {
     }
 
     public boolean hasChild(ActionOrProperty prop) {
-        for (AbstractNode child : getChildrenIt()) {
-            if (child.hasChild(prop)) {
-                return true;
-            }
-        }
-        return false;
+        return getActionOrProperties().contains(prop);
     }
 
     public boolean hasNFChild(ActionOrProperty prop, Version version) {
@@ -127,12 +128,36 @@ public class Group extends AbstractNode {
         return false;
     }
 
+    public void cleanAllActionOrPropertiesCaches() {
+        actionOrProperties = null;
+
+        for (AbstractNode child : getChildrenListIt())
+            if(child instanceof Group)
+                ((Group) child).cleanAllActionOrPropertiesCaches();
+    }
+    public void cleanParentActionOrPropertiesCaches() {
+        actionOrProperties = null;
+
+        Group parent = getParent();
+        if(parent != null)
+            parent.cleanParentActionOrPropertiesCaches();
+    }
+
+    private ImOrderSet<ActionOrProperty> actionOrProperties;
+
+    @ManualLazy
     public ImOrderSet<ActionOrProperty> getActionOrProperties() {
-        MOrderSet<ActionOrProperty> result = SetFact.mOrderSet();
-        for (AbstractNode child : getChildrenListIt()) {
-            result.addAll(child.getActionOrProperties());
+        ImOrderSet<ActionOrProperty> result = actionOrProperties; // need this scheme for the proper concurrency (to guarantee that cache won't be dropped)
+        if (result == null) {
+            MOrderSet<ActionOrProperty> mResult = SetFact.mOrderSet();
+            for (AbstractNode child : getChildrenListIt()) {
+                mResult.addAll(child.getActionOrProperties());
+            }
+            result = mResult.immutableOrder();
+            actionOrProperties = result;
         }
-        return result.immutableOrder();
+
+        return result;
     }
     
     public ImList<Group> getParentGroups() {
@@ -162,10 +187,10 @@ public class Group extends AbstractNode {
     }
 
     @Override
-    protected ImList<ActionOrPropertyClassImplement> getActionOrProperties(ImSet<ValueClassWrapper> valueClasses, ImMap<ValueClass, ImSet<ValueClassWrapper>> mapClasses, Version version) {
+    public ImList<ActionOrPropertyClassImplement> calcActionOrProperties(ImSet<ValueClassWrapper> valueClasses, ImMap<ValueClass, ImSet<ValueClassWrapper>> mapClasses, boolean isNoAny) {
         MList<ActionOrPropertyClassImplement> mResult = ListFact.mList();
-        for (AbstractNode child : getNFChildrenListIt(version)) {
-            mResult.addAll(child.getActionOrProperties(valueClasses, mapClasses, version));
+        for (AbstractNode child : getChildrenListIt()) {
+            mResult.addAll(child.getActionOrProperties(valueClasses, mapClasses, isNoAny));
         }
         return mResult.immutableList();
     }
@@ -202,11 +227,11 @@ public class Group extends AbstractNode {
         return canonicalName != null;
     }
 
-    public ImList<ActionOrPropertyClassImplement> getActionOrProperties(ImSet<ValueClassWrapper> classLists, Version version) {
-        return getActionOrProperties(classLists, classLists.group(key -> key.valueClass), version);
+    public void setDebugPoint(DebugInfo.DebugPoint debugPoint) {
+        this.debugPoint = debugPoint;
     }
 
-    public ImList<ActionOrPropertyClassImplement> getActionOrProperties(ValueClass valueClass, Version version) {
-        return getActionOrProperties(valueClass != null ? SetFact.singleton(new ValueClassWrapper(valueClass)) : SetFact.EMPTY(), version);
+    public DebugInfo.DebugPoint getDebugPoint() {
+        return debugPoint;
     }
 }

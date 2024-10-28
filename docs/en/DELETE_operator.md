@@ -6,7 +6,9 @@ The `DELETE` operator creates an [action](Actions.md) that [deletes objects](Cla
 
 ### Syntax
 
-    DELETE expr [WHERE whereExpr]
+```
+DELETE expr [WHERE whereExpr]
+```
 
 ### Description
 
@@ -32,6 +34,7 @@ deleteObject(obj)  { DELETE obj; }
 CLASS Article;
 active = DATA BOOLEAN (Article);
 deleteInactiveArticles()  {
-    DELETE Article a WHERE a IS Article AND NOT active(a); // a local parameter a is added corresponding to the objects to be iterated over
+    // a local parameter a is added corresponding to the objects to be iterated over
+    DELETE Article a WHERE a IS Article AND NOT active(a); 
 }
 ```

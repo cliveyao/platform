@@ -1,213 +1,107 @@
 package lsfusion.gwt.client.form.view;
 
-import com.google.gwt.dom.client.Style;
-import com.google.gwt.event.dom.client.ClickEvent;
-import com.google.gwt.event.dom.client.ClickHandler;
+import com.google.gwt.core.client.JavaScriptObject;
+import com.google.gwt.dom.client.Element;
+import com.google.gwt.event.dom.client.ContextMenuEvent;
+import com.google.gwt.user.client.Event;
 import com.google.gwt.user.client.ui.*;
-import lsfusion.gwt.client.base.EscapeUtils;
-import lsfusion.gwt.client.base.GwtClientUtils;
-import lsfusion.gwt.client.base.TooltipManager;
-import lsfusion.gwt.client.base.view.FlexPanel;
-import lsfusion.gwt.client.base.view.GFlexAlignment;
+import lsfusion.gwt.client.ClientMessages;
+import lsfusion.gwt.client.base.*;
+import lsfusion.gwt.client.base.view.*;
+import lsfusion.gwt.client.form.WidgetForm;
 import lsfusion.gwt.client.form.controller.FormsController;
 import lsfusion.gwt.client.form.controller.GFormController;
+import lsfusion.gwt.client.form.design.view.GFormLayout;
+import lsfusion.gwt.client.form.property.cell.controller.EndReason;
+import lsfusion.gwt.client.navigator.controller.GAsyncFormController;
+import lsfusion.gwt.client.navigator.window.GModalityWindowFormType;
+import lsfusion.gwt.client.navigator.window.GWindowFormType;
 
-import static lsfusion.gwt.client.view.StyleDefaults.VALUE_HEIGHT;
+public final class FormDockable extends WidgetForm {
+    private String canonicalName;
 
-public final class FormDockable extends FormContainer<FormDockable.ContentWidget> {
-    private TabWidget tabWidget;
+    private final WidgetForm.CloseButton closeButton;
+
     private FormDockable blockingForm; //GFormController
 
-    public FormDockable(FormsController formsController, Long requestIndex, String caption, boolean async) {
-        super(formsController, requestIndex, async);
+    @Override
+    public GWindowFormType getWindowType() {
+        return GModalityWindowFormType.DOCKED;
+    }
 
-        tabWidget = new TabWidget(caption);
-        tabWidget.setBlocked(false);
-        formsController.addContextMenuHandler(this);
+    Result<JavaScriptObject> popup = new Result<>();
+    public FormDockable(FormsController formsController, GFormController contextForm, String canonicalName, boolean async, Event editEvent) {
+        super(formsController, contextForm, async, editEvent, GFormLayout.createTabCaptionWidget());
 
-        if(async) {
-            GwtClientUtils.setThemeImage(loadingAsyncImage, imageUrl -> contentWidget.setContent(createLoadingWidget(imageUrl)), false);
-        }
+        this.canonicalName = canonicalName;
+
+        captionWidget.addDomHandler(event -> {
+            GwtClientUtils.stopPropagation(event);
+
+            final MenuBar menuBar = new MenuBar(true);
+            menuBar.addItem(new MenuItem(ClientMessages.Instance.get().closeAllTabs(), () -> {
+                GwtClientUtils.hideAndDestroyTippyPopup(popup.result);
+                formsController.closeAllTabs();
+            }));
+
+            popup.result = GwtClientUtils.showTippyPopup(getTabWidget(), menuBar);
+        }, ContextMenuEvent.getType());
+
+        closeButton = new WidgetForm.CloseButton();
     }
 
     @Override
-    protected ContentWidget initContentWidget() {
-        return new ContentWidget(null);
+    public void show(GAsyncFormController asyncFormController) {
+        showDockable(null);
+    }
+
+    public void showDockable(Integer index) {
+        formsController.addDockable(this, index);
     }
 
     @Override
-    protected void setContent(Widget widget) {
-        contentWidget.setContent(widget);
-    }
-
-    public void setCaption(String caption, String tooltip) {
-        tabWidget.setTitle(caption);
-        tabWidget.setTooltip(tooltip);
-    }
-
-    @Override
-    public void show() {
-        formsController.addDockable(this);
-    }
-
-    @Override
-    public void hide() {
+    public void hide(EndReason editFormCloseReason) {
         formsController.removeDockable(this);
-    }
-
-    public void block() {
-        tabWidget.setBlocked(true);
-        contentWidget.setBlocked(true);
     }
 
     public void setBlockingForm(FormDockable blocking) {
         blockingForm = blocking;
     }
 
-    public void unblock() {
-        tabWidget.setBlocked(false);
-        contentWidget.setBlocked(false);
-    }
-
-    public void closePressed() {
-        if(async) {
-            formsController.removeAsyncForm(requestIndex);
-            formsController.removeDockable(this);
-            formsController.ensureTabSelected();
-        } else {
-            form.closePressed();
-        }
-    }
-
     public Widget getTabWidget() {
-        return tabWidget;
+        return captionWidget;
     }
 
-    public Widget getContentWidget() {
+    public Widget getCloseButton() {
+        return closeButton;
+    }
+
+    public FlexPanel getContentWidget() {
         return contentWidget;
     }
 
-    public class ContentWidget extends LayoutPanel {
-        private final Widget mask;
-        private FocusPanel maskWrapper;
-        private Widget content;
-
-        private ContentWidget(Widget content) {
-            mask = new SimpleLayoutPanel();
-            mask.setStyleName("dockableBlockingMask");
-            maskWrapper = new FocusPanel(mask);
-            maskWrapper.setStyleName("dockableBlockingMask");
-            setContent(content);
-        }
-
-        public Widget getContent() {
-            return content;
-        }
-
-        public void setContent(Widget icontent) {
-            if (content != null) {
-                remove(content);
-            }
-
-            content = icontent;
-            if (content != null) {
-                addFullSizeChild(content);
-            }
-
-            maskWrapper.addClickHandler(new ClickHandler() {
-                @Override
-                public void onClick(ClickEvent clickEvent) {
-                    if(content instanceof GFormController) {
-                        FormsController formsController = ((GFormController) content).getFormsController();
-                        if(formsController instanceof FormsController && blockingForm != null) {
-                            formsController.selectTab(blockingForm);
-                        }
-                    }
-                }
-
-            });
-        }
-
-        private void addFullSizeChild(Widget child) {
-            add(child);
-            // since table (and other elements) has zoom 1 by default, having not integer px leads to some undesirable extra lines (for example right part of any grid gets doubled line)
-            setWidgetLeftRight(child, 1, Style.Unit.PX, 1, Style.Unit.PX);
-            setWidgetTopBottom(child, 1, Style.Unit.PX, 1, Style.Unit.PX);
-        }
-
-        public void setBlocked(boolean blocked) {
-            if (blocked) {
-                addFullSizeChild(maskWrapper);
-            } else {
-                remove(maskWrapper);
-            }
-        }
+    public String getCanonicalName() {
+        return canonicalName;
     }
 
-    private class TabWidget extends FlexPanel {
-        private Label label;
-        private Button closeButton;
+    @Override
+    public void block() {
+        super.block();
 
-        private String tooltip;
-
-        public TabWidget(String title) {
-            addStyleName("tabLayoutPanelTabWidget");
-            
-            label = new Label(title);
-
-            closeButton = new Button() {
-                @Override
-                protected void onAttach() {
-                    super.onAttach();
-                    setTabIndex(-1);
-                }
-            };
-            closeButton.setText(EscapeUtils.UNICODE_CROSS);
-            closeButton.setStyleName("closeTabButton");
-            closeButton.setSize(VALUE_HEIGHT - 2 + "px", VALUE_HEIGHT - 2 + "px");
-            closeButton.getElement().getStyle().setLineHeight(VALUE_HEIGHT - 4, Style.Unit.PX);
-
-            FlexPanel labelWrapper = new FlexPanel();
-            labelWrapper.getElement().addClassName("tabLayoutPanelTabTitleWrapper");
-            labelWrapper.add(label);
-            add(labelWrapper, GFlexAlignment.CENTER);
-            
-            add(closeButton, GFlexAlignment.CENTER);
-
-            closeButton.addClickHandler(event -> {
-                event.stopPropagation();
-                event.preventDefault();
-                closePressed();
-            });
-
-            TooltipManager.registerWidget(this, new TooltipManager.TooltipHelper() {
-                @Override
-                public String getTooltip() {
-                    return tooltip;
-                }
-
-                @Override
-                public boolean stillShowTooltip() {
-                    return TabWidget.this.isAttached() && TabWidget.this.isVisible();
-                }
-            });
-        }
-
-        public void setBlocked(boolean blocked) {
-            closeButton.setEnabled(!blocked);
-        }
-
-        public void setTitle(String title) {
-            label.setText(title);
-        }
-        public void setTooltip(String tooltip) {
-            this.tooltip = tooltip;
-        }
+        closeButton.setEnabled(false);
     }
 
-    private class LoadingWidget extends SimplePanel {
-        private LoadingWidget() {
-            setWidget(new Label("Loading...."));
+    @Override
+    public void unblock() {
+        super.unblock();
+
+        closeButton.setEnabled(true);
+    }
+
+    protected void onMaskClick() {
+        Widget content = contentWidget.getContent();
+        if (content instanceof GFormLayout && blockingForm != null) {
+            ((GFormLayout) content).getFormsController().selectTab(blockingForm);
         }
     }
 }

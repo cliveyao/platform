@@ -1,25 +1,24 @@
 package lsfusion.client.form.controller.remote.proxy;
 
-import com.google.common.base.Throwables;
 import lsfusion.base.Pair;
 import lsfusion.client.controller.remote.proxy.RemoteRequestObjectProxy;
 import lsfusion.interop.action.ServerResponse;
 import lsfusion.interop.form.UpdateMode;
+import lsfusion.interop.form.event.FormEvent;
 import lsfusion.interop.form.object.table.grid.ListViewType;
 import lsfusion.interop.form.object.table.grid.user.design.FormUserPreferences;
 import lsfusion.interop.form.object.table.grid.user.design.GroupObjectUserPreferences;
 import lsfusion.interop.form.object.table.grid.user.toolbar.FormGrouping;
 import lsfusion.interop.form.print.FormPrintType;
-import lsfusion.interop.form.print.ReportGenerationData;
+import lsfusion.interop.form.property.EventSource;
 import lsfusion.interop.form.property.PropertyGroupType;
 import lsfusion.interop.form.remote.RemoteFormInterface;
 
 import java.rmi.RemoteException;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.Callable;
 
 public class RemoteFormProxy extends RemoteRequestObjectProxy<RemoteFormInterface> implements RemoteFormInterface {
 
@@ -32,65 +31,12 @@ public class RemoteFormProxy extends RemoteRequestObjectProxy<RemoteFormInterfac
         super(target, realHostName);
     }
 
-    public FormUserPreferences getUserPreferences() throws RemoteException {
-        try {
-            return callImmutableMethod("getUserPreferences", new Callable<FormUserPreferences>() {
-                @Override
-                public FormUserPreferences call() throws Exception {
-                    return target.getUserPreferences();
-                }
-            });
-        } catch (Exception e) {
-            throw Throwables.propagate(e);
-        }
-    }
-
     @Override
     public Pair<Long, String> changeExternal(long requestIndex, long lastReceivedRequestIndex, String json) throws RemoteException {
         logRemoteMethodStartVoidCall("changeExternal");
         Pair<Long, String> result = target.changeExternal(requestIndex, lastReceivedRequestIndex, json);
         logRemoteMethodEndVoidCall("changeExternal");
         return result;
-    }
-
-    public byte[] getRichDesignByteArray() throws RemoteException {
-        try {
-            return callImmutableMethod("getRichDesignByteArray", new Callable<byte[]>() {
-                @Override
-                public byte[] call() throws Exception {
-                    logRemoteMethodStartCall("getRichDesignByteArray");
-                    byte[] result = target.getRichDesignByteArray();
-                    logRemoteMethodEndCall("getRichDesignByteArray", result);
-                    return result;
-                }
-            });
-        } catch (Exception e) {
-            throw Throwables.propagate(e);
-        }
-    }
-
-    public Integer getInitFilterPropertyDraw() throws RemoteException {
-        try {
-            return callImmutableMethod("getInitFilterPropertyDraw", new Callable<Integer>() {
-                @Override
-                public Integer call() throws Exception {
-                    logRemoteMethodStartCall("getInitFilterPropertyDraw");
-                    Integer result = target.getInitFilterPropertyDraw();
-                    logRemoteMethodEndCall("getInitFilterPropertyDraw", result);
-                    return result;
-                }
-            });
-        } catch (Exception e) {
-            throw Throwables.propagate(e);
-        }
-    }
-
-    public Set<Integer> getInputGroupObjects() {
-        try {
-            return callImmutableMethod("getInputGroupObjects", target::getInputGroupObjects);
-        } catch (Exception e) {
-            throw Throwables.propagate(e);
-        }
     }
 
     public Object getGroupReportData(long requestIndex, long lastReceivedRequestIndex, Integer groupId, FormPrintType printType, FormUserPreferences userPreferences) throws RemoteException {
@@ -111,6 +57,12 @@ public class RemoteFormProxy extends RemoteRequestObjectProxy<RemoteFormInterfac
         return result;
     }
 
+    public void voidFormAction(long requestIndex, long lastReceivedRequestIndex) throws RemoteException {
+        logRemoteMethodStartVoidCall("voidFormAction");
+        target.voidFormAction(requestIndex, lastReceivedRequestIndex);
+        logRemoteMethodEndVoidCall("voidFormAction");
+    }
+
     public ServerResponse gainedFocus(long requestIndex, long lastReceivedRequestIndex) throws RemoteException {
         logRemoteMethodStartVoidCall("gainedFocus");
         ServerResponse result = target.gainedFocus(requestIndex, lastReceivedRequestIndex);
@@ -118,10 +70,17 @@ public class RemoteFormProxy extends RemoteRequestObjectProxy<RemoteFormInterfac
         return result;
     }
 
-    public ServerResponse setTabVisible(long requestIndex, long lastReceivedRequestIndex, int tabPaneID, int childId) throws RemoteException {
+    public ServerResponse setTabActive(long requestIndex, long lastReceivedRequestIndex, int tabPaneID, int childId) throws RemoteException {
         logRemoteMethodStartVoidCall("setTabVisible");
-        ServerResponse result = target.setTabVisible(requestIndex, lastReceivedRequestIndex, tabPaneID, childId);
+        ServerResponse result = target.setTabActive(requestIndex, lastReceivedRequestIndex, tabPaneID, childId);
         logRemoteMethodEndVoidCall("setTabVisible");
+        return result;
+    }
+
+    public ServerResponse setContainerCollapsed(long requestIndex, long lastReceivedRequestIndex, int containerID, boolean collapsed) throws RemoteException {
+        logRemoteMethodStartVoidCall("setContainerCollapsed");
+        ServerResponse result = target.setContainerCollapsed(requestIndex, lastReceivedRequestIndex, containerID, collapsed);
+        logRemoteMethodEndVoidCall("setContainerCollapsed");
         return result;
     }
 
@@ -147,16 +106,16 @@ public class RemoteFormProxy extends RemoteRequestObjectProxy<RemoteFormInterfac
         return result;
     }
 
-    public ServerResponse pasteExternalTable(long requestIndex, long lastReceivedRequestIndex, List<Integer> propertyIDs, List<byte[]> columnKeys, List<List<byte[]>> values) throws RemoteException {
+    public ServerResponse pasteExternalTable(long requestIndex, long lastReceivedRequestIndex, List<Integer> propertyIDs, List<byte[]> columnKeys, List<List<byte[]>> values, List<ArrayList<String>> rawValues) throws RemoteException {
         logRemoteMethodStartCall("pasteExternalTable");
-        ServerResponse result = target.pasteExternalTable(requestIndex, lastReceivedRequestIndex, propertyIDs, columnKeys, values);
+        ServerResponse result = target.pasteExternalTable(requestIndex, lastReceivedRequestIndex, propertyIDs, columnKeys, values, rawValues);
         logRemoteMethodEndCall("pasteExternalTable", result);
         return result;
     }
 
-    public ServerResponse pasteMulticellValue(long requestIndex, long lastReceivedRequestIndex, Map<Integer, List<byte[]>> keys, Map<Integer, byte[]> values) throws RemoteException {
+    public ServerResponse pasteMulticellValue(long requestIndex, long lastReceivedRequestIndex, Map<Integer, List<byte[]>> keys, Map<Integer, byte[]> values, Map<Integer, String> rawValues) throws RemoteException {
         logRemoteMethodStartCall("pasteMulticellValue");
-        ServerResponse result = target.pasteMulticellValue(requestIndex, lastReceivedRequestIndex, keys, values);
+        ServerResponse result = target.pasteMulticellValue(requestIndex, lastReceivedRequestIndex, keys, values, rawValues);
         logRemoteMethodEndCall("pasteMulticellValue", result);
         return result;
     }
@@ -176,7 +135,7 @@ public class RemoteFormProxy extends RemoteRequestObjectProxy<RemoteFormInterfac
         return result;
     }
 
-    public ServerResponse setUserFilters(long requestIndex, long lastReceivedRequestIndex, byte[][] filters) throws RemoteException {
+    public ServerResponse setUserFilters(long requestIndex, long lastReceivedRequestIndex, Map<Integer, byte[][]> filters) throws RemoteException {
         logRemoteMethodStartVoidCall("setUserFilters");
         ServerResponse result = target.setUserFilters(requestIndex, lastReceivedRequestIndex, filters);
         logRemoteMethodEndCall("setUserFilters", result);
@@ -249,10 +208,11 @@ public class RemoteFormProxy extends RemoteRequestObjectProxy<RemoteFormInterfac
         return result;
     }
 
-    public ServerResponse closedPressed(long requestIndex, long lastReceivedRequestIndex) throws RemoteException {
-        logRemoteMethodStartCall("closedPressed");
-        ServerResponse result = target.closedPressed(requestIndex, lastReceivedRequestIndex);
-        logRemoteMethodEndCall("closedPressed", result);
+    @Override
+    public ServerResponse executeEventAction(long requestIndex, long lastReceivedRequestIndex, FormEvent formEvent, byte[] pushAsyncResult) throws RemoteException {
+        logRemoteMethodStartCall("executeEventAction");
+        ServerResponse result = target.executeEventAction(requestIndex, lastReceivedRequestIndex, formEvent, pushAsyncResult);
+        logRemoteMethodEndCall("executeEventAction", result);
         return result;
     }
 
@@ -286,32 +246,24 @@ public class RemoteFormProxy extends RemoteRequestObjectProxy<RemoteFormInterfac
         return result;
     }
 
-    public ServerResponse moveGroupObject(long requestIndex, long lastReceivedRequestIndex, int parentGroupId, byte[] parentKey, int childGroupId, byte[] childKey, int index) throws RemoteException {
-        logRemoteMethodStartVoidCall("moveGroupObject");
-        ServerResponse result = target.moveGroupObject(requestIndex, lastReceivedRequestIndex, parentGroupId, parentKey, childGroupId, childKey, index);
-        logRemoteMethodEndVoidCall("moveGroupObject");
-        return result;
-    }
-
-    public ServerResponse executeEventAction(long requestIndex, long lastReceivedRequestIndex, int propertyID, byte[] fullKey, String actionSID) throws RemoteException {
+    @Override
+    public ServerResponse executeEventAction(long requestIndex, long lastReceivedRequestIndex, String actionSID, int[] propertyIDs, byte[][] fullKeys, EventSource[] eventSources, byte[][] pushAsyncResults) throws RemoteException {
         logRemoteMethodStartCall("executeEventAction");
-        ServerResponse result = target.executeEventAction(requestIndex, lastReceivedRequestIndex, propertyID, fullKey, actionSID);
+        ServerResponse result = target.executeEventAction(requestIndex, lastReceivedRequestIndex, actionSID, propertyIDs, fullKeys, eventSources, pushAsyncResults);
         logRemoteMethodEndCall("executeEventAction", result);
         return result;
     }
 
     @Override
-    public ServerResponse executeNotificationAction(long requestIndex, long lastReceivedRequestIndex, int idNotification) throws RemoteException {
+    public ServerResponse executeNotificationAction(long requestIndex, long lastReceivedRequestIndex, String notification) throws RemoteException {
         logRemoteMethodStartCall("executeNotificationAction");
-        ServerResponse result = target.executeNotificationAction(requestIndex, lastReceivedRequestIndex, idNotification);
+        ServerResponse result = target.executeNotificationAction(requestIndex, lastReceivedRequestIndex, notification);
         logRemoteMethodEndCall("executeNotificationAction", result);
         return result;
     }
 
-    public ServerResponse changeProperties(long requestIndex, long lastReceivedRequestIndex, String actionSID, int[] propertyIDs, byte[][] fullKeys, byte[][] pushChanges, Long[] pushAdds) throws RemoteException {
-        logRemoteMethodStartCall("changeProperties");
-        ServerResponse result = target.changeProperties(requestIndex, lastReceivedRequestIndex, actionSID, propertyIDs, fullKeys, pushChanges, pushAdds);
-        logRemoteMethodEndCall("changeProperties", result);
-        return result;
+    @Override
+    public byte[] getAsyncValues(long requestIndex, long lastReceivedRequestIndex, int propertyID, byte[] fullKey, String actionSID, String value, int index, int increaseValuesNeededCount) throws RemoteException {
+        return target.getAsyncValues(requestIndex, lastReceivedRequestIndex, propertyID, fullKey, actionSID, value, index, increaseValuesNeededCount);
     }
 }

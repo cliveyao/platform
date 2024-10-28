@@ -3,13 +3,9 @@ package lsfusion.server.data.sql.adapter;
 import lsfusion.base.col.interfaces.immutable.ImList;
 import lsfusion.base.col.lru.LRUSVSMap;
 import lsfusion.base.col.lru.LRUUtil;
-import lsfusion.base.file.IOUtils;
-import lsfusion.interop.action.MessageClientAction;
-import lsfusion.server.base.controller.thread.ThreadLocalContext;
 import lsfusion.server.data.sql.syntax.PostgreSQLSyntax;
 import lsfusion.server.data.type.ConcatenateType;
 import lsfusion.server.data.type.Type;
-import lsfusion.server.logics.BusinessLogics;
 import lsfusion.server.logics.action.controller.context.ExecutionContext;
 import lsfusion.server.logics.classes.data.ArrayClass;
 import lsfusion.server.physics.admin.log.ServerLoggers;
@@ -28,6 +24,8 @@ import java.util.logging.Level;
 import java.util.logging.LogManager;
 
 import static lsfusion.base.BaseUtils.isRedundantString;
+import static lsfusion.server.base.controller.thread.ThreadLocalContext.localize;
+import static lsfusion.server.physics.admin.log.ServerLoggers.startLogError;
 
 
 public class PostgreDataAdapter extends DataAdapter {
@@ -37,6 +35,8 @@ public class PostgreDataAdapter extends DataAdapter {
     private String binPath;
     private String dumpDir;
     protected static final String DB_NAME = "postgres";
+
+    private int dbMajorVersion;
 
     public PostgreDataAdapter(String dataBase, String server, String userID, String password) throws Exception {
         this(dataBase, server, userID, password, false);
@@ -67,17 +67,34 @@ public class PostgreDataAdapter extends DataAdapter {
         this.dumpDir = dumpDir != null ? dumpDir : defaultDumpDir;
     }
 
+    private Connection getConnection(String dataBase) throws SQLException {
+        Connection connection;
+        try {
+            connection = DriverManager.getConnection("jdbc:postgresql://" + server + "/" + dataBase + "?user=" + userID + "&password=" + password); //  + "&loggerLevel=TRACE&loggerFile=pgjdbc.log"
+        } catch (PSQLException e) {
+            String sqlState = e.getSQLState();
+            if (sqlState != null && sqlState.equals("3D000")) //3D000 database from properties does not exist
+                connection = getConnection(DB_NAME); // try to connect to default db
+            else
+                throw e;
+        }
+
+        return connection;
+    }
+
     public void ensureDB(boolean cleanDB) throws Exception {
 
         Connection connect = null;
         while(connect == null) {
             try {
-                connect = DriverManager.getConnection("jdbc:postgresql://" + server + "/postgres?user=" + userID + "&password=" + password);
+                connect = getConnection(dataBase);
+                dbMajorVersion = connect.getMetaData().getDatabaseMajorVersion();
             } catch (PSQLException e) {
-                ServerLoggers.startLogger.error(String.format("%s (host: %s, user: %s)", e.getMessage(), server, userID));
+                startLogError(String.format("%s (host: %s, user: %s)", e.getMessage(), server, userID));
                 logger.error("EnsureDB error: ", e);
                 //08001 = connection refused (database is not started), 57P03 = the database system is starting up
-                if (e.getSQLState() != null && (e.getSQLState().equals("08001") || e.getSQLState().equals("57P03"))) {
+                String sqlState = e.getSQLState();
+                if (sqlState != null && (sqlState.equals("08001") || sqlState.equals("57P03"))) {
                     Thread.sleep(connectTimeout);
                 } else throw e;
             }
@@ -106,13 +123,18 @@ public class PostgreDataAdapter extends DataAdapter {
         connect.close();
     }
 
+    public int getDbMajorVersion() {
+        return dbMajorVersion;
+    }
+
     @Override
     protected void ensureSqlFuncs() throws IOException, SQLException {
         super.ensureSqlFuncs();
 
-        recursionString = IOUtils.readStreamToString(BusinessLogics.class.getResourceAsStream("/sql/postgres/recursion.tsql"));
-        safeCastString = IOUtils.readStreamToString(BusinessLogics.class.getResourceAsStream("/sql/postgres/safecast.tsql"));
-        safeCastIntString = IOUtils.readStreamToString(BusinessLogics.class.getResourceAsStream("/sql/postgres/safecastint.tsql"));
+        recursionString = readResource("/sql/postgres/recursion.tsql");
+        safeCastString = readResource("/sql/postgres/safecast.tsql");
+        safeCastIntString = readResource("/sql/postgres/safecastint.tsql");
+        safeCastStrString = readResource("/sql/postgres/safecaststr.tsql");
     }
 
     @Override
@@ -137,17 +159,26 @@ public class PostgreDataAdapter extends DataAdapter {
     }
 
     @Override
-    public String getBackupFilePath(String dumpFileName) {
-        return isRedundantString(dumpDir) ? null : new File(dumpDir, dumpFileName + ".backup").getPath();
+    public boolean checkBackupParams(ExecutionContext context) {
+        if (!dirExists(dumpDir, true)) {
+            context.messageError(localize("{backup.dump.directory.path.not.specified}"));
+            return false;
+        }
+        return true;
     }
 
     @Override
-    public String backupDB(ExecutionContext context, String dumpFileName, int threadCount, List<String> excludeTables) throws IOException {
-        if (isRedundantString(dumpDir) || isRedundantString(binPath)) {
-            context.delayUserInterfaction(new MessageClientAction(ThreadLocalContext.localize("{logics.backup.path.not.specified}"), ThreadLocalContext.localize("{logics.backup.error}")));
-            return null;
-        }
+    public String getBackupFilePath(String dumpFileName) {
+        return new File(dumpDir, dumpFileName + ".backup").getPath();
+    }
 
+    @Override
+    public String getBackupFileLogPath(String dumpFileName) {
+        return getBackupFilePath(dumpFileName) + ".log";
+    }
+
+    @Override
+    public void backupDB(ExecutionContext context, String dumpFileName, int threadCount, List<String> excludeTables) throws IOException {
         String host, port;
         if (server.contains(":")) {
             host = server.substring(0, server.lastIndexOf(':'));
@@ -157,12 +188,10 @@ public class PostgreDataAdapter extends DataAdapter {
             port = "5432";
         }
 
-        new File(dumpDir).mkdirs();
+        String backupFilePath = getBackupFilePath(dumpFileName);
+        String backupLogFilePath = getBackupFileLogPath(dumpFileName);
 
-        String backupFilePath = new File(dumpDir, dumpFileName + ".backup").getPath();
-        String backupLogFilePath = backupFilePath + ".log";
-
-        CommandLine commandLine = new CommandLine(new File(binPath, "pg_dump"));
+        CommandLine commandLine = getBinPathCommandLine("pg_dump");
         commandLine.addArgument("-h");
         commandLine.addArgument(host);
         commandLine.addArgument("-p");
@@ -211,12 +240,17 @@ public class PostgreDataAdapter extends DataAdapter {
                 throw new IOException("Error executing pg_dump - process returned code: " + result);
             }
         }
+    }
 
-        return backupFilePath;
+    private boolean dirExists(String dir, boolean mkdirs) {
+        if (isRedundantString(dir))
+            return false;
+        File f = new File(dir);
+        return f.exists() || (mkdirs && f.mkdirs());
     }
 
     @Override
-    public String customRestoreDB(String fileBackup, Set<String> tables) throws IOException {
+    public String customRestoreDB(String fileBackup, Set<String> tables, boolean isMultithread) throws IOException {
 
         String tempDB = "db-temp" + Calendar.getInstance().getTime().getTime();
         String host, port;
@@ -231,7 +265,7 @@ public class PostgreDataAdapter extends DataAdapter {
         if(createDB(host, port, tempDB)) {
             CommandLine commandLine = null;
             try {
-                commandLine = new CommandLine(new File(binPath, "pg_restore"));
+                commandLine = getBinPathCommandLine("pg_restore");
                 commandLine.addArgument("--verbose");
                 commandLine.addArgument("--host");
                 commandLine.addArgument(host);
@@ -246,6 +280,9 @@ public class PostgreDataAdapter extends DataAdapter {
                 commandLine.addArgument("--dbname");
                 commandLine.addArgument(tempDB);
                 commandLine.addArgument(fileBackup);
+                if(isMultithread) {
+                    commandLine.addArgument("--format d");
+                }
 
                 Map<String, String> env = new HashMap<>(System.getenv());
                 env.put("PGPASSWORD", password);
@@ -256,14 +293,14 @@ public class PostgreDataAdapter extends DataAdapter {
                 executor.execute(commandLine, env);
                 return tempDB;
             } catch (IOException e) {
-                logger.error("Error while restoring the database : " + commandLine);
+                logger.error("Error while restoring the database : " + commandLine, e);
                 return tempDB;
             }
         } else return null;
     }
 
     public boolean createDB(String host, String port, String dbName) throws IOException {
-        CommandLine commandLine = new CommandLine(new File(binPath, "createdb"));
+        CommandLine commandLine = getBinPathCommandLine("createdb");
         commandLine.addArgument("--host");
         commandLine.addArgument(host);
         commandLine.addArgument("--port");
@@ -295,7 +332,7 @@ public class PostgreDataAdapter extends DataAdapter {
             port = "5432";
         }
 
-        CommandLine commandLine = new CommandLine(new File(binPath, "dropdb"));
+        CommandLine commandLine = getBinPathCommandLine("dropdb");
         commandLine.addArgument("--host");
         commandLine.addArgument(host);
         commandLine.addArgument("--port");
@@ -330,9 +367,7 @@ public class PostgreDataAdapter extends DataAdapter {
                     List<Object> rowKeys = new ArrayList<>();
                     List<Object> rowColumns = new ArrayList<>();
                     for (int i = 1; i <= keys.size(); i++) {
-                        Object key = result.getObject(i);
-                        //TODO: убрать, когда все базы перейдут на LONG, до этого времени нельзя восстанавливать колонки с ключом INTEGER
-                        rowKeys.add(key instanceof Integer ? new Long((Integer) result.getObject(i)) : key);
+                        rowKeys.add(result.getObject(i));
                     }
                     for (int i = keys.size() + 1; i <= keys.size() + columns.size(); i++)
                         rowColumns.add(result.getObject(i));
@@ -346,12 +381,7 @@ public class PostgreDataAdapter extends DataAdapter {
 
     @Override
     public void killProcess(Integer processId) {
-        if (isRedundantString(binPath)) {
-            logger.error("Error while killing process : no bin path");
-            return;
-        }
-
-        CommandLine commandLine = new CommandLine(new File(binPath, "pg_ctl"));
+        CommandLine commandLine = getBinPathCommandLine("pg_ctl");
         commandLine.addArgument("kill");
         commandLine.addArgument("TERM");
         commandLine.addArgument(String.valueOf(processId));
@@ -367,6 +397,10 @@ public class PostgreDataAdapter extends DataAdapter {
         } catch (IOException e) {
             logger.error("Error while killing process : " + commandLine);
         }
+    }
+
+    private CommandLine getBinPathCommandLine(String command) {
+       return dirExists(binPath, false) ? new CommandLine(new File(binPath, command)) : new CommandLine(command);
     }
 
     @Override
@@ -429,7 +463,7 @@ public class PostgreDataAdapter extends DataAdapter {
     }
 
     @Override
-    protected String getDBName() {
+    public String getDBName() {
         return DB_NAME;
     }
 }

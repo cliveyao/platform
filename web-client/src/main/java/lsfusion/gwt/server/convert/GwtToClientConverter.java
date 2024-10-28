@@ -1,26 +1,41 @@
 package lsfusion.gwt.server.convert;
 
 import com.google.common.base.Throwables;
+import lsfusion.client.form.object.ClientCustomObjectValue;
+import lsfusion.client.form.object.ClientGroupObjectValue;
+import lsfusion.client.form.property.async.ClientPushAsyncAdd;
+import lsfusion.client.form.property.async.ClientPushAsyncClose;
+import lsfusion.client.form.property.async.ClientPushAsyncInput;
+import lsfusion.gwt.client.GFormEventClose;
+import lsfusion.gwt.client.GFormScheduler;
 import lsfusion.gwt.client.action.GExternalHttpResponse;
 import lsfusion.gwt.client.form.GUpdateMode;
 import lsfusion.gwt.client.form.design.GFont;
+import lsfusion.gwt.client.form.object.GCustomObjectValue;
 import lsfusion.gwt.client.form.object.GGroupObjectValue;
 import lsfusion.gwt.client.form.object.table.grid.user.design.GColumnUserPreferences;
 import lsfusion.gwt.client.form.object.table.grid.user.design.GFormUserPreferences;
 import lsfusion.gwt.client.form.object.table.grid.user.design.GGroupObjectUserPreferences;
 import lsfusion.gwt.client.form.object.table.grid.view.GListViewType;
 import lsfusion.gwt.client.form.property.GClassViewType;
+import lsfusion.gwt.client.form.property.GEventSource;
 import lsfusion.gwt.client.form.property.GPropertyGroupType;
+import lsfusion.gwt.client.form.property.async.GPushAsyncAdd;
+import lsfusion.gwt.client.form.property.async.GPushAsyncClose;
+import lsfusion.gwt.client.form.property.async.GPushAsyncInput;
 import lsfusion.gwt.client.form.property.cell.classes.*;
 import lsfusion.gwt.client.form.property.cell.view.GUserInputResult;
 import lsfusion.gwt.server.FileUtils;
 import lsfusion.interop.form.UpdateMode;
 import lsfusion.interop.form.design.FontInfo;
+import lsfusion.interop.form.event.FormEventClose;
+import lsfusion.interop.form.event.FormScheduler;
 import lsfusion.interop.form.object.table.grid.ListViewType;
 import lsfusion.interop.form.object.table.grid.user.design.ColumnUserPreferences;
 import lsfusion.interop.form.object.table.grid.user.design.FormUserPreferences;
 import lsfusion.interop.form.object.table.grid.user.design.GroupObjectUserPreferences;
 import lsfusion.interop.form.property.ClassViewType;
+import lsfusion.interop.form.property.EventSource;
 import lsfusion.interop.form.property.PropertyGroupType;
 import lsfusion.interop.form.property.cell.UserInputResult;
 import lsfusion.interop.session.ExternalHttpResponse;
@@ -88,12 +103,12 @@ public class GwtToClientConverter extends ObjectConverter {
 
     @Converter(from = GFilesDTO.class)
     public Object convertFiles(GFilesDTO filesObject) {
-        return FileUtils.readFilesAndDelete(filesObject);
+        return FileUtils.readUploadFileAndDelete(filesObject);
     }
 
     @Converter(from = GUserInputResult.class)
     public UserInputResult convertInputResult(GUserInputResult gInputResult) {
-        return new UserInputResult(gInputResult.isCanceled(), convertOrCast(gInputResult.getValue()));
+        return new UserInputResult(gInputResult.isCanceled(), convertOrCast(gInputResult.getValue()), gInputResult.getContextAction());
     }
 
     @Converter(from = GClassViewType.class)
@@ -126,9 +141,39 @@ public class GwtToClientConverter extends ObjectConverter {
         return outStream.toByteArray();
     }
 
+    // should correspond AsyncChange.deserializePush(byte[])
+    @Converter(from = GPushAsyncAdd.class)
+    public byte[] convertPushASyncAdd(GPushAsyncAdd pushAsyncChange) {
+        return new ClientPushAsyncAdd(pushAsyncChange.ID).serialize();
+    }
+    @Converter(from = GPushAsyncInput.class)
+    public byte[] convertPushAsyncChange(GPushAsyncInput pushAsync) {
+        return new ClientPushAsyncInput(convertOrCast(pushAsync.result)).serialize();
+    }
+    @Converter(from = GPushAsyncClose.class)
+    public byte[] convertPushASyncClose(GPushAsyncClose pushAsyncChange) {
+        return new ClientPushAsyncClose().serialize();
+    }
+
+    @Converter(from = GEventSource.class)
+    public EventSource convertEventSource(GEventSource eventSource) {
+        switch (eventSource) {
+            case PASTE: return EventSource.PASTE;
+            case EDIT: return EventSource.EDIT;
+            case BINDING: return EventSource.BINDING;
+            case CUSTOM: return EventSource.CUSTOM;
+        }
+        return null;
+    }
+
     @Converter(from = GExternalHttpResponse.class)
-    public ExternalHttpResponse convertExternalHttpResponse(GExternalHttpResponse gResponse) {
+    public ExternalHttpResponse convertCustomObjectValue(GExternalHttpResponse gResponse) {
         return new ExternalHttpResponse(gResponse.contentType, gResponse.responseBytes, gResponse.responseHeaders, gResponse.statusCode, gResponse.statusText);
+    }
+
+    @Converter(from = GCustomObjectValue.class)
+    public ClientCustomObjectValue convertCustomObjectValue(GCustomObjectValue gValue) {
+        return new ClientCustomObjectValue(gValue.id, gValue.getIdClass());
     }
 
     public void serializeGroupObjectValue(DataOutputStream dataStream, GGroupObjectValue groupObjectValue) {
@@ -137,7 +182,7 @@ public class GwtToClientConverter extends ObjectConverter {
             dataStream.writeInt(size);
             for (int i = 0; i < size; ++i) {
                 dataStream.writeInt(groupObjectValue.getKey(i));
-                serializeObject(dataStream, convertOrCast(groupObjectValue.getValue(i)));
+                ClientGroupObjectValue.serializeObjectValue(dataStream, convertOrCast(groupObjectValue.getValue(i)));
             }
         } catch (IOException e) {
             Throwables.propagate(e);
@@ -171,6 +216,16 @@ public class GwtToClientConverter extends ObjectConverter {
     
     @Converter(from = GColumnUserPreferences.class)
     public ColumnUserPreferences convertColumnPreferences(GColumnUserPreferences gprefs) {
-        return new ColumnUserPreferences(gprefs.userHide, gprefs.userCaption, gprefs.userPattern, gprefs.userWidth, gprefs.userOrder, gprefs.userSort, gprefs.userAscendingSort);
+        return new ColumnUserPreferences(gprefs.userHide, gprefs.userCaption, gprefs.userPattern, gprefs.userWidth, gprefs.userFlex, gprefs.userOrder, gprefs.userSort, gprefs.userAscendingSort);
+    }
+
+    @Converter(from = GFormScheduler.class)
+    public FormScheduler convertFormScheduler(GFormScheduler formScheduler) {
+        return new FormScheduler(formScheduler.period, formScheduler.fixed);
+    }
+
+    @Converter(from = GFormEventClose.class)
+    public FormEventClose convertFormScheduler(GFormEventClose formEventClose) {
+        return new FormEventClose(formEventClose.ok);
     }
 }

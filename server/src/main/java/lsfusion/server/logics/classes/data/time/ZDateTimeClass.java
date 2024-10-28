@@ -1,9 +1,12 @@
 package lsfusion.server.logics.classes.data.time;
 
 import com.hexiong.jdbf.JDBFException;
+import lsfusion.base.DateConverter;
 import lsfusion.interop.base.view.FlexAlignment;
 import lsfusion.interop.classes.DataType;
+import lsfusion.interop.connection.LocalePreferences;
 import lsfusion.interop.form.property.ExtInt;
+import lsfusion.server.base.controller.thread.ThreadLocalContext;
 import lsfusion.server.data.sql.syntax.SQLSyntax;
 import lsfusion.server.data.stat.Stat;
 import lsfusion.server.data.type.exec.TypeEnvironment;
@@ -23,42 +26,47 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
-import java.time.chrono.Chronology;
 import java.time.format.DateTimeFormatter;
-import java.time.format.DateTimeFormatterBuilder;
 import java.time.format.DateTimeParseException;
-import java.time.format.FormatStyle;
-import java.util.Locale;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.TimeZone;
 
-import static lsfusion.base.DateConverter.instantToSqlTimestamp;
-import static lsfusion.base.DateConverter.sqlTimestampToInstant;
+import static lsfusion.base.DateConverter.*;
 
-public class ZDateTimeClass extends DataClass<Instant> {
+public class ZDateTimeClass extends HasTimeClass<Instant> {
 
-    public final static ZDateTimeClass instance = new ZDateTimeClass();
-
-    private final static String dateTimePattern = DateTimeFormatterBuilder.getLocalizedDateTimePattern(FormatStyle.SHORT, FormatStyle.MEDIUM, Chronology.ofLocale(Locale.getDefault()), Locale.getDefault());
-
-    static {
-        DataClass.storeClass(instance);
+    private ZDateTimeClass(LocalizedString caption, ExtInt millisLength) {
+        super(caption, millisLength);
     }
 
-    private ZDateTimeClass() { super(LocalizedString.create("{classes.date.with.time.with.zone}")); }
+    private final static Collection<ZDateTimeClass> zDateTimeClasses = new ArrayList<>();
+    public final static ZDateTimeClass instance = get(ExtInt.UNLIMITED);
+    public static ZDateTimeClass get(ExtInt millisLength) {
+        return getCached(zDateTimeClasses, millisLength, () -> new ZDateTimeClass(LocalizedString.create("{classes.date.with.time.with.zone}"), millisLength));
+    }
 
     public int getReportPreferredWidth() {
         return 80;
     }
 
     public Class getReportJavaClass() {
-        return java.util.Date.class;
+        return java.time.Instant.class;
     }
 
+    @Override
+    public String getDefaultPattern() {
+        LocalePreferences localePreferences = ThreadLocalContext.get().getLocalePreferences();
+        return localePreferences != null ? localePreferences.dateTimeFormat : ThreadLocalContext.getTFormats().zDateTimePattern;
+    }
+
+    @Override
     public void fillReportDrawField(ReportDrawField reportField) {
         super.fillReportDrawField(reportField);
 
         reportField.alignment = HorizontalTextAlignEnum.RIGHT;
-        reportField.pattern = dateTimePattern;
     }
 
     public byte getTypeID() {
@@ -73,8 +81,8 @@ public class ZDateTimeClass extends DataClass<Instant> {
         return Instant.now();
     }
 
-    public String getDB(SQLSyntax syntax, TypeEnvironment typeEnv) {
-        return syntax.getZDateTimeType();
+    public String getDBString(SQLSyntax syntax, TypeEnvironment typeEnv) {
+        return syntax.getZDateTimeType(millisLength);
     }
 
     public String getDotNetType(SQLSyntax syntax, TypeEnvironment typeEnv) {
@@ -120,17 +128,8 @@ public class ZDateTimeClass extends DataClass<Instant> {
         return new ExtInt(25);
     }
 
-    @Override
-    public FlexAlignment getValueAlignment() {
-        return FlexAlignment.END;
-    }
-
     public boolean isSafeString(Object value) {
         return false;
-    }
-
-    public String getString(Object value, SQLSyntax syntax) {
-        throw new RuntimeException("not supported");
     }
 
     @Override
@@ -152,19 +151,21 @@ public class ZDateTimeClass extends DataClass<Instant> {
     public Instant parseString(String s) throws ParseException {
         try {
             try {
-                //other date-time classes use smartParse with isEmpty check inside
-                return s.trim().isEmpty() ? null : Instant.parse(s); // actually DateTimeFormatter.ISO_INSTANT will be used
+                return ZonedDateTime.parse(s, ThreadLocalContext.getTFormats().zDateTimeParser).toInstant();
             } catch (DateTimeParseException ignored) {
-                return ZonedDateTime.parse(s, DateTimeFormatter.ISO_DATE_TIME).toInstant();
             }
+            return DateConverter.smartParseInstant(s);
         } catch (Exception e) {
-            throw ParseException.propagateWithMessage("Error parsing datetime: " + s, e);
+            throw ParseException.propagateWithMessage("Error parsing zdatetime: " + s, e);
         }
     }
 
     @Override
-    public String formatString(Instant value) {
-        return value == null ? null : DateTimeFormatter.ISO_INSTANT.format(value);
+    public String formatString(Instant value, boolean ui) {
+        LocalePreferences localePreferences = ThreadLocalContext.get().getLocalePreferences();
+        return value != null ? (ui && localePreferences != null ?
+                value.atZone(TimeZone.getTimeZone(localePreferences.timeZone).toZoneId()).format(DateTimeFormatter.ofPattern(localePreferences.dateTimeFormat)) :
+                ThreadLocalContext.getTFormats().zDateTimeFormatter.format(value)) : null;
     }
 
     public String getSID() {
@@ -173,7 +174,15 @@ public class ZDateTimeClass extends DataClass<Instant> {
 
     @Override
     public Instant getInfiniteValue(boolean min) {
-        return min ? Instant.MIN : Instant.MAX;
+        return min ? DateTimeClass.minDate.toInstant(ZoneOffset.UTC) : DateTimeClass.maxDate.toInstant(ZoneOffset.UTC);
+    }
+
+    // actually is used only for OrderClass.getSource
+    @Override
+    public String getString(Object value, SQLSyntax syntax) {
+        assert value != null;
+        Instant instant = (Instant) value;
+        return "to_timestamp(" + instant.getEpochSecond() + ", 0.0)";
     }
 
     @Override
@@ -183,7 +192,7 @@ public class ZDateTimeClass extends DataClass<Instant> {
 
     @Override
     public OverJDBField formatDBF(String fieldName) throws JDBFException {
-        return new OverJDBField(fieldName, 'D', 8, 0);
+        return OverJDBField.createField(fieldName, 'D', 8, 0);
     }
 
     @Override
@@ -195,8 +204,18 @@ public class ZDateTimeClass extends DataClass<Instant> {
     }
 
     @Override
-    public boolean useIndexedJoin() {
-        return true;
+    public String getIntervalProperty() {
+        return "interval[ZDATETIME,ZDATETIME]";
+    }
+
+    @Override
+    public String getFromIntervalProperty() {
+        return "from[INTERVAL[ZDATETIME]]";
+    }
+
+    @Override
+    public String getToIntervalProperty() {
+        return "to[INTERVAL[ZDATETIME]]";
     }
 }
 

@@ -1,8 +1,10 @@
 package lsfusion.http.provider.form;
 
+import lsfusion.base.Pair;
+import lsfusion.base.file.RawFileData;
 import lsfusion.client.form.ClientForm;
 import lsfusion.client.form.ClientFormChanges;
-import lsfusion.client.form.controller.remote.serialization.ClientSerializationPool;
+import lsfusion.client.form.controller.ClientFormController;
 import lsfusion.gwt.client.GForm;
 import lsfusion.gwt.client.form.design.GFont;
 import lsfusion.gwt.client.form.object.GGroupObject;
@@ -10,21 +12,19 @@ import lsfusion.gwt.client.form.object.table.grid.user.design.GColumnUserPrefere
 import lsfusion.gwt.client.form.object.table.grid.user.design.GFormUserPreferences;
 import lsfusion.gwt.client.form.object.table.grid.user.design.GGroupObjectUserPreferences;
 import lsfusion.gwt.server.FileUtils;
+import lsfusion.gwt.server.MainDispatchServlet;
 import lsfusion.gwt.server.convert.ClientComponentToGwtConverter;
 import lsfusion.gwt.server.convert.ClientFormChangesToGwtConverter;
 import lsfusion.http.provider.SessionInvalidatedException;
 import lsfusion.http.provider.navigator.NavigatorProvider;
+import lsfusion.interop.form.FormClientData;
 import lsfusion.interop.form.object.table.grid.user.design.ColumnUserPreferences;
 import lsfusion.interop.form.object.table.grid.user.design.FormUserPreferences;
 import lsfusion.interop.form.object.table.grid.user.design.GroupObjectUserPreferences;
 import lsfusion.interop.form.remote.RemoteFormInterface;
 import org.springframework.beans.factory.DisposableBean;
 import org.springframework.beans.factory.InitializingBean;
-import org.springframework.beans.factory.annotation.Autowired;
 
-import java.io.ByteArrayInputStream;
-import java.io.DataInputStream;
-import java.io.File;
 import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -38,38 +38,38 @@ import static lsfusion.gwt.server.convert.StaticConverters.convertFont;
 // session scoped - one for one browser (! not tab)
 public class FormProviderImpl implements FormProvider, InitializingBean, DisposableBean {
 
-    @Autowired
-    private NavigatorProvider navigatorProvider;
-    
-    public FormProviderImpl() {}
+    private final NavigatorProvider navigatorProvider;
 
-    public GForm createForm(String canonicalName, String formSID, RemoteFormInterface remoteForm, Object[] immutableMethods, byte[] firstChanges, String sessionID) throws IOException {
+    public FormProviderImpl(NavigatorProvider navigatorProvider) {
+        this.navigatorProvider = navigatorProvider;
+    }
+
+    public GForm createForm(MainDispatchServlet servlet, RemoteFormInterface remoteForm, FormClientData clientData, String sessionID) throws IOException {
         // 0, 1, 3 are indices from FormClientAction.methodNames array
-        byte[] formDesign = immutableMethods != null ? (byte[]) immutableMethods[1] : remoteForm.getRichDesignByteArray();
-        FormUserPreferences formUP = immutableMethods != null ? (FormUserPreferences)immutableMethods[0] : remoteForm.getUserPreferences();
+        ClientForm clientForm = ClientFormController.deserializeClientForm(remoteForm, clientData);
 
-        ClientForm clientForm = new ClientSerializationPool().deserializeObject(new DataInputStream(new ByteArrayInputStream(formDesign)));
+        FormSessionObject formSessionObject = new FormSessionObject(clientForm, remoteForm, sessionID);
 
-        GForm gForm = new ClientComponentToGwtConverter(navigatorProvider.getLogicsName(sessionID)).convertOrCast(clientForm);
+        GForm gForm = new ClientComponentToGwtConverter(servlet, formSessionObject).convertOrCast(clientForm);
 
-        Set<Integer> inputObjects = remoteForm.getInputGroupObjects();
+        Set<Integer> inputObjects = clientData.inputGroupObjects;
         gForm.inputGroupObjects = new HashSet<>();
         for(Integer inputObject : inputObjects) {
             gForm.inputGroupObjects.add(gForm.getGroupObject(inputObject));
         }
 
-        gForm.sID = formSID;
-        gForm.canonicalName = canonicalName;
+        gForm.sID = clientData.formSID;
+        gForm.canonicalName = clientData.formSID;
 
-        FormSessionObject formSessionObject = new FormSessionObject(clientForm, remoteForm, sessionID);
-
+        byte[] firstChanges = clientData.firstChanges;
         if (firstChanges != null)
             gForm.initialFormChanges = ClientFormChangesToGwtConverter.getInstance().convertOrCast(
-                    new ClientFormChanges(new DataInputStream(new ByteArrayInputStream(firstChanges)), clientForm),
+                    new ClientFormChanges(firstChanges, clientForm),
                     -1,
-                    formSessionObject                    
+                    formSessionObject, servlet
             );
 
+        FormUserPreferences formUP = clientData.userPreferences;
         if (formUP != null)
             gForm.userPreferences = new GFormUserPreferences(convertUserPreferences(gForm, formUP.getGroupObjectGeneralPreferencesList()),
                                                             convertUserPreferences(gForm, formUP.getGroupObjectUserPreferencesList()));
@@ -98,7 +98,7 @@ public class FormProviderImpl implements FormProvider, InitializingBean, Disposa
         HashMap<String, GColumnUserPreferences> gColumnUPMap = new HashMap<>();
         for (Map.Entry<String, ColumnUserPreferences> entry : groupObjectUP.getColumnUserPreferences().entrySet()) {
             ColumnUserPreferences columnUP = entry.getValue();
-            gColumnUPMap.put(entry.getKey(), new GColumnUserPreferences(columnUP.userHide, columnUP.userCaption, columnUP.userPattern, columnUP.userWidth, columnUP.userOrder, columnUP.userSort, columnUP.userAscendingSort));
+            gColumnUPMap.put(entry.getKey(), new GColumnUserPreferences(columnUP.userHide, columnUP.userCaption, columnUP.userPattern, columnUP.userWidth, columnUP.userFlex, columnUP.userOrder, columnUP.userSort, columnUP.userAscendingSort));
         }
         GFont userFont = convertFont(groupObjectUP.fontInfo);
         GGroupObject groupObj = gForm.getGroupObject(groupObjectUP.groupObjectSID);
@@ -108,16 +108,15 @@ public class FormProviderImpl implements FormProvider, InitializingBean, Disposa
             }
             userFont.family = groupObj.grid.font.family;
         } else {
-            userFont.family = GFont.DEFAULT_FONT_FAMILY;
+            userFont.family = "";
         }
-        gForm.addFont(userFont); // добавляем к используемым шрифтам с целью подготовить FontMetrics
         return new GGroupObjectUserPreferences(gColumnUPMap, groupObjectUP.groupObjectSID, userFont, groupObjectUP.pageSize, groupObjectUP.headerHeight, groupObjectUP.hasUserPreferences);
     }
 
     public FormSessionObject getFormSessionObject(String formSessionID) throws SessionInvalidatedException {
         FormSessionObject formSessionObject = currentForms.get(formSessionID);
         if(formSessionObject == null)
-            throw new SessionInvalidatedException();
+            throw new SessionInvalidatedException("Form " + formSessionID);
         return formSessionObject;
     }
 
@@ -133,10 +132,15 @@ public class FormProviderImpl implements FormProvider, InitializingBean, Disposa
 
     private void removeFormSessionObject(String formSessionID) throws SessionInvalidatedException {
         FormSessionObject<?> sessionObject = getFormSessionObject(formSessionID);
+        MainDispatchServlet.logger.error("Removing form " + formSessionID + "...");
         currentForms.remove(formSessionID);
-        if(sessionObject.savedTempFiles != null) {
-            for (File file : sessionObject.savedTempFiles.values())
-                FileUtils.deleteFile(file);
+        closeTempFiles(sessionObject);
+    }
+
+    private void closeTempFiles(FormSessionObject<?> sessionObject) {
+        if (sessionObject.savedTempFiles != null) {
+            for (Pair<String, Runnable> closer : sessionObject.savedTempFiles.values())
+                closer.second.run();
         }
     }
 
@@ -169,5 +173,8 @@ public class FormProviderImpl implements FormProvider, InitializingBean, Disposa
 
     @Override
     public void destroy() throws Exception {
+        for(FormSessionObject<?> sessionObject : currentForms.values()) {
+            closeTempFiles(sessionObject);
+        }
     }
 }

@@ -24,6 +24,7 @@ import java.util.EventObject;
 
 import static lsfusion.base.BaseUtils.deserializeObject;
 import static lsfusion.client.classes.ClientTypeSerializer.deserializeClientType;
+import static lsfusion.client.form.property.cell.EditBindingMap.isChangeEvent;
 
 public class EditPropertyDispatcher extends ClientFormActionDispatcher {
     protected final EditPropertyHandler handler;
@@ -39,6 +40,8 @@ public class EditPropertyDispatcher extends ClientFormActionDispatcher {
     private ClientType readType;
     private Object oldValue;
     private boolean hasOldValue;
+    private ClientInputList readInputList;
+    private ClientInputListAction[] readInputListActions;
     private Callback<Object> updateEditValueCallback;
 
     public EditPropertyDispatcher(EditPropertyHandler handler, DispatcherListener dispatcherListener) {
@@ -51,12 +54,18 @@ public class EditPropertyDispatcher extends ClientFormActionDispatcher {
         return handler.getForm();
     }
 
-    public boolean executePropertyEventAction(ClientPropertyDraw property, ClientGroupObjectValue columnKey, String actionSID, EventObject editEvent) {
+    public boolean executePropertyEventAction(ClientPropertyDraw property, ClientGroupObjectValue columnKey, String actionSID, EventObject editEvent, Integer contextAction) {
+        return executePropertyEventAction(property, columnKey, actionSID, false, editEvent, contextAction);
+    }
+
+    public boolean executePropertyEventAction(ClientPropertyDraw property, ClientGroupObjectValue columnKey, String actionSID, boolean isBinding, EventObject editEvent, Integer contextAction) {
         valueRequested = false;
         oldValueRequested = null;
         oldValue = null;
         hasOldValue = false;
 
+        readInputList = null;
+        readInputListActions = null;
         readType = null;
         simpleChangeProperty = null;
         editColumnKey = null;
@@ -67,24 +76,15 @@ public class EditPropertyDispatcher extends ClientFormActionDispatcher {
             ClientFormController form = getFormController();
 
             //async actions
-            ClientAsyncEventExec asyncEventExec = property.getAsyncEventExec(actionSID);
-            if (asyncEventExec != null) {
-                if (property.askConfirm) {
-                    String msg = property.askConfirmMessage;
-
-                    int result = SwingUtils.showConfirmDialog(getDialogParentContainer(), msg, "lsFusion", JOptionPane.QUESTION_MESSAGE, false);
-                    if (result != JOptionPane.YES_OPTION) {
-                        return true;
-                    }
-                }
-
-                return asyncEventExec.exec(form, this, property, columnKey, actionSID);
-            }
+            ClientAsyncEventExec asyncEventExec = contextAction != null ? property.getInputListActions()[contextAction].asyncExec : property.getAsyncEventExec(actionSID);
+            if (asyncEventExec != null && asyncEventExec.isDesktopEnabled(canShowDockedModal()))
+                return showConfirmDialog(property, actionSID) || asyncEventExec.exec(form, this, property, columnKey, actionSID);
+            else if (showConfirmDialog(property, actionSID)) return true;
 
             editPerformed = true;
-            ServerResponse response = form.executeEventAction(property, columnKey, actionSID);
+            ServerResponse response = form.executeEventAction(property, columnKey, actionSID, isBinding, contextAction != null ? new ClientPushAsyncInput(null, contextAction) : null);
             try {
-                return internalDispatchResponse(response);
+                return internalDispatchServerResponse(response);
             } finally {
                 if(response != ServerResponse.EMPTY) // проверка нужна, если запрос заблокируется то и postponeDispatchingEnded не будет, а значит "скобки" нарушатся и упадет assertion
                     dispatcherListener.dispatchingPostponedEnded(this);
@@ -96,11 +96,21 @@ public class EditPropertyDispatcher extends ClientFormActionDispatcher {
         }
     }
 
-    public boolean asyncChange(ClientPropertyDraw property, ClientGroupObjectValue columnKey, String actionSID, ClientAsyncChange asyncChange) throws IOException {
+    private boolean showConfirmDialog(ClientPropertyDraw property, String actionSID) {
+        return isChangeEvent(actionSID)  && property.askConfirm && SwingUtils.showConfirmDialog(getDialogParentContainer(), property.askConfirmMessage, "lsFusion", JOptionPane.QUESTION_MESSAGE, false) != JOptionPane.YES_OPTION;
+    }
+
+    public boolean asyncChange(ClientPropertyDraw property, ClientGroupObjectValue columnKey, String actionSID, ClientAsyncInput asyncChange) throws IOException {
         this.editColumnKey = columnKey;
         this.simpleChangeProperty = property;
         this.actionSID = actionSID;
-        return internalRequestValue(asyncChange.changeType);
+        return internalRequestValue(asyncChange.changeType, asyncChange.inputList, asyncChange.inputListActions, actionSID);
+    }
+
+    public boolean internalDispatchServerResponse(ServerResponse response) throws IOException {
+        onServerResponse(response);
+
+        return internalDispatchResponse(response);
     }
 
     @Override
@@ -118,7 +128,7 @@ public class EditPropertyDispatcher extends ClientFormActionDispatcher {
         if (readType != null) {
             ClientType editType = readType;
             readType = null;
-            if (!internalRequestValue(editType)) {
+            if (!internalRequestValue(editType, readInputList, readInputListActions, ServerResponse.INPUT)) {
                 cancelEdit();
             }
             return true;
@@ -127,10 +137,10 @@ public class EditPropertyDispatcher extends ClientFormActionDispatcher {
         return response.resumeInvocation || editPerformed;
     }
 
-    private boolean internalRequestValue(ClientType readType) throws IOException {
+    private boolean internalRequestValue(ClientType readType, ClientInputList inputList, ClientInputListAction[] inputListActions, String actionSID) throws IOException {
         valueRequested = true;
         oldValueRequested = handler.getEditValue();
-        return handler.requestValue(readType, hasOldValue ? oldValue : oldValueRequested);
+        return handler.requestValue(readType, hasOldValue ? oldValue : oldValueRequested, inputList, inputListActions, actionSID);
     }
 
     private void internalCommitValue(UserInputResult inputResult) {
@@ -150,7 +160,7 @@ public class EditPropertyDispatcher extends ClientFormActionDispatcher {
                             updateEditValueCallback.done(inputResult.getValue());
                         }
                     }
-                    getFormController().changeProperty(simpleChangeProperty, editColumnKey, actionSID, inputResult.getValue(), oldValueRequested);
+                    getFormController().changeProperty(simpleChangeProperty, editColumnKey, actionSID, inputResult.getValue(), inputResult.getContextAction(), oldValueRequested, this);
                 } catch (IOException e) {
                     throw Throwables.propagate(e);
                 }
@@ -162,7 +172,11 @@ public class EditPropertyDispatcher extends ClientFormActionDispatcher {
     }
 
     public void commitValue(Object value) {
-        internalCommitValue(new UserInputResult(value));
+        commitValue(value, null);
+    }
+
+    public void commitValue(Object value, Integer contextAction) {
+        internalCommitValue(new UserInputResult(value, contextAction));
     }
 
     public void cancelEdit() {
@@ -174,6 +188,8 @@ public class EditPropertyDispatcher extends ClientFormActionDispatcher {
             readType = deserializeClientType(action.readType);
             oldValue = deserializeObject(action.oldValue);
             hasOldValue = action.hasOldValue;
+            readInputList = ClientAsyncSerializer.deserializeInputList(action.inputList);
+            readInputListActions = ClientAsyncSerializer.deserializeInputListActions(action.inputListActions);
         } catch (IOException e) {
             throw Throwables.propagate(e);
         }

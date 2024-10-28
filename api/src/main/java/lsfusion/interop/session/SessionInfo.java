@@ -2,15 +2,14 @@ package lsfusion.interop.session;
 
 import lsfusion.interop.connection.ConnectionInfo;
 
-public class SessionInfo extends ConnectionInfo {
-    public String query;
+import java.io.Serializable;
 
-    public SessionInfo(String hostName, String hostAddress, String language, String country, String dateFormat, String timeFormat) {
-        this(hostName, hostAddress, language, country, dateFormat, timeFormat, null);
-    }
+public class SessionInfo implements Serializable {
+    public ExternalRequest externalRequest;
+    public ConnectionInfo connectionInfo;
 
-    public SessionInfo(String hostName, String hostAddress, String language, String country, String dateFormat, String timeFormat, String query) {
-        super(hostName, hostAddress, language, country, dateFormat, timeFormat);
-        this.query = query;
+    public SessionInfo(ConnectionInfo connectionInfo, ExternalRequest externalRequest) {
+        this.connectionInfo = connectionInfo;
+        this.externalRequest = externalRequest;
     }
 }

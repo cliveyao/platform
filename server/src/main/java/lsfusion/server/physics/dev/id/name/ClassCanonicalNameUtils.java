@@ -71,57 +71,53 @@ public final class ClassCanonicalNameUtils {
         return sid + UpClassSetNameRBracket;
     }
 
-    public static DataClass defaultStringClassObj = StringClass.text;
-    public static DataClass defaultNumericClassObj = NumericClass.get(5, 2);
-    
-    public static DataClass getCanonicalNameDataClass(String name) {
+    private static final DataClass<?> defaultStringClassObj = StringClass.text;
+    private static final DataClass<?> defaultNumericClassObj = NumericClass.defaultNumeric;
+    private static final DataClass<?> defaultRawFileClassObj = CustomStaticFormatFileClass.get();
+    private static final DataClass<?> defaultRawLinkClassObj = CustomStaticFormatLinkClass.get();
+    private static final DataClass<?> defaultZDateTimeClassObj = ZDateTimeClass.instance;
+    private static final DataClass<?> defaultDateTimeClassObj = DateTimeClass.instance;
+    private static final DataClass<?> defaultTimeClassObj = TimeClass.instance;
+
+    public static DataClass<?> getCanonicalNameDataClass(String name) {
         return canonicalDataClassNames.get(name); 
     }
     
-    private static Map<String, DataClass> canonicalDataClassNames = new HashMap<String, DataClass>() {{
+    private static final Map<String, DataClass<?>> canonicalDataClassNames = new HashMap<String, DataClass<?>>() {{
         put("INTEGER", IntegerClass.instance);
         put("DOUBLE", DoubleClass.instance);
         put("LONG", LongClass.instance);
         put("BOOLEAN", LogicalClass.instance);
+        put("TBOOLEAN", LogicalClass.threeStateInstance);
         put("DATE", DateClass.instance);
-        put("DATETIME", DateTimeClass.instance );
-        put("ZDATETIME", ZDateTimeClass.instance );
-        put("TIME", TimeClass.instance);
+        put("DATETIME", defaultDateTimeClassObj );
+        put("ZDATETIME", defaultZDateTimeClassObj );
+        put("DATEINTERVAL", DateIntervalClass.instance);
+        put("DATETIMEINTERVAL", DateTimeIntervalClass.instance);
+        put("TIMEINTERVAL", TimeIntervalClass.instance);
+        put("TIME", defaultTimeClassObj);
         put("YEAR", YearClass.instance);
-        put("WORDFILE", WordClass.get());
-        put("IMAGEFILE", ImageClass.get());
-        put("PDFFILE", PDFClass.get());
-        put("RAWFILE", CustomStaticFormatFileClass.get());
         put("FILE", DynamicFormatFileClass.get());
-        put("EXCELFILE", ExcelClass.get());
-        put("TEXTFILE", TXTClass.get());
-        put("CSVFILE", CSVClass.get());
-        put("HTMLFILE", HTMLClass.get());
-        put("JSONFILE", JSONClass.get());
-        put("XMLFILE", XMLClass.get());
-        put("TABLEFILE", TableClass.get());
-        put("WORDLINK", WordLinkClass.get(false));
-        put("IMAGELINK", ImageLinkClass.get(false));
-        put("PDFLINK", PDFLinkClass.get(false));
-        put("RAWLINK", CustomStaticFormatLinkClass.get());
+        put("NAMEDFILE", NamedFileClass.instance);
         put("LINK", DynamicFormatLinkClass.get(false));
-        put("EXCELLINK", ExcelLinkClass.get(false));
-        put("TEXTLINK", TXTLinkClass.get(false));
-        put("CSVLINK", CSVLinkClass.get(false));
-        put("HTMLLINK", HTMLLinkClass.get(false));
-        put("JSONLINK", JSONLinkClass.get(false));
-        put("XMLLINK", XMLLinkClass.get(false));
-        put("TABLELINK", TableLinkClass.get(false));
         put("COLOR", ColorClass.instance);
+        put("JSON", JSONClass.instance);
+        put("JSONTEXT", JSONTextClass.instance);
+        put("RAWLINK", defaultRawLinkClassObj);
+        put("RAWFILE", defaultRawFileClassObj);
         put("STRING", defaultStringClassObj);
         put("NUMERIC", defaultNumericClassObj);
+        put("TSVECTOR", TSVectorClass.instance);
+        put("TSQUERY", TSQueryClass.instance);
+        put("HTML", HTMLStringClass.instance);
     }};
 
-    public static DataClass getScriptedDataClass(String name) {
+    public static DataClass<?> getScriptedDataClass(String name) {
         assert !name.contains(" ");
         if (scriptedSimpleDataClassNames.containsKey(name)) {
             return scriptedSimpleDataClassNames.get(name);
-        } else if (name.matches("^((BPSTRING\\[\\d+\\])|(BPISTRING\\[\\d+\\])|(STRING\\[\\d+\\])|(ISTRING\\[\\d+\\])|(NUMERIC\\[\\d+,\\d+\\])|(INTERVAL\\[(DATE|DATETIME|TIME)\\]))$")) {
+        } else if (name.matches("^((BPSTRING\\[\\d+\\])|(BPISTRING\\[\\d+\\])|(STRING\\[\\d+\\])|(ISTRING\\[\\d+\\])" +
+                "|(NUMERIC\\[\\d+,\\d+\\])|(INTERVAL\\[(DATE|DATETIME|TIME|ZDATETIME)\\])|(TIME\\[\\d+\\])|(DATETIME\\[\\d+\\])|(ZDATETIME\\[\\d+\\]))$")) {
             if (name.startsWith("BPSTRING[")) {
                 name = name.substring("BPSTRING[".length(), name.length() - 1);
                 return StringClass.get(new ExtInt(Integer.parseInt(name)));
@@ -138,39 +134,57 @@ public final class ClassCanonicalNameUtils {
                 String precision = name.substring("NUMERIC[".length(), name.indexOf(","));
                 String scale = name.substring(name.indexOf(",") + 1, name.length() - 1);
                 return NumericClass.get(Integer.parseInt(precision), Integer.parseInt(scale));
-            }  else if (name.startsWith("INTERVAL[")) {
+            } else if (name.startsWith("INTERVAL[")) {
                 String intervalType = name.substring("INTERVAL[".length(), name.length() - 1);
                 return IntervalClass.getInstance(intervalType);
+            } else if (name.startsWith("TIME[")) {
+                name = name.substring("TIME[".length(), name.length() - 1);
+                return TimeClass.get(new ExtInt(Integer.parseInt(name)));
+            } else if (name.startsWith("DATETIME[")) {
+                name = name.substring("DATETIME[".length(), name.length() - 1);
+                return DateTimeClass.get(new ExtInt(Integer.parseInt(name)));
+            } else if (name.startsWith("ZDATETIME[")) {
+                name = name.substring("ZDATETIME[".length(), name.length() - 1);
+                return ZDateTimeClass.get(new ExtInt(Integer.parseInt(name)));
             }
         }
         return null;
     }
     
-    private static Map<String, DataClass> scriptedSimpleDataClassNames = new HashMap<String, DataClass>() {{
+    private static final Map<String, DataClass<?>> scriptedSimpleDataClassNames = new HashMap<String, DataClass<?>>() {{
         put("INTEGER", IntegerClass.instance);
         put("DOUBLE", DoubleClass.instance);
         put("LONG", LongClass.instance);
         put("BOOLEAN", LogicalClass.instance);
+        put("TBOOLEAN", LogicalClass.threeStateInstance);
         put("DATE", DateClass.instance);
-        put("DATETIME", DateTimeClass.instance);
-        put("ZDATETIME", ZDateTimeClass.instance);
-        put("TIME", TimeClass.instance);
+        put("DATETIME", defaultDateTimeClassObj);
+        put("ZDATETIME", defaultZDateTimeClassObj);
+        put("DATEINTERVAL", DateIntervalClass.instance);
+        put("DATETIMEINTERVAL", DateTimeIntervalClass.instance);
+        put("TIMEINTERVAL", TimeIntervalClass.instance);
+        put("TIME", defaultTimeClassObj);
         put("YEAR", YearClass.instance);
         put("WORDFILE", WordClass.get());
         put("IMAGEFILE", ImageClass.get());
         put("PDFFILE", PDFClass.get());
+        put("VIDEOFILE", VideoClass.get());
+        put("DBFFILE", DBFClass.get());
         put("RAWFILE", CustomStaticFormatFileClass.get());
         put("FILE", DynamicFormatFileClass.get());
         put("EXCELFILE", ExcelClass.get());
         put("TEXTFILE", TXTClass.get());
         put("CSVFILE", CSVClass.get());
         put("HTMLFILE", HTMLClass.get());
-        put("JSONFILE", JSONClass.get());
+        put("JSONFILE", JSONFileClass.get());
         put("XMLFILE", XMLClass.get());
         put("TABLEFILE", TableClass.get());
+        put("NAMEDFILE", NamedFileClass.instance);
         put("WORDLINK", WordLinkClass.get(false));
         put("IMAGELINK", ImageLinkClass.get(false));
         put("PDFLINK", PDFLinkClass.get(false));
+        put("VIDEOLINK", VideoLinkClass.get(false));
+        put("DBFLINK", DBFLinkClass.get(false));
         put("RAWLINK", CustomStaticFormatLinkClass.get());
         put("LINK", DynamicFormatLinkClass.get(false));
         put("EXCELLINK", ExcelLinkClass.get(false));
@@ -181,21 +195,18 @@ public final class ClassCanonicalNameUtils {
         put("XMLLINK", XMLLinkClass.get(false));
         put("TABLELINK", TableLinkClass.get(false));
         put("COLOR", ColorClass.instance);
+        put("JSON", JSONClass.instance);
+        put("JSONTEXT", JSONTextClass.instance);
         put("TEXT", TextClass.instance);
-        put("RICHTEXT", TextClass.richInstance);
+        put("RICHTEXT", RichTextClass.instance);
+        put("HTMLTEXT", HTMLTextClass.instance);
         put("BPSTRING", StringClass.get(ExtInt.UNLIMITED));
         put("BPISTRING", StringClass.get(true, ExtInt.UNLIMITED));
-        put("STRING", StringClass.getv(ExtInt.UNLIMITED));
+        put("STRING", StringClass.instance);
         put("ISTRING", StringClass.getv(true, ExtInt.UNLIMITED));
         put("NUMERIC", NumericClass.defaultNumeric);
+        put("TSVECTOR", TSVectorClass.instance);
+        put("TSQUERY", TSQueryClass.instance);
+        put("HTML", HTMLStringClass.instance);
     }};
-
-    public static List<ResolveClassSet> getResolveList(ValueClass[] classes) {
-        List<ResolveClassSet> classSets;
-        classSets = new ArrayList<>();
-        for (ValueClass cls : classes) {
-            classSets.add(cls.getResolveSet());
-        }
-        return classSets;
-    }
 }

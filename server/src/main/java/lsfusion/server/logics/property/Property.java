@@ -4,6 +4,7 @@ import com.google.common.base.Throwables;
 import lsfusion.base.BaseUtils;
 import lsfusion.base.ExceptionUtils;
 import lsfusion.base.Pair;
+import lsfusion.base.Result;
 import lsfusion.base.col.ListFact;
 import lsfusion.base.col.MapFact;
 import lsfusion.base.col.SetFact;
@@ -11,13 +12,17 @@ import lsfusion.base.col.interfaces.immutable.*;
 import lsfusion.base.col.interfaces.mutable.*;
 import lsfusion.base.lambda.CallableWithParam;
 import lsfusion.base.lambda.set.FunctionSet;
+import lsfusion.base.mutability.TwinImmutableObject;
 import lsfusion.interop.action.ServerResponse;
 import lsfusion.interop.form.property.ClassViewType;
 import lsfusion.interop.form.property.Compare;
 import lsfusion.server.base.caches.*;
+import lsfusion.server.base.controller.stack.ParamMessage;
 import lsfusion.server.base.controller.stack.StackMessage;
 import lsfusion.server.base.controller.stack.ThisMessage;
 import lsfusion.server.base.controller.thread.ThreadLocalContext;
+import lsfusion.server.base.version.NFLazy;
+import lsfusion.server.base.version.Version;
 import lsfusion.server.data.OperationOwner;
 import lsfusion.server.data.QueryEnvironment;
 import lsfusion.server.data.caches.AbstractOuterContext;
@@ -25,8 +30,10 @@ import lsfusion.server.data.expr.Expr;
 import lsfusion.server.data.expr.PullExpr;
 import lsfusion.server.data.expr.classes.IsClassType;
 import lsfusion.server.data.expr.key.KeyExpr;
+import lsfusion.server.data.expr.key.NullableKeyExpr;
 import lsfusion.server.data.expr.query.GroupExpr;
 import lsfusion.server.data.expr.query.GroupType;
+import lsfusion.server.data.expr.value.StaticParamNullableExpr;
 import lsfusion.server.data.expr.value.ValueExpr;
 import lsfusion.server.data.expr.where.cases.CaseExpr;
 import lsfusion.server.data.expr.where.classes.data.CompareWhere;
@@ -36,29 +43,33 @@ import lsfusion.server.data.query.MapKeysInterface;
 import lsfusion.server.data.query.Query;
 import lsfusion.server.data.query.build.Join;
 import lsfusion.server.data.query.build.QueryBuilder;
+import lsfusion.server.data.query.compile.CompileSource;
 import lsfusion.server.data.query.modify.ModifyQuery;
 import lsfusion.server.data.sql.SQLSession;
 import lsfusion.server.data.sql.exception.SQLHandledException;
-import lsfusion.server.data.stat.PropStat;
-import lsfusion.server.data.stat.TableStatKeys;
+import lsfusion.server.data.stat.*;
 import lsfusion.server.data.table.*;
+import lsfusion.server.data.type.AbstractType;
 import lsfusion.server.data.type.Type;
 import lsfusion.server.data.value.DataObject;
+import lsfusion.server.data.value.NullValue;
 import lsfusion.server.data.value.ObjectValue;
 import lsfusion.server.data.where.Where;
 import lsfusion.server.data.where.WhereBuilder;
 import lsfusion.server.data.where.classes.ClassWhere;
 import lsfusion.server.language.ScriptParsingException;
+import lsfusion.server.language.ScriptingLogicsModule;
 import lsfusion.server.language.action.LA;
 import lsfusion.server.language.property.LP;
 import lsfusion.server.logics.BaseLogicsModule;
 import lsfusion.server.logics.BusinessLogics;
 import lsfusion.server.logics.LogicsModule;
 import lsfusion.server.logics.action.Action;
+import lsfusion.server.logics.action.SystemAction;
 import lsfusion.server.logics.action.controller.context.ExecutionContext;
 import lsfusion.server.logics.action.controller.context.ExecutionEnvironment;
 import lsfusion.server.logics.action.controller.stack.ExecutionStack;
-import lsfusion.server.logics.action.implement.ActionImplement;
+import lsfusion.server.logics.action.flow.FlowResult;
 import lsfusion.server.logics.action.implement.ActionMapImplement;
 import lsfusion.server.logics.action.session.DataSession;
 import lsfusion.server.logics.action.session.change.*;
@@ -72,8 +83,8 @@ import lsfusion.server.logics.action.session.table.PropertyChangeTableUsage;
 import lsfusion.server.logics.classes.ConcreteClass;
 import lsfusion.server.logics.classes.StaticClass;
 import lsfusion.server.logics.classes.ValueClass;
-import lsfusion.server.logics.classes.data.DataClass;
-import lsfusion.server.logics.classes.data.OrderClass;
+import lsfusion.server.logics.classes.data.*;
+import lsfusion.server.logics.classes.data.file.AJSONClass;
 import lsfusion.server.logics.classes.struct.ConcatenateValueClass;
 import lsfusion.server.logics.classes.user.BaseClass;
 import lsfusion.server.logics.classes.user.CustomClass;
@@ -82,17 +93,23 @@ import lsfusion.server.logics.classes.user.set.OrClassSet;
 import lsfusion.server.logics.classes.user.set.ResolveClassSet;
 import lsfusion.server.logics.classes.user.set.ResolveUpClassSet;
 import lsfusion.server.logics.event.*;
-import lsfusion.server.logics.form.interactive.action.change.DefaultWYSObjectAction;
+import lsfusion.server.logics.form.interactive.action.async.map.AsyncMapChange;
+import lsfusion.server.logics.form.interactive.action.edit.FormSessionScope;
+import lsfusion.server.logics.form.interactive.action.input.*;
 import lsfusion.server.logics.form.interactive.design.property.PropertyDrawView;
-import lsfusion.server.logics.form.interactive.dialogedit.ClassFormEntity;
+import lsfusion.server.logics.form.interactive.dialogedit.ClassFormSelector;
 import lsfusion.server.logics.form.interactive.instance.FormInstance;
 import lsfusion.server.logics.form.interactive.property.checked.ConstraintCheckChangeProperty;
+import lsfusion.server.logics.form.open.ObjectSelector;
 import lsfusion.server.logics.form.struct.FormEntity;
 import lsfusion.server.logics.form.struct.ValueClassWrapper;
+import lsfusion.server.logics.form.struct.filter.ContextFilterEntity;
 import lsfusion.server.logics.form.struct.property.PropertyClassImplement;
 import lsfusion.server.logics.form.struct.property.PropertyDrawEntity;
 import lsfusion.server.logics.form.struct.property.oraction.ActionOrPropertyClassImplement;
+import lsfusion.server.logics.navigator.controller.env.ChangesController;
 import lsfusion.server.logics.property.cases.CaseUnionProperty;
+import lsfusion.server.logics.property.classes.ClassPropertyInterface;
 import lsfusion.server.logics.property.classes.IsClassProperty;
 import lsfusion.server.logics.property.classes.infer.*;
 import lsfusion.server.logics.property.classes.user.ClassDataProperty;
@@ -100,28 +117,31 @@ import lsfusion.server.logics.property.data.DataProperty;
 import lsfusion.server.logics.property.data.SessionDataProperty;
 import lsfusion.server.logics.property.implement.*;
 import lsfusion.server.logics.property.oraction.ActionOrProperty;
-import lsfusion.server.logics.property.oraction.ActionOrPropertyInterfaceImplement;
 import lsfusion.server.logics.property.oraction.PropertyInterface;
 import lsfusion.server.logics.property.value.NullValueProperty;
+import lsfusion.server.logics.property.value.ValueProperty;
 import lsfusion.server.physics.admin.Settings;
 import lsfusion.server.physics.admin.SystemProperties;
 import lsfusion.server.physics.admin.drilldown.form.DrillDownFormEntity;
-import lsfusion.server.physics.admin.log.LogTime;
+import lsfusion.server.physics.dev.debug.DebugInfo;
 import lsfusion.server.physics.dev.debug.PropertyDebugInfo;
 import lsfusion.server.physics.dev.i18n.LocalizedString;
 import lsfusion.server.physics.dev.id.name.DBNamingPolicy;
 import lsfusion.server.physics.exec.db.controller.manager.DBManager;
+import lsfusion.server.physics.exec.db.table.DBTable;
 import lsfusion.server.physics.exec.db.table.ImplementTable;
 import lsfusion.server.physics.exec.db.table.MapKeysTable;
 import lsfusion.server.physics.exec.db.table.TableFactory;
+import lsfusion.server.physics.exec.hint.AutoHintsAspect;
 
 import java.sql.SQLException;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
-import static lsfusion.server.base.controller.thread.ThreadLocalContext.getBusinessLogics;
 import static lsfusion.server.base.controller.thread.ThreadLocalContext.localize;
+import static lsfusion.server.logics.property.oraction.ActionOrPropertyUtils.*;
 
 public abstract class Property<T extends PropertyInterface> extends ActionOrProperty<T> implements MapKeysInterface<T> {
 
@@ -395,7 +415,7 @@ public abstract class Property<T extends PropertyInterface> extends ActionOrProp
 
         drawOptions.addProcessor(new DefaultProcessor() {
             @Override
-            public void proceedDefaultDraw(PropertyDrawEntity entity, FormEntity form) {
+            public void proceedDefaultDraw(PropertyDrawEntity entity, FormEntity form, Version version) {
                 if(entity.viewType == null)
                     entity.viewType = ClassViewType.LIST;
             }
@@ -407,6 +427,31 @@ public abstract class Property<T extends PropertyInterface> extends ActionOrProp
 
     }
 
+    public enum Lazy {WEAK, STRONG}
+
+    protected Lazy lazy;
+
+    public boolean isLazyStrong() {
+        return lazy == Lazy.STRONG;
+    }
+
+    public void setLazy(Lazy lazy, DebugInfo.DebugPoint debugPoint) {
+        this.lazy = lazy;
+        if (isLazyStrong()) {
+            SystemAction flushAction = new SystemAction(LocalizedString.NONAME, (ImOrderSet<PropertyInterface>) getFriendlyOrderInterfaces()) {
+                @Override
+                protected FlowResult aspectExecute(ExecutionContext<PropertyInterface> context) {
+                    context.getSession().addChangePropKeys(Property.this, context.getKeys());
+                    return FlowResult.FINISH;
+                }
+            };
+            PropertyMapImplement where = getImplement().mapChanged(IncrementType.CHANGED, PrevScope.EVENT);
+            getBaseLM().addWhenAction(flushAction.interfaces, flushAction.getImplement(),
+                    where, null, MapFact.EMPTYORDER(), false,
+                    Event.APPLY, SetFact.EMPTY(), false, debugPoint, null);
+        }
+    }
+
     public void change(ExecutionContext context, Boolean value) throws SQLException, SQLHandledException {
         change(context.getEnv(), value);
     }
@@ -416,6 +461,10 @@ public abstract class Property<T extends PropertyInterface> extends ActionOrProp
     }
 
     public void change(ExecutionEnvironment env, Boolean value) throws SQLException, SQLHandledException {
+        change(MapFact.EMPTY(), env, value);
+    }
+
+    public void change(ExecutionEnvironment env, ObjectValue value) throws SQLException, SQLHandledException {
         change(MapFact.EMPTY(), env, value);
     }
 
@@ -555,38 +604,93 @@ public abstract class Property<T extends PropertyInterface> extends ActionOrProp
         return ExClassSet.fromExValue(inferred).removeNulls();
     }
 
-    public static class VirtualTable<P extends PropertyInterface> extends NamedTable {
+    public boolean isChangedWhen(boolean toNull, PropertyInterfaceImplement<T> changeProperty) {
+        if(toNull && changeProperty instanceof PropertyInterface && isNotNull(AlgType.actionType))
+            return true;
+
+        return getImplement().equalsMap(changeProperty);
+    }
+    public boolean isNot(PropertyInterfaceImplement<T> map) {
+        return false;
+    }
+
+    public Pair<PropertyInterfaceImplement<T>, PropertyInterfaceImplement<T>> getIfProp() {
+        return null;
+    }
+
+    public boolean hasNoGridReadOnly(ImSet<T> gridInterfaces) {
+        assert interfaces.containsAll(gridInterfaces);
+        return gridInterfaces.isEmpty();
+    }
+
+    public static class VirtualTable<P extends PropertyInterface> extends Table {
+
+        protected String name;
 
         public final ImRevMap<KeyField, P> mapFields;
         public final PropertyField propValue;
 
+        protected ClassWhere<KeyField> classes;
+        private final ClassWhere<Field> propertyClass;
+
         public VirtualTable(final Property<P> property, AlgType algType) {
-            super(property.getSID());
+            super();
+
+            name = property.getSID();
             
             ImRevMap<P, KeyField> revMapFields = property.interfaces.mapRevValues((P value) -> new KeyField(value.getSID(), property.getInterfaceType(value)));
             mapFields = revMapFields.reverse();
             keys = property.getOrderInterfaces().mapOrder(revMapFields);
             
             propValue = new PropertyField("value", property.getType());
-            properties = SetFact.singleton(propValue);
 
             classes = property.getClassWhere(algType).remap(revMapFields);
-            propertyClasses = MapFact.singleton(propValue, property.getClassValueWhere(algType).remap(MapFact.addRevExcl(revMapFields, "value", propValue)));
+
+            propertyClass = property.getClassValueWhere(algType).remap(MapFact.addRevExcl(revMapFields, "value", propValue));
+        }
+
+        public ClassWhere<KeyField> getClasses() {
+            return classes;
+        }
+
+        @Override
+        public ClassWhere<Field> getClassWhere(PropertyField property) {
+            assert property.equals(propValue);
+            return propertyClass;
+        }
+
+//        since there is a IdentityStrongLazy
+        @Override
+        public boolean calcTwins(TwinImmutableObject o) {
+            return this == o;
+        }
+
+        @Override
+        public int immutableHashCode() {
+            return System.identityHashCode(this);
         }
 
         @IdentityLazy
         public TableStatKeys getTableStatKeys() {
-            return getStatKeys(this, 100);
+            return ImplementTable.ignoreStatPropsNoException(() -> getStatKeys(this, 100));
         }
 
         @IdentityLazy
-        public ImMap<PropertyField,PropStat> getStatProps() {
-            return getStatProps(this);
+        public PropStat getStatProp(PropertyField property) {
+            return ImplementTable.ignoreStatPropsNoException(() -> getStatProp(this, property));
+        }
+
+        public String toString() {
+            return name;
+        }
+
+        public String getQuerySource(CompileSource source) {
+            assert false; // should not be compiled in theory
+            return name;
         }
     }
 
     // есть assertion, что не должен возвращать изменение null -> null, то есть или старое или новое не null, для подр. см usage
-    @LogTime
     @ThisMessage
     public PropertyChange<T> getIncrementChange(Modifier modifier) throws SQLException, SQLHandledException {
         return getIncrementChange(modifier.getPropertyChanges());
@@ -751,9 +855,9 @@ public abstract class Property<T extends PropertyInterface> extends ActionOrProp
         return readTable;
     }
     
-    public PropertyChange<T> getPrevChange(PropertyChangeTableUsage<T> table) {
+    public PropertyChange<T> getPrevChange(PropertyChangeTableUsage<T> table, PropertyChanges prevChanges) {
         ImRevMap<T, KeyExpr> mapKeys = getMapKeys();
-        return new PropertyChange<>(mapKeys, getExpr(mapKeys), table.join(mapKeys).getWhere());
+        return new PropertyChange<>(mapKeys, getExpr(mapKeys, prevChanges), table.join(mapKeys).getWhere());
     }
 
     public PropertyChangeTableUsage<T> readChangeTable(String debugInfo, SQLSession session, PropertyChange<T> change, BaseClass baseClass, QueryEnvironment env) throws SQLException, SQLHandledException {
@@ -763,7 +867,7 @@ public abstract class Property<T extends PropertyInterface> extends ActionOrProp
     }
 
     @IdentityStrongLazy // just in case
-    private <P extends PropertyInterface> ConstraintCheckChangeProperty<T, P> getMaxChangeProperty(Property<P> change) {
+    private <P extends PropertyInterface> ConstraintCheckChangeProperty<T, P> getConstraintCheckChangeProperty(Property<P> change) {
         return new ConstraintCheckChangeProperty<>(this, change);
     }
 
@@ -771,15 +875,18 @@ public abstract class Property<T extends PropertyInterface> extends ActionOrProp
     public CheckType checkChange = CheckType.CHECK_NO;
     public ImSet<Property<?>> checkProperties = null;
 
-    public ImOrderSet<ConstraintCheckChangeProperty<?, T>> getCheckProperties() {
-        return getBusinessLogics().getCheckConstrainedProperties(this).
-                    filterOrder(property -> depends(property, this)).
-                    mapOrderSetValues(property -> ((Property<?>)property).getMaxChangeProperty(Property.this));
+    public <O extends ObjectSelector> ImSet<ContextFilterEntity<?, T, O>> getCheckFilters(O object) {
+        return ThreadLocalContext.getBusinessLogics().getCheckConstrainedProperties(this).filterFn(property -> depends(property, this)).
+                mapSetValues(property -> {
+                    ConstraintCheckChangeProperty<?, T> changeProperty = ((Property<?>) property).getConstraintCheckChangeProperty(this);
+                    Pair<ImRevMap<ConstraintCheckChangeProperty.Interface<T>, T>, ConstraintCheckChangeProperty.Interface<T>> mapInterfaces = changeProperty.getMapInterfaces();
+                    return new ContextFilterEntity<>(changeProperty, mapInterfaces.first, MapFact.singletonRev(mapInterfaces.second, object));
+                });
     }
 
     public PropertyChanges getChangeModifier(PropertyChanges changes, boolean toNull) {
         // строим Where для изменения
-        return getPullDataChanges(changes, toNull).add(changes);
+        return getPullDataChanges(changes, toNull).getPropertyChanges().add(changes);
     }
 
     private ImSet<Property> recDepends;
@@ -789,7 +896,7 @@ public abstract class Property<T extends PropertyInterface> extends ActionOrProp
             recDepends = calculateRecDepends();
         return recDepends;
     }
-    
+
     public int getEstComplexity() {
         return getRecDepends().size();
     }
@@ -811,8 +918,8 @@ public abstract class Property<T extends PropertyInterface> extends ActionOrProp
     }
 
     private MCol<Pair<ActionOrProperty<?>, LinkType>> actionChangeProps; // только у Data и IsClassProperty, чисто для лексикографики
-    public <T extends PropertyInterface> void addActionChangeProp(Pair<ActionOrProperty<T>, LinkType> pair) {
-        ((Action<?>) pair.first).checkRecursiveStrongUsed(this);
+    public <T extends PropertyInterface> void addActionChangeProp(Pair<Action<T>, LinkType> pair) {
+        pair.first.checkRecursiveStrongUsed(this);
 
         if(actionChangeProps==null)
             actionChangeProps = ListFact.mCol();
@@ -908,19 +1015,26 @@ public abstract class Property<T extends PropertyInterface> extends ActionOrProp
                 return false; // no hint will be "thrown" (since it requires reading'an expr)
         }
 
-        for(Property property : getDepends())
-            if(property.hasPreread(structChanges))
-                return true;
+        return calculateHasPreread(structChanges);
+    }
+
+    protected boolean calculateHasPreread(StructChanges structChanges) {
         return false;
     }
-    @IdentityLazy
+
     public boolean hasGlobalPreread() {
+        return hasGlobalPreread(true);
+    }
+
+    @IdentityLazy
+    public boolean hasGlobalPreread(boolean events) {
         if(isPreread())
             return true;
 
-        for(Property property : getDepends())
-            if(property.hasGlobalPreread())
-                return true;
+        return calculateHasGlobalPreread(events);
+    }
+
+    protected boolean calculateHasGlobalPreread(boolean events) {
         return false;
     }
 
@@ -972,6 +1086,11 @@ public abstract class Property<T extends PropertyInterface> extends ActionOrProp
         return result;
     }
 
+    @IdentityLazy
+    public ImSet<CurrentEnvironmentProperty> getEnvDepends() {
+        return BaseUtils.immutableCast(getRecDepends().filterFn(element -> element instanceof CurrentEnvironmentProperty));
+    }
+
     @IdentityStartLazy
     public ImSet<SessionProperty> getSessionCalcDepends(boolean events) {
         MSet<SessionProperty> mResult = SetFact.mSet();
@@ -991,7 +1110,13 @@ public abstract class Property<T extends PropertyInterface> extends ActionOrProp
     }
 
     public boolean hasChanges(Modifier modifier) throws SQLException, SQLHandledException {
-        return hasChanges(modifier.getPropertyChanges());
+        return hasChanges(modifier, false);
+    }
+    public boolean hasChanges(Modifier modifier, boolean prevChanges) throws SQLException, SQLHandledException {
+        PropertyChanges propertyChanges = modifier.getPropertyChanges();
+        if(prevChanges)
+            propertyChanges = propertyChanges.getPrev();
+        return hasChanges(propertyChanges);
     }
     public boolean hasChanges(PropertyChanges propChanges) {
         return hasChanges(propChanges.getStruct());
@@ -1011,11 +1136,16 @@ public abstract class Property<T extends PropertyInterface> extends ActionOrProp
         return calculateUsedChanges(propChanges);
     }
 
+    protected Expr aspectCalculateExpr(ImMap<T, ? extends Expr> joinImplement, CalcType calcType, PropertyChanges propChanges, WhereBuilder changedWhere) {
+        assert (AlgType.useCalcForStored && calcType == CalcClassType.prevBase()) || ImplementTable.checkStatProps(null);
+        return calculateExpr(joinImplement, calcType, propChanges, changedWhere);
+    }
+
     protected abstract Expr calculateExpr(ImMap<T, ? extends Expr> joinImplement, CalcType calcType, PropertyChanges propChanges, WhereBuilder changedWhere);
 
     // чтобы не было рекурсии так сделано
     public Expr calculateExpr(ImMap<T, ? extends Expr> joinImplement, CalcType calcType) {
-        return calculateExpr(joinImplement, calcType, PropertyChanges.EMPTY, null);
+        return aspectCalculateExpr(joinImplement, calcType, PropertyChanges.EMPTY, null);
     }
 
     public static <T extends PropertyInterface> ImMap<T, Expr> getJoinValues(ImMap<T, ? extends Expr> joinImplement) {
@@ -1033,7 +1163,7 @@ public abstract class Property<T extends PropertyInterface> extends ActionOrProp
         if(modify!=null) {
             if(isPreread()) { // вообще rightJoin, но вдруг случайно мимо AutoHint'а может пройти
                 ImMap<T, Expr> joinValues = getJoinValues(joinImplement); Pair<ObjectValue, Boolean> row;
-                if(joinValues!=null && (row = modify.preread.readValues.get(joinValues))!=null) {
+                if(joinValues!=null && (row = modify.preread.readValues.get(new Pair<>(joinValues, hasChanges(propChanges))))!=null) {
                     if(changedWhere!=null) changedWhere.add(row.second ? Where.TRUE() : Where.FALSE());
                     return row.first.getExpr();
                 }
@@ -1058,19 +1188,19 @@ public abstract class Property<T extends PropertyInterface> extends ActionOrProp
                 return getStoredExpr(joinImplement);
             if(useSimpleIncrement()) {
                 WhereBuilder changedExprWhere = new WhereBuilder();
-                Expr changedExpr = calculateExpr(joinImplement, calcType, propChanges, changedExprWhere);
+                Expr changedExpr = aspectCalculateExpr(joinImplement, calcType, propChanges, changedExprWhere);
                 if (changedWhere != null) changedWhere.add(changedExprWhere.toWhere());
-                return changedExpr.ifElse(changedExprWhere.toWhere(), getExpr(joinImplement));
+                return changedExpr.ifElse(changedExprWhere.toWhere(), getPrevExpr(joinImplement, calcType, propChanges));
             }
         }
 
-        if(calcType.isStatAlot() && explicitClasses != null && this instanceof AggregateProperty && !((AggregateProperty)this).hasAlotKeys() && getType() != null) {
+        if(calcType.isStatAlot() && explicitClasses != null && this instanceof AggregateProperty && !hasAlotKeys() && getType() != null) {
             assert SystemProperties.lightStart;
             assert !hasChanges(propChanges) && modify == null;
             return getVirtualTableExpr(joinImplement, AlgType.statAlotType); // тут собственно смысл в том чтобы класс брать из сигнатуры и не высчитывать
         }                    
 
-        return calculateExpr(joinImplement, calcType, propChanges, changedWhere);
+        return aspectCalculateExpr(joinImplement, calcType, propChanges, changedWhere);
     }
 
     protected Expr getStoredExpr(ImMap<T, ? extends Expr> joinImplement) {
@@ -1078,7 +1208,7 @@ public abstract class Property<T extends PropertyInterface> extends ActionOrProp
     }
 
     public Table.Join.Expr getInconsistentExpr(ImMap<T, ? extends Expr> joinImplement, BaseClass baseClass) {
-        Table table = baseClass.getInconsistentTable(mapTable.table);
+        DBTable table = baseClass.getInconsistentTable(mapTable.table);
         return (Table.Join.Expr) table.join(mapTable.mapKeys.crossJoin(joinImplement)).getExpr(field);
     }
 
@@ -1109,6 +1239,8 @@ public abstract class Property<T extends PropertyInterface> extends ActionOrProp
         }
     }
 
+    public String mapDbName;
+
     public String getDBName() {
         return field.getName();
     }
@@ -1117,18 +1249,39 @@ public abstract class Property<T extends PropertyInterface> extends ActionOrProp
         if(mapTable == null)
             mapTable = tableFactory.getMapTable(getOrderTableInterfaceClasses(AlgType.storedResolveType), policy);
 
-        String dbName = policy.transformActionOrPropertyCNToDBName(this.canonicalName);
+        String dbName = mapDbName != null ? mapDbName : policy.transformActionOrPropertyCNToDBName(this.canonicalName);
 
         PropertyField field = new PropertyField(dbName, getType());
         fieldClassWhere = getClassWhere(mapTable, field);
 //        if(!fieldClassWhere.filterKeys(mapTable.table.getTableKeys()).meansCompatible(mapTable.table.getClasses()))
 //            field = field;
+        checkDuplicateFieldNames(field);
         mapTable.table.addField(field, fieldClassWhere);
 
         this.field = field;
     }
 
-    public void markIndexed(final ImRevMap<T, String> mapping, ImList<PropertyObjectInterfaceImplement<String>> index) {
+    public static class DuplicateFieldNameException extends RuntimeException {
+        DuplicateFieldNameException(String message) {
+            super(message);
+        }
+    }
+
+    private void checkDuplicateFieldNames(PropertyField addedField) {
+        assert addedField.getName() != null;
+        final String formatStr = "Field '%s' was already added to '%s' table. The reason might be that the field " +
+                "names are limited in length, and as a result two different canonical names are converted " +
+                "to the same field name due to length truncation. In this case you can either change " +
+                "the property name(s) or change the naming policy (see documentation for details)";
+
+        for (PropertyField field : mapTable.table.properties) {
+            if (addedField.getName().equals(field.getName())) {
+                throw new DuplicateFieldNameException(String.format(formatStr, addedField.getName(), mapTable.table.toString()));
+            }
+        }
+    }
+
+    public void markIndexed(final ImRevMap<T, String> mapping, ImList<PropertyObjectInterfaceImplement<String>> index, IndexType indexType) {
         assert isStored();
 
         ImList<Field> indexFields = index.mapListValues((PropertyObjectInterfaceImplement<String> indexField) -> {
@@ -1141,7 +1294,7 @@ public abstract class Property<T extends PropertyInterface> extends ActionOrProp
                 return property.field;
             }
         });
-        mapTable.table.addIndex(indexFields.toOrderExclSet());
+        mapTable.table.addIndex(indexFields.toOrderExclSet(), indexType);
     }
 
     public AndClassSet getValueClassSet() {
@@ -1214,7 +1367,7 @@ public abstract class Property<T extends PropertyInterface> extends ActionOrProp
         }
 
         AlgType algType = type.getAlg();
-        assert !assertFull || isFull(algType.getAlgInfo());
+//        assert !assertFull || isFull(algType.getAlgInfo());
         return call.call(algType);
     }
 
@@ -1347,18 +1500,78 @@ public abstract class Property<T extends PropertyInterface> extends ActionOrProp
         return getClassValueWhere(AlgType.storedType).remap(MapFact.addRevExcl(mapTable.mapKeys, "value", storedField)); //
     }
 
-    public Object read(ExecutionContext context) throws SQLException, SQLHandledException {
-        return read(context.getSession().sql, MapFact.EMPTY(), context.getModifier(), context.getQueryEnv());
+    public ObjectValue readLazyClasses(SQLSession session, ImMap<T, ? extends ObjectValue> keys, Modifier modifier, ChangesController changesController, QueryEnvironment env) throws SQLException, SQLHandledException {
+        return readLazyClasses(session, keys, modifier, false, changesController, env);
+    }
+    public ObjectValue readLazyClasses(SQLSession session, ImMap<T, ? extends ObjectValue> keys, Modifier modifier, boolean prevChanges, ChangesController changesController, QueryEnvironment env) throws SQLException, SQLHandledException {
+        if (lazy != null && !hasChanges(modifier, prevChanges) && !session.isInTransaction())
+            return changesController.readLazyValue(this, keys);
+        if (this instanceof SessionDataProperty) {
+            // maybe can be done not only for all properties (not only SessionDataProperty)
+            ModifyChange<T> modify = modifier.getPropertyChanges().getModify(this);
+            if(modify != null) {
+                ImMap<T, Expr> mapExprs = modify.change.getMapExprs();
+                ImMap<T, ObjectValue> changeKeys; ObjectValue changeValue;
+                if (mapExprs.size() == keys.size() && (changeKeys = Expr.getObjectValues(mapExprs, env)) != null && keys.equals(changeKeys) && (changeValue = modify.change.expr.getObjectValue(env)) != null)
+                    return changeValue;
+            }
+
+            if (!hasChanges(modifier, prevChanges))
+                return NullValue.instance;
+        }
+        return null;
+    }
+    public ImMap<ImMap<T, DataObject>, DataObject> readAllLazyClasses(SQLSession session, Modifier modifier, ChangesController changesController) throws SQLException, SQLHandledException {
+        if (this instanceof SessionDataProperty && !hasChanges(modifier, false))
+            return MapFact.EMPTY();
+        return null;
     }
 
-    public Object read(SQLSession session, ImMap<T, ? extends ObjectValue> keys, Modifier modifier, QueryEnvironment env) throws SQLException, SQLHandledException {
+    public Pair<ObjectValue, Boolean> readClassesChanged(SQLSession session, ImMap<T, ObjectValue> keys, BaseClass baseClass, Modifier modifier, boolean hasChanges, QueryEnvironment env, ChangesController changesController) throws SQLException, SQLHandledException {
+        ObjectValue lazyValue = readLazyClasses(session, keys, modifier, !hasChanges, changesController, env);
+        if(lazyValue != null)
+            return new Pair<>(lazyValue, false);
+
+        String readValue = "readvalue"; String readChanged = "readChanged";
+        QueryBuilder<T, Object> readQuery = new QueryBuilder<>(SetFact.EMPTY());
+        WhereBuilder changedWhere = new WhereBuilder();
+        readQuery.addProperty(readValue, getExpr(ObjectValue.getMapExprs(keys), modifier, !hasChanges, changedWhere));
+        readQuery.addProperty(readChanged, ValueExpr.get(changedWhere.toWhere()));
+        ImMap<Object, ObjectValue> result = readQuery.executeClasses(session, env, baseClass).singleValue();
+        return new Pair<>(result.get(readValue), !result.get(readChanged).isNull());
+    }
+
+    public ObjectValue readClasses(SQLSession session, ImMap<T, ? extends ObjectValue> keys, BaseClass baseClass, Modifier modifier, QueryEnvironment env, ChangesController changesController) throws SQLException, SQLHandledException {
+        ObjectValue lazyValue = readLazyClasses(session, keys, modifier, changesController, env);
+        if(lazyValue != null)
+            return lazyValue;
+
+        return readClasses(session, keys, baseClass, modifier, env);
+    }
+
+    public ObjectValue readClasses(SQLSession session, ImMap<T, ? extends ObjectValue> keys, BaseClass baseClass, Modifier modifier, QueryEnvironment env) throws SQLException, SQLHandledException {
+        String readValue = "readvalue";
+        QueryBuilder<T, Object> readQuery = new QueryBuilder<>(SetFact.EMPTY());
+        readQuery.addProperty(readValue, getExpr(ObjectValue.getMapExprs(keys), modifier));
+        return readQuery.executeClasses(session, env, baseClass).singleValue().get(readValue);
+    }
+
+    public Object read(SQLSession session, ImMap<T, ? extends ObjectValue> keys, Modifier modifier, QueryEnvironment env, ChangesController changesController) throws SQLException, SQLHandledException {
+        ObjectValue lazyValue = readLazyClasses(session, keys, modifier, changesController, env);
+        if(lazyValue != null)
+            return lazyValue.getValue();
+
         String readValue = "readvalue";
         QueryBuilder<T, Object> readQuery = new QueryBuilder<>(SetFact.EMPTY());
         readQuery.addProperty(readValue, getExpr(ObjectValue.getMapExprs(keys), modifier));
         return readQuery.execute(session, env).singleValue().get(readValue);
     }
 
-    public ImMap<ImMap<T, Object>, Object> readAll(SQLSession session, Modifier modifier, QueryEnvironment env) throws SQLException, SQLHandledException {
+    public ImMap<ImMap<T, Object>, Object> readAll(SQLSession session, Modifier modifier, QueryEnvironment env, ChangesController changesController) throws SQLException, SQLHandledException {
+        ImMap<ImMap<T, DataObject>, DataObject> lazyValues = readAllLazyClasses(session, modifier, changesController);
+        if(lazyValues != null)
+            return lazyValues.mapKeyValues(key -> key.mapValues(value -> value.getValue()), value -> value.getValue());
+
         String readValue = "readvalue";
         QueryBuilder<T, Object> readQuery = new QueryBuilder<>(interfaces);
         Expr expr = getExpr(readQuery.getMapExprs(), modifier);
@@ -1367,7 +1580,11 @@ public abstract class Property<T extends PropertyInterface> extends ActionOrProp
         return readQuery.execute(session, env).getMap().mapValues(ImMap::singleValue);
     }
 
-    public ImMap<ImMap<T, DataObject>, DataObject> readAllClasses(SQLSession session, Modifier modifier, QueryEnvironment env, BaseClass baseClass) throws SQLException, SQLHandledException {
+    public ImMap<ImMap<T, DataObject>, DataObject> readAllClasses(SQLSession session, Modifier modifier, QueryEnvironment env, BaseClass baseClass, ChangesController changesController) throws SQLException, SQLHandledException {
+        ImMap<ImMap<T, DataObject>, DataObject> lazyValues = readAllLazyClasses(session, modifier, changesController);
+        if(lazyValues != null)
+            return lazyValues;
+
         String readValue = "readvalue";
         QueryBuilder<T, Object> readQuery = new QueryBuilder<>(interfaces);
         Expr expr = getExpr(readQuery.getMapExprs(), modifier);
@@ -1383,25 +1600,8 @@ public abstract class Property<T extends PropertyInterface> extends ActionOrProp
         return readClasses(env.getSession(), MapFact.EMPTY(), env.getModifier(), env.getQueryEnv());
     }
 
-    public ObjectValue readClasses(SQLSession session, ImMap<T, Expr> keys, BaseClass baseClass, Modifier modifier, QueryEnvironment env) throws SQLException, SQLHandledException {
-        String readValue = "readvalue";
-        QueryBuilder<T, Object> readQuery = new QueryBuilder<>(SetFact.EMPTY());
-        readQuery.addProperty(readValue, getExpr(keys, modifier));
-        return readQuery.executeClasses(session, env, baseClass).singleValue().get(readValue);
-    }
-
-    public Pair<ObjectValue, Boolean> readClassesChanged(SQLSession session, ImMap<T, ObjectValue> keys, BaseClass baseClass, Modifier modifier, QueryEnvironment env) throws SQLException, SQLHandledException {
-        String readValue = "readvalue"; String readChanged = "readChanged";
-        QueryBuilder<T, Object> readQuery = new QueryBuilder<>(SetFact.EMPTY());
-        WhereBuilder changedWhere = new WhereBuilder();
-        readQuery.addProperty(readValue, getExpr(ObjectValue.getMapExprs(keys), modifier, changedWhere));
-        readQuery.addProperty(readChanged, ValueExpr.get(changedWhere.toWhere()));
-        ImMap<Object, ObjectValue> result = readQuery.executeClasses(session, env, baseClass).singleValue();
-        return new Pair<>(result.get(readValue), !result.get(readChanged).isNull());
-    }
-
     public Object read(ExecutionEnvironment env, ImMap<T, ? extends ObjectValue> keys) throws SQLException, SQLHandledException {
-        return read(env.getSession().sql, keys, env.getModifier(), env.getQueryEnv());
+        return read(env.getSession(), keys, env.getModifier(), env.getQueryEnv());
     }
 
     public ObjectValue readClasses(FormInstance form, ImMap<T, ? extends ObjectValue> keys) throws SQLException, SQLHandledException {
@@ -1413,25 +1613,31 @@ public abstract class Property<T extends PropertyInterface> extends ActionOrProp
     }
 
     public ObjectValue readClasses(DataSession session, ImMap<T, ? extends ObjectValue> keys, Modifier modifier, QueryEnvironment env) throws SQLException, SQLHandledException {
-        return readClasses(session.sql, ObjectValue.getMapExprs(keys), session.baseClass, modifier, env);
+        return readClasses(session.sql, keys, session.baseClass, modifier, env, session.changes);
+    }
+
+    public Object read(DataSession session, ImMap<T, ? extends ObjectValue> keys, Modifier modifier, QueryEnvironment env) throws SQLException, SQLHandledException {
+        return read(session.sql, keys, modifier, env, session.changes);
     }
 
     public ImMap<ImMap<T, Object>, Object> readAll(ExecutionEnvironment env) throws SQLException, SQLHandledException {
-        return readAll(env.getSession().sql, env.getModifier(), env.getQueryEnv());
+        DataSession session = env.getSession();
+        return readAll(session.sql, env.getModifier(), env.getQueryEnv(), session.changes);
     }
     public ImMap<ImMap<T, DataObject>, DataObject> readAllClasses(ExecutionEnvironment env) throws SQLException, SQLHandledException {
-        return readAllClasses(env.getSession().sql, env.getModifier(), env.getQueryEnv(), env.getSession().baseClass);
+        DataSession session = env.getSession();
+        return readAllClasses(session.sql, env.getModifier(), env.getQueryEnv(), env.getSession().baseClass, session.changes);
     }
 
     // используется для оптимизации - если Stored то попытать использовать это значение
     protected abstract boolean useSimpleIncrement();
 
-    public PropertyChanges getUsedDataChanges(PropertyChanges propChanges) {
-        return propChanges.filter(getUsedDataChanges(propChanges.getStruct()));
+    public PropertyChanges getUsedDataChanges(PropertyChanges propChanges, CalcDataType type) {
+        return propChanges.filter(getUsedDataChanges(propChanges.getStruct(), type));
     }
 
-    public ImSet<Property> getUsedDataChanges(StructChanges propChanges) {
-        return calculateUsedDataChanges(propChanges);
+    public ImSet<Property> getUsedDataChanges(StructChanges propChanges, CalcDataType type) {
+        return calculateUsedDataChanges(propChanges, type);
     }
 
     public DataChanges getDataChanges(PropertyChange<T> change, Modifier modifier) throws SQLException, SQLHandledException {
@@ -1450,37 +1656,41 @@ public abstract class Property<T extends PropertyInterface> extends ActionOrProp
 
     protected DataChanges getPullDataChanges(PropertyChanges changes, boolean toNull) {
         ImRevMap<T, KeyExpr> mapKeys = getMapKeys();
-        return getDataChanges(new PropertyChange<>(mapKeys, toNull ? CaseExpr.NULL() : getChangeExpr(), CompareWhere.compare(mapKeys, getChangeExprs())), changes, null);
+        return getDataChanges(new PropertyChange<>(mapKeys, toNull ? CaseExpr.NULL() : getChangeExpr(), CompareWhere.compare(mapKeys, getChangeExprs())), CalcDataType.PULLEXPR, changes, null);
     }
 
-    public DataChanges getJoinDataChanges(ImMap<T, ? extends Expr> implementExprs, Expr expr, Where where, GroupType groupType, PropertyChanges propChanges, WhereBuilder changedWhere) {
+    public DataChanges getJoinDataChanges(ImMap<T, ? extends Expr> implementExprs, Expr expr, Where where, GroupType groupType, PropertyChanges propChanges, CalcDataType type, WhereBuilder changedWhere) {
         ImRevMap<T, KeyExpr> mapKeys = getMapKeys();
         WhereBuilder changedImplementWhere = cascadeWhere(changedWhere);
         DataChanges result = getDataChanges(new PropertyChange<>(mapKeys,
                 GroupExpr.create(implementExprs, expr, where, groupType, mapKeys),
                 GroupExpr.create(implementExprs, where, mapKeys).getWhere()),
-                propChanges, changedImplementWhere);
+                type, propChanges, changedImplementWhere);
         if (changedWhere != null)
             changedWhere.add(new Query<>(mapKeys, changedImplementWhere.toWhere()).join(implementExprs).getWhere());// нужно перемаппить назад
         return result;
     }
 
+    public DataChanges getDataChanges(PropertyChange<T> change, PropertyChanges propChanges, WhereBuilder changedWhere) {
+        return getDataChanges(change, CalcDataType.EXPR, propChanges, changedWhere);
+    }
+
     @StackMessage("{message.core.property.data.changes}")
     @PackComplex
     @ThisMessage
-    public DataChanges getDataChanges(PropertyChange<T> change, PropertyChanges propChanges, WhereBuilder changedWhere) {
+    public DataChanges getDataChanges(PropertyChange<T> change, CalcDataType type, PropertyChanges propChanges, WhereBuilder changedWhere) {
         if (change.where.isFalse()) // оптимизация
             return DataChanges.EMPTY;
 
-        return calculateDataChanges(change, changedWhere, propChanges);
+        return calculateDataChanges(change, type, changedWhere, propChanges);
     }
 
-    protected ImSet<Property> calculateUsedDataChanges(StructChanges propChanges) {
+    protected ImSet<Property> calculateUsedDataChanges(StructChanges propChanges, CalcDataType type) {
         return SetFact.EMPTY();
     }
 
     // для оболочки чтобы всем getDataChanges можно было бы timeChanges вставить
-    protected DataChanges calculateDataChanges(PropertyChange<T> change, WhereBuilder changedWhere, PropertyChanges propChanges) {
+    protected DataChanges calculateDataChanges(PropertyChange<T> change, CalcDataType type, WhereBuilder changedWhere, PropertyChanges propChanges) {
         return DataChanges.EMPTY;
     }
 
@@ -1488,8 +1698,8 @@ public abstract class Property<T extends PropertyInterface> extends ActionOrProp
         return interfaces.mapValues((Function<T, Expr>) PropertyInterface::getChangeExpr);
     }
 
-    // для того чтобы "попробовать" изменения (на самом деле для кэша)
-    @LazyInit
+    // actually it is strong lazy
+    @NFLazy
     public Expr getChangeExpr() {
         if(changeExpr == null)
             changeExpr = new PullExpr(-128);
@@ -1497,10 +1707,10 @@ public abstract class Property<T extends PropertyInterface> extends ActionOrProp
     }
     public Expr changeExpr;
 
-    public <D extends PropertyInterface, W extends PropertyInterface> void setEventChange(LogicsModule lm, Event actionEvent, PropertyInterfaceImplement<T> valueImplement, PropertyMapImplement<W, T> whereImplement) {
+    public <D extends PropertyInterface, W extends PropertyInterface> void setWhenChange(LogicsModule lm, Event actionEvent, PropertyInterfaceImplement<T> valueImplement, PropertyMapImplement<W, T> whereImplement) {
         if(actionEvent != null) {
             ActionMapImplement<?, T> setAction = PropertyFact.createSetAction(interfaces, getImplement(), valueImplement);
-            lm.addEventAction(interfaces, setAction, whereImplement, MapFact.EMPTYORDER(), false, actionEvent, SetFact.EMPTY(), false, false, null);
+            lm.addCheckPrevWhenAction(interfaces, setAction, whereImplement, MapFact.EMPTYORDER(), false, actionEvent, SetFact.EMPTY(), false, null, null);
             return;
         }
 
@@ -1517,7 +1727,7 @@ public abstract class Property<T extends PropertyInterface> extends ActionOrProp
     }
 
     public void setNotNull(ImMap<T, DataObject> values, ExecutionEnvironment env, ExecutionStack stack, boolean notNull, boolean check) throws SQLException, SQLHandledException {
-        if(!check || (read(env.getSession().sql, values, env.getModifier(), env.getQueryEnv())!=null) != notNull) {
+        if(!check || (read(env, values)!=null) != notNull) {
             ActionMapImplement<?, T> action = getSetNotNullAction(notNull);
             if(action!=null)
                 action.execute(new ExecutionContext<>(values, env, stack));
@@ -1556,6 +1766,10 @@ public abstract class Property<T extends PropertyInterface> extends ActionOrProp
         return new PropertyMapImplement<>(this, getIdentityInterfaces());
     }
 
+    public <V> PropertyImplement<T, V> getSingleImplement(V map) {
+        return new PropertyImplement<T, V>(this, MapFact.singleton(interfaces.single(), map));
+    }
+
     public <V extends PropertyInterface> PropertyMapImplement<T, V> getImplement(ImOrderSet<V> list) {
         return new PropertyMapImplement<>(this, getMapInterfaces(list));
     }
@@ -1564,10 +1778,6 @@ public abstract class Property<T extends PropertyInterface> extends ActionOrProp
         return new PropertyMapImplement<>(this, mapping);
     }
 
-    // важно для подсветки
-    public boolean canBeChanged() { // предполагается что все сверху кэшируется
-        return canBeChanged(false);
-    }
     @IdentityLazy
     public boolean canBeGlobalChanged() { // есть не Local'ы changed
         return canBeChanged(true);
@@ -1575,7 +1785,7 @@ public abstract class Property<T extends PropertyInterface> extends ActionOrProp
     public boolean canBeHeurChanged(boolean global) {
         return false;
     }
-    private boolean canBeChanged(boolean global) {
+    public boolean canBeChanged(boolean global) {
         
         if(Settings.get().isUseHeurCanBeChanged())
             return canBeHeurChanged(global); // в ОЧЕНЬ не большом количестве случаев отличается (а разница в производительности огромная), можно было бы для SecurityManager сделать отдельную ветку (там критична скорость), но пока особого смысла нет, так как разница не большая 
@@ -1600,141 +1810,335 @@ public abstract class Property<T extends PropertyInterface> extends ActionOrProp
         }
     }
 
-    private <X extends PropertyInterface> ActionMapImplement<?, T> createJoinAction(LA<X> action, PropertyMapImplement<?, T> implement) {
-        return PropertyFact.createJoinAction(new ActionImplement<>(action.action, MapFact.singleton(action.listInterfaces.single(), implement)));
+    public static boolean isDefaultWYSInput(ValueClass valueClass) {
+        return valueClass instanceof StringClass;
     }
-    private <X extends PropertyInterface> ActionMapImplement<?, T> createJoinAction(LA<X> action) {
-        return createJoinAction(action, getImplement());
+
+    private boolean checkViewObjectEvent(ValueClass valueClass, Supplier<Property<?>> viewProperty, ValueUniqueType uniqueType) {
+        if (!(valueClass instanceof CustomClass && viewProperty != null))
+            return true;
+
+        // optimization of using the Supplier, since isValueFullAndUnique can be rather heavy
+        Property<?> property = viewProperty.get();
+
+        //to avoid edit on dblclick
+        ValueClass viewValueClass = property.getValueClass(ClassType.editValuePolicy);
+        if(viewValueClass instanceof TextClass || viewValueClass instanceof AJSONClass)
+            return false;
+
+        if(!Settings.get().isOnlyUniqueObjectEvents())
+            return true;
+
+        return property.isValueUnique(MapFact.EMPTY(), uniqueType); // optimistic because otherwise all properties will become readonly
     }
-    private <X extends PropertyInterface> ActionMapImplement<?, T> getDefaultEditObjectAction(BaseLogicsModule lm) {
-        // formEdit(property(...))
-        return createJoinAction(lm.getNewSessionFormEdit());
+
+    // needed for 2 purposes: a) optimization b) "setting boolean view filter" for the GROUP CONCAT
+    public interface SelectProperty<T extends PropertyInterface> {
+        PropertyMapImplement<?, T> get(boolean filterSelected);
     }
-    private <X extends PropertyInterface> ActionMapImplement<?, T> getDefaultAsyncUpdateAction(BaseLogicsModule lm, ImList<Property> viewProperties, PropertyMapImplement<?, T> resultValue) {
-        for(int i=viewProperties.size()-1;i>=0;i--) {
-            Property<X> viewProperty = viewProperties.get(i);
-            resultValue = PropertyFact.createJoin(new PropertyImplement<>(viewProperty, MapFact.singleton(viewProperty.interfaces.single(), resultValue)));
+
+    public static class Select<T extends PropertyInterface> {
+        public final SelectProperty<T> property;
+
+        public final ImList<InputPropertyValueList> values;
+
+        public final Pair<Integer, Integer> stat; // estimate stat
+        public final boolean multi;
+        public final boolean html;
+
+        public final boolean notNull;
+
+        public Select(SelectProperty<T> property, Pair<Integer, Integer> stat, ImList<InputPropertyValueList> values, boolean multi, boolean html, boolean notNull) {
+            this.property = property;
+            this.stat = stat;
+            this.values = values;
+            this.multi = multi;
+            this.html = html;
+            this.notNull = notNull;
         }
-        // IF NOT requestCanceled() ASYNCUPDATE requestedProperty(...)
-        return PropertyFact.createIfAction(SetFact.EMPTY(), PropertyFact.createNot(lm.getRequestCanceledProperty().getImplement()),
-                                                    createJoinAction(lm.addAsyncUpdateAProp(), resultValue), null);
-    }    
-    private <X extends PropertyInterface> Pair<ActionMapImplement<?, T>, PropertyMapImplement<?, T>> getDefaultMainInputAction(BaseLogicsModule lm) {
+    }
+
+    @IdentityStrongLazy
+    public <I extends PropertyInterface, V extends PropertyInterface, W extends PropertyInterface> Select<T> getSelectProperty(ImList<Property> viewProperties, boolean forceSelect) {
+        if(!forceSelect && !canBeChanged(false)) // optimization
+            return null; // ? because sometimes can be used to display one of the option
+
+        BaseLogicsModule baseLM = getBaseLM();
+
         ValueClass valueClass = getValueClass(ClassType.editValuePolicy);
-        Property targetProp = lm.getRequestedValueProperty(valueClass);
 
-        ActionMapImplement<?, T> action;
-        if(valueClass instanceof CustomClass) {
-            // DIALOG LIST valueCLass INPUT object=property(...) CONSTRAINTFILTER
-            CustomClass customClass = (CustomClass) valueClass;
-            
-            // selectors could be used, but since this method is used after logics initialization, getting form, check properties here is more effective
-            ClassFormEntity dialogForm = customClass.getDialogForm(lm);
-            ImOrderSet<ConstraintCheckChangeProperty<?, T>> checkProperties = getCheckProperties();
-            if(checkProperties.isEmpty()) { // optimization
-                action = createJoinAction(lm.addInputAProp(dialogForm.form, dialogForm.object, targetProp));
-            } else {
-                LP<T> lp = new LP<>(this);
-                action = ((LA<X>) lm.addContextInputAProp(dialogForm.form, dialogForm.object, targetProp, lp, checkProperties)).getImplement(lp.listInterfaces);
-            }    
+        Property<V> viewProperty;
+        if(valueClass instanceof CustomClass && !viewProperties.isEmpty() &&
+                ((viewProperty = (Property<V>) PropertyFact.createViewProperty(viewProperties).property).isValueUnique(MapFact.EMPTY(), ValueUniqueType.SELECT) || forceSelect)) {
+
+//            viewProperty or listProperty in InputListEntity => viewProperty ???
+//          dialogForm or InputContextSelector
+//          this or oldValue => this ??? this надо
+
+            ImSet<T> innerInterfaces = interfaces;
+            InputPropertyListEntity<V, T> viewListEntity = new InputPropertyListEntity<>(viewProperty, MapFact.EMPTYREV());
+            // assert viewListEntity.orders.isEmpty();
+            PropertyMapImplement<T, T> value = getImplement();
+
+            ClassFormSelector formSelector = new ClassFormSelector((CustomClass) valueClass, false);
+            Pair<InputFilterEntity<?, T>, ImOrderMap<InputOrderEntity<?, T>, Boolean>> filterAndOrders =
+                    new FormInputContextSelector<>(formSelector, getCheckFilters(formSelector.virtualObject), formSelector.virtualObject, MapFact.EMPTYREV()).getFilterAndOrders();
+
+            return getSelectProperty(forceSelect, innerInterfaces, viewListEntity, filterAndOrders.first, filterAndOrders.second, value, false);
+        }
+
+        return null;
+    }
+
+    public static <T extends PropertyInterface, I extends PropertyInterface> Select<T> getSelectProperty(boolean forceSelect, ImSet<T> innerInterfaces, InputPropertyListEntity<?, T> viewListEntity, InputFilterEntity<?, T> where, ImOrderMap<InputOrderEntity<?, T>, Boolean> orders, PropertyInterfaceImplement<T> value, boolean drawnValue) {
+        BaseLogicsModule baseLM = ThreadLocalContext.getBaseLM();
+
+        boolean isNotNull;
+        CustomClass customClass;
+        if(drawnValue) {
+            isNotNull = value.mapIsDrawNotNull();
+            customClass = null;
+        } else {
+            isNotNull = value.mapIsNotNull();
+            customClass = (CustomClass) value.mapValueClass(ClassType.editValuePolicy);
+        }
+
+        // generation this interfaces + object
+        ImRevMap<T, I> mapPropertyInterfaces = innerInterfaces.mapRevValues(() -> (I)new PropertyInterface());
+        I objectInterface = (I) new PropertyInterface();
+
+        // name = viewProperty(o)
+        PropertyMapImplement<?, I> name = viewListEntity.getProperty(mapPropertyInterfaces, objectInterface);
+        // selected = (o = this (x, y, z))
+        PropertyMapImplement<PropertyInterface, I> selected = PropertyFact.<I>createCompare(value.map(mapPropertyInterfaces), drawnValue ? name : objectInterface, Compare.EQUALS);
+
+        // FILTER / ORDER
+        // there are 2 options : add WHERE to the IntegrationFormEntity, add it to JSONProperty context filters
+        // the first option looks "cleaner" (since we need the external context anyway)
+        PropertyMapImplement<?, I> mappedWhere = where.map(mapPropertyInterfaces).getWhereProperty(objectInterface);
+        ImOrderMap<PropertyMapImplement<?, I>, Boolean> mappedOrders = orders.mapOrderKeys(order -> order.map(mapPropertyInterfaces).getOrderProperty(objectInterface));
+
+        // isFull is checked in the isValueUnique
+        return getSelectProperty(baseLM, false, isNotNull, forceSelect, mapPropertyInterfaces, mapPropertyInterfaces.valuesSet().addExcl(objectInterface), name, selected, customClass, mappedWhere, mappedOrders);
+    }
+
+    public static <I extends PropertyInterface, T extends PropertyInterface, W extends PropertyInterface>
+            Select<T> getSelectProperty(BaseLogicsModule baseLM, boolean multi, boolean notNull, boolean forceSelect, ImRevMap<T, I> mapPropertyInterfaces, ImSet<I> innerInterfaces, PropertyMapImplement<?, I> name, PropertyInterfaceImplement<I> selected, CustomClass customClass, PropertyMapImplement<W, I> where, ImOrderMap<? extends PropertyInterfaceImplement<I>, Boolean> orders) {
+
+        boolean fallbackToFilterSelected = multi || forceSelect;
+
+        ImSet<I> innerMapInterfaces = mapPropertyInterfaces.valuesSet();
+        ImSet<W> mapWhereInterfaces = where.mapping.filterValuesRev(innerMapInterfaces).keys();
+
+        if(multi) {
+            if(!where.property.isValueFull(mapWhereInterfaces)) // otherwise we'll get "incorrect operation" when reading values
+                return null;
         } else
-            // INPUT valueCLass
-            action = lm.addInputAProp((DataClass) valueClass, targetProp, false).action.getImplement();
+            assert where.property.isValueFull(mapWhereInterfaces); // isValueUnique checks this
+        Stat whereStat = where.property.getInterfaceStat(mapWhereInterfaces);
+        int whereCount = whereStat.getCount();
 
-        return new Pair<>(action, targetProp.getImplement()); 
+        boolean hasAlotValues = whereCount > Settings.get().getMaxInterfaceStatForValueDropdown();
+        if(!fallbackToFilterSelected && hasAlotValues) // optimization
+            return null;
+
+        InputContextPropertyListEntity readContextEntity = null;
+        if(!hasAlotValues) {
+            Property readValuesProperty = null;
+            if (mapWhereInterfaces.isEmpty())
+                readValuesProperty = where.property;
+            else if(customClass != null) {
+                IsClassProperty classProperty = customClass.getProperty();
+                Stat classStat = classProperty.getInterfaceStat(false); // customClass.getUpSet().getCount() could be used instead
+                if(classStat.lessEquals(whereStat))
+                    readValuesProperty = classProperty;
+            }
+
+            if(readValuesProperty != null) {
+                InputPropertyListEntity readEntity = new InputPropertyListEntity(name.property, MapFact.EMPTYREV());
+                if(!multi)
+                    readContextEntity = readEntity.merge(new Pair<>(new InputFilterEntity<>(readValuesProperty, MapFact.EMPTYREV()), MapFact.EMPTYORDER()));
+                else {
+                    assert readValuesProperty == name.property;
+                    readContextEntity = new InputContextPropertyListEntity(readEntity);
+                }
+            }
+        }
+
+        Type nameType = name.property.getType();
+        return new Select<>(filterSelected -> {
+            if(filterSelected && !fallbackToFilterSelected)
+                return null;
+
+            return getSelectProperty(baseLM, mapPropertyInterfaces, innerInterfaces, name, selected, filterSelected, where, orders);
+        }, new Pair<>(nameType.getAverageCharLength() * whereCount, whereCount), readContextEntity != null ? ListFact.singleton(readContextEntity.map()) : null, multi, nameType instanceof HTMLStringClass || nameType instanceof HTMLTextClass, notNull);
     }
-    private Pair<ActionMapImplement<?, T>, PropertyMapImplement<?, T>> getDefaultInputAction(BaseLogicsModule lm, ImList<Property> viewProperies) {
-        MList<ActionMapImplement<?, T>> mList = ListFact.mList();
 
-        // adaptive canBeChanged, to provide better ergonomics for abstracts
-        mList.add(PropertyFact.createCheckCanBeChangedAction(interfaces, getImplement()));
+    private static <I extends PropertyInterface, T extends PropertyInterface, W extends PropertyInterface> PropertyMapImplement<?, T> getSelectProperty(BaseLogicsModule baseLM, ImRevMap<T, I> mapPropertyInterfaces, ImSet<I> innerInterfaces, PropertyMapImplement<?, I> name, PropertyInterfaceImplement<I> selected, boolean filterSelected, PropertyMapImplement<W, I> where, ImOrderMap<? extends PropertyInterfaceImplement<I>, Boolean> orders) {
+        if(filterSelected)
+            where = (PropertyMapImplement<W, I>) PropertyFact.createAnd(where, selected);
+        else
+            where = (PropertyMapImplement<W, I>) PropertyFact.createUnion(innerInterfaces, PropertyFact.createNotNull(where), selected); // assert that selected is boolean (but maybe createUnionNotNull should be used)
 
-        // main input
-        Pair<ActionMapImplement<?, T>, PropertyMapImplement<?, T>> input = getDefaultMainInputAction(lm);
-        mList.add(input.first);
+        ImSet<I> innerMapInterfaces = mapPropertyInterfaces.valuesSet();
+        LogicsModule.IntegrationForm<I> integrationForm = getSelectForm(baseLM, innerInterfaces, null, innerMapInterfaces, name, selected, where, orders, true);
 
-        // we need to update edited value to provide WYSIWYG
-        if(!viewProperies.isEmpty())
-            mList.add(getDefaultAsyncUpdateAction(lm, viewProperies, input.second));
+        LP<?> jsonProp = baseLM.addFinalJSONFormProp(LocalizedString.NONAME, integrationForm);
 
-        ActionMapImplement<?, T> exInputAction = PropertyFact.createListAction(interfaces, mList.immutableList());
-        return new Pair<>(exInputAction, input.second);
+        return jsonProp.getImplement(integrationForm.getOrderInterfaces(mapPropertyInterfaces));
     }
 
+    public static <I extends PropertyInterface, W extends PropertyInterface> LogicsModule.IntegrationForm<I> getSelectForm(BaseLogicsModule baseLM, ImSet<I> innerInterfaces, ImMap<I, ValueClass> innerClasses, ImSet<I> innerMapInterfaces, PropertyMapImplement<?, I> name, PropertyInterfaceImplement<I> selected, PropertyMapImplement<W, I> where, ImOrderMap<? extends PropertyInterfaceImplement<I>, Boolean> orders, boolean needObjects) {
+        ImOrderSet<I> orderMapInterfaces = innerMapInterfaces.toOrderSet(); // getOrderInterfaces().mapOrder(mapPropertyInterfaces);
+        // CLASSES
+//            ImList<ValueClass> classes = null; //getInterfaceClasses(ClassType.tryEditPolicy) + customClass;
+
+        // JSON
+        MList<PropertyInterfaceImplement<I>> mProperties = ListFact.mList();
+        MList<ScriptingLogicsModule.IntegrationPropUsage> mPropUsages = ListFact.mList();
+
+        mProperties.add(selected);
+        mPropUsages.add(new ScriptingLogicsModule.IntegrationPropUsage<>("selected", false, (LP)null, null));
+
+        mProperties.add(name);
+        mPropUsages.add(new ScriptingLogicsModule.IntegrationPropUsage<>("name", false, (LP)null, null));
+
+        if(needObjects) {
+            // x, y, z, o
+            for (I orderInterface : innerInterfaces.removeIncl(innerMapInterfaces)) {
+                mProperties.add(orderInterface);
+                mPropUsages.add(new ScriptingLogicsModule.IntegrationPropUsage(null, false, (LP) null, null, baseLM.objectsGroup));
+            }
+        }
+
+        // ORDERS
+        MOrderExclMap<String, Boolean> mPropOrders = MapFact.mOrderExclMap();
+        for(int i = 0, size = orders.size(); i < size; i++) {
+            mProperties.add(orders.getKey(i));
+            String orderId = "order" + i;
+            mPropUsages.add(new ScriptingLogicsModule.IntegrationPropUsage(orderId, false, (LP) null, null));
+            mPropOrders.exclAdd(orderId, orders.getValue(i));
+        }
+        ImOrderMap<String, Boolean> propOrders = mPropOrders.immutableOrder();
+
+        ImList<PropertyInterfaceImplement<I>> properties = mProperties.immutableList();
+        ImList<ScriptingLogicsModule.IntegrationPropUsage> propUsages = mPropUsages.immutableList();
+
+        ImOrderSet<I> orderInterfaces = orderMapInterfaces.addOrderExcl(innerInterfaces.removeIncl(innerMapInterfaces).toOrderSet());
+        ImList<ValueClass> orderClasses = null;
+        if(innerClasses != null)
+            orderClasses = orderInterfaces.mapList(innerClasses);
+        return baseLM.addFinalIntegrationForm(orderInterfaces, orderClasses, orderMapInterfaces, properties, propUsages, propOrders, where);
+    }
     @IdentityStrongLazy // STRONG for using in security policy
-    public ActionMapImplement<?, T> getDefaultEventAction(String eventActionSID, ImList<Property> viewProperties) {
-//        ImMap<T, ValueClass> interfaceClasses = getInterfaceClasses(ClassType.tryEditPolicy); // так как в определении propertyDraw также используется FULL, а не ASSERTFULL
-//        if(interfaceClasses.size() < interfaces.size()) // не все классы есть
-//            return null;
+    public ActionMapImplement<?, T> getDefaultEventAction(String eventActionSID, FormSessionScope defaultChangeEventScope, ImList<Property> viewProperties, String customChangeFunction) {
 
-        if(eventActionSID.equals(ServerResponse.CHANGE_WYS)) // like GROUP_CHANGE will be proceeded in PropertyDrawEntity
+        ActionMapImplement<?, T> joinDefaultEventAction = getJoinDefaultEventAction(eventActionSID, defaultChangeEventScope, viewProperties, customChangeFunction);
+        if(joinDefaultEventAction != null)
+            return joinDefaultEventAction;
+
+        // we want "value unique join edit object" to have "higher priority" than "interface edit object"
+        if (eventActionSID.equals(ServerResponse.EDIT_OBJECT) && interfaces.size() == 1) {
+            T singleInterface = interfaces.single();
+            ValueClass interfaceClass = getInterfaceClasses(ClassType.tryEditPolicy).get(singleInterface);
+
+            if(!checkViewObjectEvent(interfaceClass, () -> PropertyFact.createViewProperty(viewProperties.addList(this)).property, ValueUniqueType.EDIT))
+                return null;
+
+            if(interfaceClass != null) {
+                LA<?> defaultOpenAction = interfaceClass.getDefaultOpenAction(getBaseLM());
+                if (defaultOpenAction != null)
+                    return defaultOpenAction.getImplement(singleInterface);
+            }
+        }
+
+        return null;
+    }
+
+    public ActionMapImplement<?, T> getJoinDefaultEventAction(String eventActionSID, FormSessionScope defaultChangeEventScope, ImList<Property> viewProperties, String customChangeFunction) {
+        if (eventActionSID.equals(ServerResponse.CHANGE) && !canBeChanged(false)) // optimization
             return null;
 
         BaseLogicsModule lm = getBaseLM();
 
-        if(eventActionSID.equals(ServerResponse.EDIT_OBJECT)) {
-            ValueClass editClass = getValueClass(ClassType.tryEditPolicy);
-            LA defaultOpenAction = editClass != null ? editClass.getDefaultOpenAction(getBusinessLogics()) : null;
-            return defaultOpenAction != null ? createJoinAction(defaultOpenAction) : null;
+        Supplier<Property<?>> viewProperty = !viewProperties.isEmpty() ? () -> PropertyFact.createViewProperty(viewProperties).property : null;
+
+        ValueClass valueClass = getValueClass(ClassType.editValuePolicy);
+
+        boolean isEdit = eventActionSID.equals(ServerResponse.EDIT_OBJECT);
+
+        if(!checkViewObjectEvent(valueClass, viewProperty, isEdit ? ValueUniqueType.EDIT : ValueUniqueType.DIALOG))
+            return null;
+
+        if(isEdit) {
+            if(valueClass != null) {
+                LA<?> defaultOpenAction = valueClass.getDefaultOpenAction(lm);
+                if(defaultOpenAction != null)
+                    return PropertyFact.createJoinAction(defaultOpenAction.action, getImplement());
+            }
+
+            return null;
+        } else {
+            assert eventActionSID.equals(ServerResponse.CHANGE);
+
+            LP targetProp = lm.getRequestedValueProperty(valueClass);
+
+            // target prop will be used to change this property
+            boolean notNull = isNotNull();
+
+            ActionMapImplement<?, T> action;
+            if (valueClass instanceof CustomClass) {
+                InputPropertyListEntity<?, T> list = viewProperty != null ? new InputPropertyListEntity<>(viewProperty.get(), MapFact.EMPTYREV()) : null;
+
+                // DIALOG LIST valueCLass INPUT object=property(...) CONSTRAINTFILTER
+                LP<T> lp = new LP<>(this);
+                ImOrderSet<T> orderInterfaces = lp.listInterfaces; // actually we don't need all interfaces in dialog input action itself (only used one in checkfilters), but for now it doesn't matter
+
+                // selectors could be used, but since this method is used after logics initialization, getting form, check properties here is more effective
+                LA<?> inputAction = lm.addDialogInputAProp((CustomClass) valueClass, targetProp, BaseUtils.nvl(defaultChangeEventScope, PropertyDrawEntity.DEFAULT_CUSTOMCHANGE_EVENTSCOPE), orderInterfaces, list, objectEntity -> getCheckFilters(objectEntity), customChangeFunction, notNull, MapFact.EMPTYREV());
+
+                action = ((LA<?>) lm.addJoinAProp(inputAction, BaseUtils.add(directLI(lp), getUParams(orderInterfaces.size())))).getImplement(orderInterfaces);
+            } else {
+                // INPUT valueCLass
+                action = lm.addDataInputAProp((DataClass) valueClass, targetProp, false, this, SetFact.EMPTYORDER(),
+                        null, null, BaseUtils.nvl(defaultChangeEventScope, PropertyDrawEntity.DEFAULT_DATACHANGE_EVENTSCOPE), ListFact.EMPTY(), customChangeFunction, notNull).getImplement();
+            }
+
+            ActionMapImplement<?, T> result = PropertyFact.createRequestAction(interfaces,
+                    // adaptive canBeChanged, to provide better ergonomics for abstracts
+                    PropertyFact.createListAction(interfaces, PropertyFact.createCheckCanBeChangedAction(interfaces, getImplement()), action),
+                    PropertyFact.createSetAction(interfaces, getImplement(), targetProp.getImplement()), null);// INPUT scripted input generates FOR, but now it's not important
+
+            setResetAsync(result);
+
+            return result;
         }
-
-        if (!canBeChanged()) // optimization
-            return null;
-        
-        Pair<ActionMapImplement<?, T>, PropertyMapImplement<?, T>> input = getDefaultInputAction(lm, viewProperties);
-        return PropertyFact.createRequestAction(interfaces, input.first, 
-                                PropertyFact.createSetAction(interfaces, getImplement(), input.second), null); // INPUT scripted input generates FOR, but now it's not important
     }
 
-    @Override
-    @IdentityStrongLazy // STRONG for using in security policy
-    public ActionMapImplement<?, T> getDefaultWYSAction() {
-        ImMap<T, ValueClass> interfaceClasses = getInterfaceClasses(ClassType.tryEditPolicy); // because in property draw definition also FULL is used (and not ASSERTFULL)
-        if(interfaceClasses.size() < interfaces.size()) // we don't have all classes
-            return null;
 
-        ValueClass valueClass = getValueClass(ClassType.tryEditPolicy);
-        if (!(valueClass instanceof CustomClass))
-            return null;
-
-        if (!canBeChanged())
-            return null;
-
-        ImOrderSet<T> listInterfaces = interfaceClasses.keys().toOrderSet();
-        ImList<ValueClass> listValues = listInterfaces.mapList(interfaceClasses);
-        DefaultWYSObjectAction<T> changeAction = new DefaultWYSObjectAction<>(LocalizedString.NONAME, this, listInterfaces, listValues, (CustomClass) valueClass);
-        return changeAction.getImplement(listInterfaces);
+    public boolean tooMuchSelectData(ImMap<T, StaticParamNullableExpr> fixedExprs) {
+        return !getSelectCost(fixedExprs).rows.less(new Stat(Settings.get().getAsyncValuesMaxReadDataCompletionCount()));
     }
 
-    public boolean setNotNull;
-    public boolean reflectionNotNull;
+    private <X extends PropertyInterface> void setResetAsync(ActionMapImplement<X, T> action) {
+        PropertyFact.setResetAsync(action.action, new AsyncMapChange<>(new PropertyMapImplement<>(this, action.mapping.reverse()), null, null, null));
+    }
+
+    public boolean userNotNull;
+    public boolean notNull;
 
     @Override
+    public boolean isDrawNotNull() {
+        return isNotNull();
+    }
     public boolean isNotNull() {
-        return setNotNull;
+        return notNull;
     }
+
+    public boolean disableInputList;
 
     protected ActionOrPropertyClassImplement<T, ?> createClassImplement(ImOrderSet<ValueClassWrapper> classes, ImOrderSet<T> mapping) {
         return new PropertyClassImplement<>(this, classes, mapping);
-    }
-
-    private LP logValueProperty;
-    private LP logWhereProperty;
-
-    public LP getLogValueProperty() {
-        return logValueProperty;
-    }
-
-    public void setLogValueProperty(LP logValueProperty) {
-        this.logValueProperty = logValueProperty;
-    }
-
-    public LP getLogWhereProperty() {
-        return logWhereProperty;
-    }
-
-    public void setLogWhereProperty(LP logWhereProperty) {
-        this.logWhereProperty = logWhereProperty;
     }
 
     public boolean autoset;
@@ -1795,12 +2199,8 @@ public abstract class Property<T extends PropertyInterface> extends ActionOrProp
                 result = result.or(andInferred, inferType);
         }
 
-        // докидываем те которые не учавствуют ни в одном notNull
-        return result.and(op(inferred.remove(SetFact.mergeSets(operandNotNulls)).values().toList().mapListValues(new Function<Inferred<T>, Inferred<T>>() {
-            public Inferred<T> apply(Inferred<T> value) {
-                return value.orAny();
-            }
-        }), false, inferType), inferType);
+        // add those that don't participate in any notNull
+        return result.and(op(inferred.remove(SetFact.mergeSets(operandNotNulls)).values().toList().mapListValues(value -> value.orAny()), false, inferType), inferType);
     }
 
     public static <T extends PropertyInterface> Inferred<T> op(ImList<PropertyInterfaceImplement<T>> operands, ImList<ExClassSet> operandClasses, int operandNotNullCount, int skipNotNull, InferType inferType, boolean or) {
@@ -1867,23 +2267,6 @@ public abstract class Property<T extends PropertyInterface> extends ActionOrProp
         return result;
     }
 
-    // костыль для email
-    public static <I extends PropertyInterface> ValueClass[] getCommonClasses(ImList<I> mapInterfaces, ImCol<? extends PropertyInterfaceImplement<I>> props) {
-        ValueClass[] result = new ValueClass[mapInterfaces.size()];
-        for(ActionOrPropertyInterfaceImplement prop : props) {
-            ImMap<I, ValueClass> propClasses;
-            if(prop instanceof PropertyMapImplement) {
-                propClasses = ((PropertyMapImplement<?, I>) prop).mapInterfaceClasses(ClassType.aroundPolicy);
-            } else {
-                propClasses = MapFact.EMPTY();
-            }
-
-            for(int i=0;i<result.length;i++)
-                result[i] = op(result[i], propClasses.get(mapInterfaces.get(i)), true);
-        }
-        return result;
-    }
-
     public ImSet<Property> getSetUsedChanges(PropertyChanges propChanges) {
         return getUsedChanges(propChanges.getStruct());
     }
@@ -1902,7 +2285,7 @@ public abstract class Property<T extends PropertyInterface> extends ActionOrProp
             Expr newExpr = query.getExpr("value");
             fullQuery.addProperty("value", newExpr);
             
-            Expr dbExpr = getExpr(fullQuery.getMapExprs());
+            Expr dbExpr = getPrevExpr(fullQuery.getMapExprs(), calcType, propChanges);
             Where fullWhere = newExpr.getWhere().or(dbExpr.getWhere());
             if(!DBManager.PROPERTY_REUPDATE && isStored())
                 fullWhere = fullWhere.and(newExpr.compare(dbExpr, Compare.EQUALS).not());            
@@ -1948,8 +2331,17 @@ public abstract class Property<T extends PropertyInterface> extends ActionOrProp
         return aspectGetExpr(joinImplement, calcType, propChanges, changedWhere);
     }
 
+    protected PropertyChanges getPrevPropChanges(PropertyChanges propChanges) {
+        return getPrevPropChanges(CalcType.EXPR, propChanges);
+    }
+    protected PropertyChanges getPrevPropChanges(CalcType calcType, PropertyChanges propChanges) {
+        return PropertyChanges.PREVEXPR(calcType, propChanges);
+    }
+    public Expr getPrevExpr(ImMap<T, ? extends Expr> joinImplement, CalcType calcType, PropertyChanges propChanges) {
+        return getExpr(joinImplement, calcType, getPrevPropChanges(calcType, propChanges), null);
+    }
     public Expr getExpr(ImMap<T, ? extends Expr> joinImplement) {
-        return getExpr(joinImplement, PropertyChanges.EMPTY);
+        return getExpr(joinImplement, CalcType.EXPR);
     }
     public Expr getExpr(ImMap<T, ? extends Expr> joinImplement, CalcType calcType) {
         return getExpr(joinImplement, calcType, PropertyChanges.EMPTY, null);
@@ -1958,7 +2350,13 @@ public abstract class Property<T extends PropertyInterface> extends ActionOrProp
         return getExpr(joinImplement, modifier, null);
     }
     public Expr getExpr(ImMap<T, ? extends Expr> joinImplement, Modifier modifier, WhereBuilder changedWhere) throws SQLException, SQLHandledException {
-        return getExpr(joinImplement, modifier.getPropertyChanges(), changedWhere);
+        return getExpr(joinImplement, modifier, false, changedWhere);
+    }
+    public Expr getExpr(ImMap<T, ? extends Expr> joinImplement, Modifier modifier, boolean prevChanges, WhereBuilder changedWhere) throws SQLException, SQLHandledException {
+        PropertyChanges propertyChanges = modifier.getPropertyChanges();
+        if(prevChanges)
+            propertyChanges = propertyChanges.getPrev();
+        return getExpr(joinImplement, propertyChanges, changedWhere);
     }
     public Expr getExpr(ImMap<T, ? extends Expr> joinImplement, PropertyChanges propChanges) {
         return getExpr(joinImplement, propChanges, null);
@@ -2031,7 +2429,7 @@ public abstract class Property<T extends PropertyInterface> extends ActionOrProp
         return false;
     }
 
-    public DrillDownFormEntity getDrillDownForm(LogicsModule LM) {
+    public DrillDownFormEntity getDrillDownForm(BaseLogicsModule LM) {
         DrillDownFormEntity drillDown = createDrillDownForm(LM);
         if (drillDown != null) {
             LM.addAutoFormEntity(drillDown);
@@ -2039,7 +2437,7 @@ public abstract class Property<T extends PropertyInterface> extends ActionOrProp
         return drillDown;
     }
 
-    public DrillDownFormEntity createDrillDownForm(LogicsModule LM) {
+    public DrillDownFormEntity createDrillDownForm(BaseLogicsModule LM) {
         return null;
     }
 
@@ -2087,46 +2485,118 @@ public abstract class Property<T extends PropertyInterface> extends ActionOrProp
         return !isEmpty(AlgType.checkType);
     }
 
+    public boolean isExplicitNull() {
+        return this instanceof NullValueProperty; // isEmpty can be better, but we just want to emulate NULL to be like NULL caption
+    }
+
+    public boolean isExplicitTrue() {
+        return this instanceof ValueProperty && ((ValueProperty)this).staticClass instanceof LogicalClass;
+    }
+
     @IdentityLazy
     public boolean allowHintIncrement() {
         assert isFull(AlgType.hintType);
 
         if(!isEmpty(AlgType.hintType)) {
-            for(ValueClass usedClass : getInterfaceClasses(ClassType.materializeChangePolicy).values().toSet().merge(getValueClass(ClassType.materializeChangePolicy)))
+            ImSet<ValueClass> usedClasses = getInterfaceClasses(ClassType.materializeChangePolicy).values().toSet();
+            ValueClass valueClass = getValueClass(ClassType.materializeChangePolicy);
+            if(valueClass != null)
+                usedClasses = usedClasses.merge(valueClass);
+            for(ValueClass usedClass : usedClasses)
                 if(usedClass instanceof OrderClass)
                     return false;
             // по идее эта проверка не нужна, так как при кидании hint'а есть проверка на changed.getFullStatKeys().less значения, но там есть проблема с интервалами так как x<=a<=b вернет маленькую статистику, и пропустит такой хинт, после чего возникнет висячий ключ
             // вообще правильнее либо statType специальный сделать, либо поддержку интервалов при компиляции (хотя с double'ами все равно будет проблема)
             // этот фикс решит проблему в большинстве случаев (кроме когда в свойсте явный интервал, что очень редко имеет смысл)
-            if(this instanceof AggregateProperty && ((AggregateProperty)this).hasAlotKeys()) 
+            if(hasAlotKeys())
                 return false;
         }
 
         return true;
     }
-    
+
     @IdentityStartLazy
-    public long getComplexity() {
+    public Long getComplexity(boolean simple) {
+        if(simple)
+            AutoHintsAspect.pushDisabledComplex();
         try {
-            return getExpr(getMapKeys(), defaultModifier).getComplexity(false);
+            Expr expr = getExpr(getMapKeys(), defaultModifier);
+            if(simple && expr == null)
+                return null;
+            return expr.getComplexity(false);
         } catch (SQLException | SQLHandledException e) {
             throw Throwables.propagate(e);
+        } finally {
+            if(simple)
+                AutoHintsAspect.popDisabledComplex();
         }
     }
 
-    public void recalculateClasses(SQLSession sql, BaseClass baseClass) throws SQLException, SQLHandledException {
-        recalculateClasses(sql, null, baseClass);
+    public long getSimpleComplexity() {
+        Long complexity = getComplexity(true);
+        if(complexity == null)
+            return Settings.get().getLimitHintComplexComplexity();
+        return complexity;
+    }
+
+    public long getComplexity() {
+        Long complexity = getComplexity(true);
+        if(complexity != null)
+            return complexity;
+
+        return getComplexity(false);
+    }
+
+    public void recalculateClasses(SQLSession sql, boolean runInTransaction, BaseClass baseClass) throws SQLException, SQLHandledException {
+        recalculateClasses(sql, runInTransaction, DataSession.emptyEnv(OperationOwner.unknown), baseClass);
     }
 
     @StackMessage("{logics.recalculating.data.classes}")
-    public void recalculateClasses(SQLSession sql, QueryEnvironment env, BaseClass baseClass) throws SQLException, SQLHandledException {
+    public void recalculateClasses(SQLSession sql, boolean runInTransaction, QueryEnvironment env, BaseClass baseClass) throws SQLException, SQLHandledException {
         assert isStored();
         
         ImRevMap<KeyField, KeyExpr> mapKeys = mapTable.table.getMapKeys();
-        Where where = DataSession.getIncorrectWhere(this, baseClass, mapTable.mapKeys.join(mapKeys));
+        Where where = getIncorrectWhere(baseClass, mapTable.mapKeys.join(mapKeys));
         Query<KeyField, PropertyField> query = new Query<>(mapKeys, Expr.NULL(), field, where);
-        sql.updateRecords(env == null ? new ModifyQuery(mapTable.table, query, OperationOwner.unknown, TableOwner.global) : new ModifyQuery(mapTable.table, query, env, TableOwner.global));
+        ModifyQuery modifyQuery = new ModifyQuery(mapTable.table, query, env, TableOwner.global);
+        DBManager.run(sql, runInTransaction, DBManager.RECALC_CLASSES_TIL, sql1 -> sql1.updateRecords(modifyQuery));
     }
+
+    public String checkClasses(SQLSession sql, boolean runInTransaction, BaseClass baseClass) throws SQLException, SQLHandledException {
+        return checkClasses(sql, runInTransaction, DataSession.emptyEnv(OperationOwner.unknown), baseClass);
+    }
+
+    @StackMessage("{logics.checking.data.classes}")
+    @ThisMessage
+    public String checkClasses(SQLSession sql, boolean runInTransaction, QueryEnvironment env, BaseClass baseClass) throws SQLException, SQLHandledException {
+        assert isStored();
+
+        ImRevMap<T, KeyExpr> mapKeys = getMapKeys();
+        Where where = getIncorrectWhere(baseClass, mapKeys);
+        Query<T, String> query = new Query<>(mapKeys, where);
+
+        Result<String> incorrect = new Result<>();
+        DBManager.run(sql, runInTransaction, DBManager.CHECK_CLASSES_TIL, sql1 -> incorrect.set(query.readSelect(sql1, env)));
+        if(!incorrect.result.isEmpty())
+            return "---- Checking Classes for " + (this instanceof DataProperty ? "data" : "aggregate") + " property : " + this + "-----" + '\n' + incorrect.result;
+        return "";
+    }
+
+    private Where getIncorrectWhere(BaseClass baseClass, final ImRevMap<T, KeyExpr> mapKeys) {
+        assert isStored();
+
+        final Expr dataExpr = getInconsistentExpr(mapKeys, baseClass);
+
+        Where correctClasses = getClassValueWhere(AlgType.storedType).getWhere(value -> {
+            if(value instanceof PropertyInterface) {
+                return mapKeys.get((T)value);
+            }
+            assert value.equals("value");
+            return dataExpr;
+        }, true, IsClassType.INCONSISTENT);
+        return dataExpr.getWhere().and(correctClasses.not());
+    }
+
 
     public void setDebugInfo(PropertyDebugInfo debugInfo) {
         this.debugInfo = debugInfo;
@@ -2154,23 +2624,17 @@ public abstract class Property<T extends PropertyInterface> extends ActionOrProp
         return ListFact.singleton(this);
     }
 
-    private boolean loggable;
-
-    public LA logFormAction;
-
-    public void setLoggable(boolean loggable) {
-        this.loggable = loggable;
-    }
+    public ActionMapImplement<?, T> logFormAction;
 
     public boolean isLoggable() {
-        return loggable;
+        return logFormAction != null;
     }
 
-    public void setLogFormAction(LA logFormAction) {
+    public void setLogFormAction(ActionMapImplement<?, T> logFormAction) {
         this.logFormAction = logFormAction;
     }
 
-    public LA getLogFormAction() {
+    public ActionMapImplement<?, T> getLogFormAction() {
         return logFormAction;
     }
     
@@ -2197,16 +2661,17 @@ public abstract class Property<T extends PropertyInterface> extends ActionOrProp
         return SetFact.EMPTY();
     }
     
-    protected boolean checkRecursions(ImSet<CaseUnionProperty> abstractPath, ImSet<Property> path, Set<Property> marks) {
+    public boolean checkRecursions(ImSet<CaseUnionProperty> abstractPath, ImSet<Property> path, Set<Property> marks) {
         if(path != null)
             path = path.addExcl(this);
         else {
             if(!marks.add(this))
                 return false;
         }
-        for(Property depend : getDepends())
-            if(depend.checkRecursions(abstractPath, path, marks))
-                return true;
+        return calculateCheckRecursions(abstractPath, path, marks);
+    }
+
+    public boolean calculateCheckRecursions(ImSet<CaseUnionProperty> abstractPath, ImSet<Property> path, Set<Property> marks) {
         return false;
     }
 
@@ -2218,5 +2683,203 @@ public abstract class Property<T extends PropertyInterface> extends ActionOrProp
             return (ApplyStoredEvent)event;
         }
         return null;
+    }
+
+    private static <T> StatKeys<KeyExpr> getStatRows(ImRevMap<T, KeyExpr> mapKeys, Where where) {
+        return where.getFullStatKeys(mapKeys.valuesSet(), StatType.PROP_STATS);
+    }
+
+    public Stat getInterfaceStat(boolean alotHeur) {
+        return getInterfaceStat(MapFact.EMPTYREV(), alotHeur);
+    }
+    
+    public Stat getInterfaceStat(ImMap<T, StaticParamNullableExpr> fixedExprs) {
+        return getInterfaceStat(fixedExprs, false);
+    }
+
+    public Cost getInterfaceCost(ImMap<T, StaticParamNullableExpr> fixedExprs) {
+        return getInterfaceCostStat(fixedExprs, false).second;
+    }
+
+    private Stat getInterfaceStat(ImMap<T, StaticParamNullableExpr> fixedExprs, boolean alotHeur) {
+        return getInterfaceCostStat(fixedExprs, alotHeur).first;
+    }
+
+    @IdentityStartLazy
+    @StackMessage("{message.core.property.get.interface.class.stats}")
+    @ThisMessage
+    private Pair<Stat, Cost> getInterfaceCostStat(ImMap<T, StaticParamNullableExpr> fixedExprs, boolean alotHeur) {
+        ImRevMap<T, KeyExpr> innerKeys = KeyExpr.getMapKeys(interfaces.removeIncl(fixedExprs.keys()));
+        ImMap<T, Expr> innerExprs = MapFact.addExcl(innerKeys, fixedExprs); // we need some virtual values
+
+        // we don't need to fight with inconsistent caches, since now finalizeProps goes after initStoredTask (because now there is a dependency finalizeProps -> initIndices to avoid problems with getIndices cache)
+        // however it seems that STAT_ALOT is needed to lower complexity in light start mode
+        // PS: actually it is still needed to avoid inconsistent caches (since ImplementTable.statProps are used and they are filled in the synchronizeDB)
+        Expr expr = alotHeur ? aspectCalculateExpr(innerExprs, CalcType.STAT_ALOT, PropertyChanges.EMPTY, null) : getExpr(innerExprs); // check if is called after stats if filled
+//        Expr expr = calculateStatExpr(mapKeys, alotHeur);
+
+        Where where = expr.getWhere();
+
+        ImRevMap<T, KeyExpr> fInnerKeys = innerKeys.filterInclValuesRev(BaseUtils.immutableCast(where.getOuterKeys())); // ignoring "free" keys (having free keys breaks a lot of assertions in statistic calculations)
+
+        StatKeys<KeyExpr> statRows = getStatRows(fInnerKeys, where);
+        return new Pair<>(statRows.getRows(), statRows.getCost());
+    }
+
+    public Stat getSelectStat(ImMap<T, StaticParamNullableExpr> fixedExprs) {
+        // we can't use MATCH here, because there is a bug, that now MATCH, CONTAINS stats is not calculate properly if the expr is not indexed
+        // it's not clear how to fix this, because the table join cost is calculated based on stat, without knowing how this stat was obtained
+        // for INTERVAL it could be fixed by removing isIndexed check, but for MATCH, CONTAINS we need to know what type of index we should use (it may be solved with some virtual join probably)
+        // however here EQUALS is even semantically the right type to use
+        return getSelectCostStat(fixedExprs, Compare.EQUALS).first;
+    }
+
+    @IdentityStartLazy
+    @StackMessage("{message.core.property.get.interface.class.stats}")
+    @ThisMessage
+    private Pair<Stat, Cost> getSelectCostStat(ImMap<T, StaticParamNullableExpr> fixedExprs, Compare compare) {
+        ImRevMap<T, KeyExpr> innerKeys = KeyExpr.getMapKeys(interfaces.removeIncl(fixedExprs.keys()));
+        ImMap<T, Expr> innerExprs = MapFact.addExcl(innerKeys, fixedExprs); // we need some virtual values
+
+        Where where = getExpr(innerExprs).compare(getValueParamExpr(), compare);
+
+        innerKeys = innerKeys.filterInclValuesRev(BaseUtils.immutableCast(where.getOuterKeys())); // ignoring "free" keys (having free keys breaks a lot of assertions in statistic calculations)
+        StatKeys<KeyExpr> statRows = getStatRows(innerKeys, where);
+        return new Pair<>(statRows.getRows(), statRows.getCost());
+    }
+
+    public Stat getValueStat(ImMap<T, StaticParamNullableExpr> fixedExprs) {
+        return getInterfaceStat(fixedExprs).div(getSelectStat(fixedExprs));
+    }
+
+    protected ImRevMap<T, NullableKeyExpr> getMapNotNullKeys() {
+        return interfaces.mapRevValues((i, value) -> new NullableKeyExpr(i));
+    }
+
+    public Stat getInterfaceStat(ImSet<T> interfaces) {
+        return getInterfaceStat(getInterfaceParamExprs(interfaces));
+    }
+
+    public Cost getSelectCost(ImMap<T, StaticParamNullableExpr> fixedInterfaces) {
+        // the obtained stat will be incorrect here (see getSelectStat comment) but we don't need it anyway
+        return getSelectCostStat(fixedInterfaces, Compare.MATCH).second;
+    }
+
+    @IdentityInstanceLazy
+    public ImRevMap<T, StaticParamNullableExpr> getInterfaceParamExprs(ImSet<T> interfaces) {
+        ImMap<T, ValueClass> interfaceClasses = getInterfaceClasses(ClassType.forPolicy);
+        return interfaces.mapValues((T anInterface) -> {
+            ValueClass valueClass = interfaceClasses.get(anInterface);
+            return valueClass != null ? valueClass : AbstractType.getUnknownClassNull();
+        }).mapRevValues(StaticParamNullableExpr::new);
+    }
+    @IdentityInstanceLazy
+    public StaticParamNullableExpr getValueParamExpr() {
+        // maybe later it makes sense to fill params without classes with some "default" classes
+        return new StaticParamNullableExpr(getValueClass(ClassType.forPolicy));
+    }
+
+
+    // it's heuristics anyway, so why not to try to guess uniqueness by name
+    private static ImSet<String> predefinedSwitchNames = SetFact.toSet("enable", "disable", "on", "off");
+
+    public boolean isPredefinedSwitch() {
+        String name = getName();
+//        return name != null && predefinedValueUniqueNames.contains(name);
+        return name != null && BaseUtils.findInCamelCase(name, predefinedSwitchNames::contains);
+    }
+
+    public enum ValueUniqueType {
+        SELECT, // select instead of CHANGE
+        INPUT, // input dropdown, CHANGE or SELECTOR
+
+        STICKY, // sticky, DRAW
+        // NOTNULL can be probably refactored that way, that isDrawNotNull will use getSelectProperty / getDefaultEventAction and get not null from there
+        NOTNULL, // DRAW
+
+        EDIT, // edit param or value, EDIT
+        DIALOG; // dialog, CHANGE
+
+        public boolean isOptimistic() {
+            switch (this) {
+                // it's really undesirable to have false positives
+                case SELECT:
+                case INPUT:
+                // it's not that crucial to have false negatives
+                case STICKY:
+                    return false;
+            }
+            // it's not crucial to have false positives
+            return true;
+        }
+    }
+    // assert that returns isValueFull property
+    public boolean isValueUnique(ImMap<T, StaticParamNullableExpr> fixedExprs, ValueUniqueType type) {
+        return isValueUnique(fixedExprs, type.isOptimistic());
+    }
+
+    // it's heuristics anyway, so why not to try to guess uniqueness by name
+    private static ImSet<String> predefinedValueUniqueNames = SetFact.toSet("name", "id", "number", "caption");
+
+    // actually protected
+    public boolean isNameValueUnique() {
+        return false;
+    }
+
+    // optimistic determines what to do when there is no statistics
+    public boolean isValueUnique(ImMap<T, StaticParamNullableExpr> fixedExprs, boolean optimistic) {
+        if(!isValueFull(fixedExprs))
+            return false;
+
+        if(isNameValueUnique()) {
+            String name = getName();
+            if(name != null && BaseUtils.findInCamelCase(name, predefinedValueUniqueNames::contains))
+                return true;
+        }
+
+        // using selectStat (calculation logic), rather than going deep in the property types is better for 2 reasons:
+        // 1. can use MATERIALIZED and its statistics
+        // 2. can handle complex cases for example OVERRIDE empty ABSTRACT, ...
+        if(!optimistic) {
+            if(getInterfaceStat(fixedExprs).lessEquals(new Stat(Settings.get().getMinInterfaceStatForValueUnique())))
+                return false;
+        }
+
+        return getSelectStat(fixedExprs).equals(Stat.ONE);
+    }
+
+    public boolean isValueFull(ImMap<T, StaticParamNullableExpr> fixedExprs) {
+        return isValueFull(fixedExprs.keys());
+    }
+    public boolean isValueFull(ImSet<T> fixedExprs) {
+        return isFull(interfaces.removeIncl(fixedExprs), AlgType.statAlotType);
+    }
+
+    // filter or custom view completion
+    public <X extends PropertyInterface> InputPropertyListEntity<?, T> getInputList(ImMap<T, StaticParamNullableExpr> fixedExprs, boolean noJoin) {
+        if(isValueFull(fixedExprs) && !tooMuchSelectData(fixedExprs))
+            return new InputPropertyListEntity<>(this, fixedExprs.keys().toRevMap());
+        return null;
+    }
+
+    public boolean hasAlotKeys() {
+//        if(1==1) return false;
+        if(SystemProperties.lightStart) {
+            if (!isFull(AlgType.statAlotType))
+                return true;
+            if (isStored())
+                return false;
+            return aspectDebugHasAlotKeys();
+        }
+       return hasAlotKeys(getInterfaceStat(false));
+    }
+
+    protected boolean aspectDebugHasAlotKeys() {
+        return hasAlotKeys(getInterfaceStat(true));
+    }
+
+    private final static Stat ALOT_THRESHOLD = Stat.ALOT.reduce(2); // ALOT stat can be reduced a little bit, but there still will be ALOT keys, so will take sqrt
+    private static boolean hasAlotKeys(Stat stat) {
+        return ALOT_THRESHOLD.lessEquals(stat);
     }
 }

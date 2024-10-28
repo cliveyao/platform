@@ -1,0 +1,29 @@
+
+.suggest-popup-button {
+    margin: 0 var(--border-comp-horz-padding);
+}
+
+.dropdown-menu-button-panel {
+    width: 100%;
+}
+
+.dropdown-menu-tip {
+    width: 100%;
+    word-wrap:break-word;
+    /*border-top:1px solid var(--component-border-color);*/
+    /*color: var(--disabled-text-color);*/
+}
+
+/* cursors - links and dropdown items are not <a with href> or <button> (and can have <label> inside for example) so we'll change the cursor explicitly */
+.lsf-dropdown .dropdown-item,
+.lsf-dropdown .dropdown-item *,
+.lsf-dropdown .dropdown-item .wrap-text-not-empty {
+    cursor: pointer;
+}
+
+.context-menu-item {
+    cursor: default;
+}
+.context-menu-item-selected {
+    background: var(--selection-color);
+}

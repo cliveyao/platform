@@ -1,0 +1,60 @@
+MODULE RabbitMQ;
+
+REQUIRE SystemEvents;
+
+CLASS Channel 'Channel';
+
+host 'Host' = DATA STRING (Channel);
+queue 'Queue name' = DATA STRING (Channel);
+user 'User' = DATA STRING (Channel);
+password 'Password' = DATA STRING (Channel) ECHO;
+isConsumer 'Consumer' = DATA BOOLEAN (Channel);
+local 'Local' = DATA BOOLEAN (Channel);
+started 'Started' = DATA BOOLEAN (Channel);
+
+channel = GROUP AGGR Channel c BY host(c), queue(c);
+
+startConsumer 'Start' INTERNAL 'lsfusion.server.physics.dev.integration.external.to.net.rabbitmq.StartConsumerRabbitMQAction' (Channel);
+
+start(Channel c) {
+    startConsumer(c);
+    started(c) <- TRUE;
+    apply();
+}
+
+sendMessage 'Send message' INTERNAL 'lsfusion.server.physics.dev.integration.external.to.net.rabbitmq.SendMessageRabbitMQAction' (Channel, STRING);
+
+onMessage ABSTRACT LIST (Channel, STRING);
+onMessage(STRING host, STRING queue, STRING message) {
+    onMessage(channel(host, queue), message);
+}
+
+stopConsumer 'Stop' INTERNAL 'lsfusion.server.physics.dev.integration.external.to.net.rabbitmq.StopConsumerRabbitMQAction' (Channel);
+
+stop(Channel c) {
+    stopConsumer(c);
+    started(c) <- NULL;
+    apply();
+}
+
+restartConsumers 'Restart all consumers' () {
+    FOR host(Channel c) AND queue(c) AND isConsumer(c) DO {
+        stopConsumer(c);
+        startConsumer(c);
+    }
+}
+
+FORM rabbitMQ
+    OBJECTS c = Channel, s = STRING PANEL
+    PROPERTIES(c) local, isConsumer, host READONLYIF started(c), queue READONLYIF started(c), user, password, 
+        start GRID SHOWIF isConsumer(c) AND NOT started(c),
+        stop GRID SHOWIF isConsumer(c) AND started(c),
+        NEW, DELETE
+    PROPERTIES restartConsumers(), VALUE(s), sendMessage(c, s)
+;
+
+NAVIGATOR {
+    system {
+        NEW rabbitMQ;
+    }
+}

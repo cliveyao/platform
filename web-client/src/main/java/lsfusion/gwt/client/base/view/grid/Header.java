@@ -19,8 +19,6 @@ import com.google.gwt.dom.client.Element;
 import com.google.gwt.dom.client.NativeEvent;
 import com.google.gwt.dom.client.TableCellElement;
 
-import static lsfusion.gwt.client.base.EscapeUtils.escapeLineBreakHTML;
-
 /**
  * A table column header or footer.
  */
@@ -39,7 +37,7 @@ public abstract class Header<H> {
         //do nothing by default
     }
 
-    public abstract void renderAndUpdateDom(TableCellElement th);
+    public abstract void renderAndUpdateDom(TableCellElement th, boolean rerender);
 
     public abstract void updateDom(TableCellElement th);
 }

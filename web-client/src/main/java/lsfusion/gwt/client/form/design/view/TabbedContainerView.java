@@ -1,58 +1,46 @@
 package lsfusion.gwt.client.form.design.view;
 
 import com.google.gwt.user.client.ui.Widget;
-import lsfusion.gwt.client.base.Dimension;
+import lsfusion.gwt.client.base.GwtClientUtils;
+import lsfusion.gwt.client.base.GwtSharedUtils;
 import lsfusion.gwt.client.base.view.FlexPanel;
 import lsfusion.gwt.client.form.controller.GFormController;
 import lsfusion.gwt.client.form.design.GComponent;
 import lsfusion.gwt.client.form.design.GContainer;
+import lsfusion.gwt.client.form.design.GFormComponent;
 import lsfusion.gwt.client.form.design.view.flex.FlexTabbedPanel;
 
 import java.util.ArrayList;
-import java.util.Map;
-
-import static lsfusion.gwt.client.base.GwtSharedUtils.relativePosition;
 
 public class TabbedContainerView extends GAbstractContainerView {
 
-    protected final Panel panel;
-
-    private final Widget view;
+    protected final FlexTabbedPanel panel;
 
     protected final ArrayList<GComponent> visibleChildren = new ArrayList<>();
 
     protected GComponent currentChild;
 
-    public static class Panel extends FlexTabbedPanel {
-
-        public void insertTab(GComponent child, Widget childView, String tabTitle, int index) {
-            child.installMargins(childView);
-
-            // not sure why but this wrapping is necessary (otherwise widgets are not hidden)
-            // + in that case we'll need to "override" insert to deck method to fill correct base sizes
-            FlexPanel proxyPanel = new FlexPanel(true);
-            GAbstractContainerView.add(proxyPanel, childView, child, 0);
-
-            insert(proxyPanel, tabTitle, index);
-        }
-    }
-
     public TabbedContainerView(final GFormController formController, final GContainer container) {
         super(container);
 
-        assert container.isTabbed();
+        assert container.tabbed;
 
-        panel = new Panel();
-
-        if (container.children.size() > 0) {
-            currentChild = container.children.get(0);
-        }
+        panel = new FlexTabbedPanel(null, vertical, false);
 
         panel.setSelectionHandler(index -> {
             onTabSelected(index, formController, container);
         });
+    }
 
-        view = initBorder(panel);
+    @Override
+    protected Widget wrapBorderImpl(int index) {
+//      this wrapping is necessary because:
+//          we want border around the container
+//          we want padding (not margin) to be "scrolled"
+//          updateContainersVisibility (automatical showing / hiding containers) uses setVisible, as well as TabbedDeckPanel (switching widgets), so they conflict with each other (however in current implementation only for base components)
+        FlexPanel proxyPanel = new FlexPanel(!vertical);
+        GwtClientUtils.addClassName(proxyPanel, "tab-pane");
+        return proxyPanel;
     }
 
     private int getTabIndex(GComponent component) {
@@ -65,96 +53,80 @@ public class TabbedContainerView extends GAbstractContainerView {
     public void activateTab(GComponent component) {
         int index = getTabIndex(component);
         if(index >= 0) {
-            currentChild = component;
             panel.selectTab(index);
         }
     }
 
-    public void updateTabCaption(GContainer container) {
-        int index = getTabIndex(container);
-        if(index >= 0)
-            panel.setTabCaption(index, container.caption);
+    public void activateLastTab() {
+        int index = visibleChildren.size() - 1;
+        if(index >= 0) {
+            currentChild = visibleChildren.get(index);
+            panel.selectTab(index);
+        }
     }
 
     protected void onTabSelected(int selectedIndex, GFormController formController, GContainer container) {
         if (selectedIndex >= 0) {
             GComponent selectedChild = visibleChildren.get(selectedIndex);
-            if (currentChild != selectedChild) {
+            if (currentChild != selectedChild && !(selectedChild instanceof GFormComponent)) {
                 currentChild = selectedChild;
-                formController.setTabVisible(container, selectedChild);
+                formController.setTabActive(container, selectedChild);
             }
         }
     }
 
     @Override
-    protected void addImpl(int index, GComponent child, Widget view) {
+    protected void addImpl(int index) {
         //adding is done in updateLayout()
     }
 
     @Override
-    protected void removeImpl(int index, GComponent child, Widget view) {
-        int visibleIndex = visibleChildren.indexOf(child);
+    protected void removeImpl(int index) {
+        int visibleIndex = visibleChildren.indexOf(children.get(index));
         if (visibleIndex != -1) {
-            panel.remove(visibleIndex);
-            visibleChildren.remove(visibleIndex);
+            removeTab(visibleIndex);
         }
     }
 
     @Override
     public Widget getView() {
-        return view;
+        return panel;
     }
 
     @Override
-    public void updateLayout(long requestIndex) {
-        super.updateLayout(requestIndex);
-        int childCnt = childrenViews.size();
-        for (int i = 0; i < childCnt; i++) {
+    public void updateLayout(long requestIndex, boolean[] childrenVisible) {
+        for (int i = 0, size = children.size(); i < size; i++) {
             GComponent child = children.get(i);
-            Widget childView = childrenViews.get(i);
 
             int index = visibleChildren.indexOf(child);
-            if (childView.isVisible()) {
-                if (index == -1) {
-                    index = relativePosition(child, children, visibleChildren);
-                    visibleChildren.add(index, child);
-                    panel.insertTab(child, childView, getTabTitle(child), index);
-                    // updateTabCaption(child);
-                }
+            if (childrenVisible[i]) {
+                if (index == -1)
+                    insertTab(child, i);
             } else if (index != -1) {
-                visibleChildren.remove(index);
-                panel.remove(index);
+                removeTab(index);
             }
         }
         ensureTabSelection();
+
+        super.updateLayout(requestIndex, childrenVisible);
     }
 
-    @Override
-    public Dimension getMaxPreferredSize(Map<GContainer, GAbstractContainerView> containerViews) {
-        int selected = panel.getSelectedTab();
-        if (selected != -1) {
-            Dimension dimensions = getChildMaxPreferredSize(containerViews, selected);
-            dimensions.height += panel.getTabBarHeight() + 5; //little extra for borders, etc.
-            return dimensions;
-        }
-        return new Dimension(0, 0);
+    private void insertTab(GComponent child, int i) {
+        int index = GwtSharedUtils.relativePosition(child, children, visibleChildren);
+        visibleChildren.add(index, child);
+        // just like in grid it's not clear how to manage inline elements, so we'll just assert that there are no such elements in the tabbed container
+        panel.insertTab(childrenCaptions.get(i).widget.widget, index, beforeIndex -> addChildrenWidget(panel, i, beforeIndex));
+    }
+
+    private void removeTab(int visibleIndex) {
+        visibleChildren.remove(visibleIndex);
+        panel.removeTab(visibleIndex, index -> removeChildrenWidget(panel, visibleIndex, index));
     }
 
     private void ensureTabSelection() {
-        if (panel.getSelectedTab() == -1 && panel.getWidgetCount() != 0) {
+        if (panel.getSelectedTab() == -1 && panel.getTabCount() != 0) {
             panel.selectTab(0);
         }
-    }
-
-    protected static String getTabTitle(GComponent child) {
-        String tabCaption = null;
-        if (child instanceof GContainer) {
-            tabCaption = ((GContainer) child).caption;
-        }
-        if (tabCaption == null) {
-            tabCaption = "";
-        }
-        return tabCaption;
     }
 
     public boolean isTabVisible(GComponent component) {

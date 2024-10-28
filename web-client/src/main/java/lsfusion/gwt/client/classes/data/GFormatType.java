@@ -1,27 +1,22 @@
 package lsfusion.gwt.client.classes.data;
 
-import com.google.gwt.i18n.client.DateTimeFormat;
+import lsfusion.gwt.client.classes.GTextBasedType;
 import lsfusion.gwt.client.form.property.GPropertyDraw;
+import lsfusion.gwt.client.form.property.PValue;
 
-import java.util.Date;
-
-public abstract class GFormatType<F> extends GDataType {
-
-    public abstract F getFormat(String pattern);
-
-    public F getEditFormat(GPropertyDraw propertyDraw) {
-        return getFormat(propertyDraw.pattern);
-    }
+public abstract class GFormatType extends GTextBasedType {
 
     @Override
     public String getDefaultWidthString(GPropertyDraw propertyDraw) {
-        Object defaultWidthValue = getDefaultWidthValue();
+        PValue defaultWidthValue = getDefaultWidthValue();
         if(defaultWidthValue != null)
-            return ((DateTimeFormat)getEditFormat(propertyDraw)).format((Date) defaultWidthValue);
+            return formatString(defaultWidthValue, propertyDraw.getPattern());
         return super.getDefaultWidthString(propertyDraw);
     }
 
-    protected Object getDefaultWidthValue() {
+    public abstract String formatString(PValue value, String pattern);
+
+    protected PValue getDefaultWidthValue() {
         return null;
     }
 }

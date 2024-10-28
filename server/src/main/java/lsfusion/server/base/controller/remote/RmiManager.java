@@ -1,12 +1,22 @@
 package lsfusion.server.base.controller.remote;
 
 import com.google.common.base.Throwables;
+import lsfusion.base.SystemUtils;
+import lsfusion.base.col.lru.LRUUtil;
+import lsfusion.base.col.lru.LRUWSVSMap;
+import lsfusion.base.file.StringWithFiles;
 import lsfusion.base.remote.RMIUtils;
+import lsfusion.interop.connection.ComputerInfo;
+import lsfusion.interop.connection.ConnectionInfo;
+import lsfusion.interop.connection.UserInfo;
+import lsfusion.interop.logics.remote.RemoteClientInterface;
+import lsfusion.interop.session.ExternalRequest;
+import lsfusion.interop.session.ExternalUtils;
+import lsfusion.interop.session.SessionInfo;
+import lsfusion.server.base.AppServerImage;
 import lsfusion.server.base.controller.lifecycle.LifecycleEvent;
 import lsfusion.server.base.controller.manager.LogicsManager;
 import lsfusion.server.logics.BusinessLogics;
-import lsfusion.server.physics.admin.log.ServerLoggers;
-import org.apache.log4j.Logger;
 import org.springframework.beans.factory.InitializingBean;
 import org.springframework.util.Assert;
 
@@ -15,6 +25,7 @@ import javax.management.remote.JMXConnectorServer;
 import javax.management.remote.JMXConnectorServerFactory;
 import javax.management.remote.JMXServiceURL;
 import java.io.IOException;
+import java.io.Serializable;
 import java.lang.management.ManagementFactory;
 import java.net.InetAddress;
 import java.rmi.AlreadyBoundException;
@@ -24,9 +35,13 @@ import java.rmi.RemoteException;
 import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
 import java.rmi.server.UnicastRemoteObject;
+import java.util.ArrayList;
+import java.util.List;
+
+import static lsfusion.server.physics.admin.log.ServerLoggers.startLog;
+import static lsfusion.server.physics.admin.log.ServerLoggers.startLogError;
 
 public class RmiManager extends LogicsManager implements InitializingBean {
-    private static final Logger logger = ServerLoggers.startLogger;
 
     @Override
     protected BusinessLogics getBusinessLogics() {
@@ -40,6 +55,10 @@ public class RmiManager extends LogicsManager implements InitializingBean {
     private int port = 0;
 
     private int httpPort = 0;
+
+    private boolean https = false;
+
+    private int webSocketPort = 0;
 
     private int debuggerPort = 0;
 
@@ -63,6 +82,22 @@ public class RmiManager extends LogicsManager implements InitializingBean {
 
     public void setHttpPort(int httpPort) {
         this.httpPort = httpPort;
+    }
+
+    public boolean isHttps() {
+        return https;
+    }
+
+    public void setHttps(boolean https) {
+        this.https = https;
+    }
+
+    public int getWebSocketPort() {
+        return webSocketPort;
+    }
+
+    public void setWebSocketPort(int webSocketPort) {
+        this.webSocketPort = webSocketPort;
     }
 
     public int getDebuggerPort() {
@@ -96,12 +131,12 @@ public class RmiManager extends LogicsManager implements InitializingBean {
 
     @Override
     protected void onStarted(LifecycleEvent event) {
-        logger.info("Starting RMI Manager");
+        startLog("Starting RMI manager");
         try {
             initJMX(); // важно, что до initRMI, так как должен использовать SocketFactory по умолчанию
             initRegistry();
         } catch (IOException e) {
-            logger.error("Error starting RmiManager: ", e);
+            startLogError("Error starting RMI manager: ", e);
             Throwables.propagate(e);
         }
     }
@@ -155,10 +190,10 @@ public class RmiManager extends LogicsManager implements InitializingBean {
     
             // Start the RMI connector server.
             //
-            logger.info("Start the RMI connector server on port "+port);
+            startLog("Start the RMI connector server on port " + port);
             cs.start();
         } catch (IOException e) {
-            logger.error("Error starting JMX: ", e);
+            startLogError("Error starting JMX: ", e);
             Throwables.propagate(e);
         }
     }
@@ -170,7 +205,7 @@ public class RmiManager extends LogicsManager implements InitializingBean {
 //        try {
 //            registry.list();
 //        } catch (RemoteException e) {
-        registry = RMIUtils.createRmiRegistry(port, ZipServerSocketFactory.getInstance());
+        registry = RMIUtils.createRmiRegistry(port);
 //        }
     }
 
@@ -206,5 +241,75 @@ public class RmiManager extends LogicsManager implements InitializingBean {
 
     public String[] list() throws RemoteException {
         return registry.list();
+    }
+
+    private final Object syncRemoteClients = new Object();
+    public List<RemoteClientInterface> remoteClients = new ArrayList<>();
+
+    public void registerClient(RemoteClientInterface remoteClient) {
+        synchronized (syncRemoteClients) {
+            remoteClients.add(remoteClient);
+        }
+    }
+
+    public interface RemoteFunction<T> {
+        T apply(RemoteClientInterface remoteClient) throws RemoteException;
+    }
+    public <T> T executeOnSomeClient(RemoteFunction<T> func) {
+        RemoteClientInterface remoteClient;
+        synchronized (syncRemoteClients) {
+            if(remoteClients.isEmpty())
+                throw new RuntimeException("No web client was found to save the images");
+
+            remoteClient = remoteClients.get(0);
+        }
+
+        try {
+            return func.apply(remoteClient);
+        } catch (RemoteException e) {
+            synchronized (syncRemoteClients) {
+                remoteClients.remove(remoteClient);
+            }
+            return executeOnSomeClient(func);
+        }
+    }
+
+    private final static LRUWSVSMap<RemoteClientInterface, Serializable, String> cachedConversions = new LRUWSVSMap<>(LRUUtil.G3);
+    private final static ConnectionInfo connectionInfo = new ConnectionInfo(new ComputerInfo(SystemUtils.getLocalHostName(), SystemUtils.getLocalHostIP()), UserInfo.NULL);
+
+    public Object convertFileValue(ExternalRequest request, Object value) {
+        if (value instanceof StringWithFiles) {
+            StringWithFiles stringWithFiles = (StringWithFiles) value;
+            return executeOnSomeClient(remoteClient -> {
+                Serializable[] files = stringWithFiles.files;
+                String[] convertedFiles = new String[files.length];
+
+                List<Serializable> readFiles = new ArrayList<>();
+                List<Integer> readIndices = new ArrayList<>();
+
+                for (int i = 0, filesLength = files.length; i < filesLength; i++) {
+                    Serializable file = files[i];
+                    String cachedConversion = cachedConversions.get(remoteClient, file);
+                    if (cachedConversion != null)
+                        convertedFiles[i] = cachedConversion.equals(AppServerImage.NULL) ? null : cachedConversion;
+                    else {
+                        readFiles.add(file);
+                        readIndices.add(i);
+                    }
+                }
+
+                if (!readFiles.isEmpty()) { // optimization
+                    String[] remoteConvertedFiles = remoteClient.convertFileValue(new SessionInfo(connectionInfo, request), readFiles.toArray(new Serializable[0]));
+                    for (int i = 0; i < remoteConvertedFiles.length; i++) {
+                        String convertedFile = remoteConvertedFiles[i];
+                        cachedConversions.put(remoteClient, readFiles.get(i), convertedFile == null ? AppServerImage.NULL : convertedFile);
+                        convertedFiles[readIndices.get(i)] = convertedFile;
+                    }
+                }
+
+                return ExternalUtils.convertFileValue(stringWithFiles.prefixes, convertedFiles);
+            });
+        }
+        return value;
     }
 }

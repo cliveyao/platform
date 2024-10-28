@@ -1,12 +1,11 @@
 ---
-title: 'Manual installation'
-sidebar_label: Overview
+title: 'Install manually'
 ---
 
-### [Development](Development_manual.md)
+### [For development](Development_manual.md)
 
 This section contains instructions for installing and setting up the necessary environment for system development.
 
-### [Execution](Execution_manual.md)
+### [For production](Execution_manual.md)
 
 This section contains instructions for installing and setting up the necessary environment for putting the developed system into commercial operation.

@@ -195,12 +195,13 @@ public final class LocalizedString {
         
         @IdentityStartLazy
         public LocalizedString createFormatted(String source, ImList<Object> params) { // we need ImList to get correct equals for IdentityLazy
+            assert !params.containsFn(param -> !(param instanceof String || param instanceof LocalizedString));
             return new LocalizedString(source, true, true, params.toArray(new Object[params.size()]));
         }
     }
     
     public final static LocalizedString NONAME = LocalizedString.create(""); 
-    
+
     /**
      * Создает LocalizedString без проверки на корректность
      * Если create вызывается без второго параметра, то происходит проверка (в конструкторе) на необходимость локализации

@@ -1,6 +1,5 @@
 package lsfusion.server.logics.action.flow;
 
-import lsfusion.base.BaseUtils;
 import lsfusion.base.Result;
 import lsfusion.base.col.ListFact;
 import lsfusion.base.col.SetFact;
@@ -13,7 +12,6 @@ import lsfusion.server.base.version.Version;
 import lsfusion.server.base.version.impl.NFListImpl;
 import lsfusion.server.base.version.interfaces.NFList;
 import lsfusion.server.data.sql.exception.SQLHandledException;
-import lsfusion.server.data.type.Type;
 import lsfusion.server.data.value.DataObject;
 import lsfusion.server.data.value.ObjectValue;
 import lsfusion.server.data.where.classes.ClassWhere;
@@ -22,11 +20,9 @@ import lsfusion.server.logics.action.Action;
 import lsfusion.server.logics.action.controller.context.ExecutionContext;
 import lsfusion.server.logics.action.implement.ActionMapImplement;
 import lsfusion.server.logics.classes.ValueClass;
-import lsfusion.server.logics.classes.user.CustomClass;
 import lsfusion.server.logics.classes.user.set.AndClassSet;
-import lsfusion.server.logics.classes.user.set.OrObjectClassSet;
 import lsfusion.server.logics.classes.user.set.ResolveClassSet;
-import lsfusion.server.logics.form.struct.property.async.AsyncExec;
+import lsfusion.server.logics.form.interactive.action.async.map.AsyncMapEventExec;
 import lsfusion.server.logics.property.Property;
 import lsfusion.server.logics.property.PropertyFact;
 import lsfusion.server.logics.property.cases.*;
@@ -60,10 +56,10 @@ public class CaseAction extends ListCaseAction {
         return new CaseAction(caption, false, innerInterfaces, mCases.immutableList());
     }
 
-    public void addCase(PropertyMapImplement<?, PropertyInterface> where, ActionMapImplement<?, PropertyInterface> action, Version version) {
+    public void addCase(PropertyMapImplement<?, PropertyInterface> where, ActionMapImplement<?, PropertyInterface> action, boolean optimisticAsync, Version version) {
         assert type == AbstractType.CASE;
 
-        ExplicitActionCase<PropertyInterface> aCase = new ExplicitActionCase<>(where, action);
+        ExplicitActionCase<PropertyInterface> aCase = new ExplicitActionCase<>(where, action, optimisticAsync);
         addAbstractCase(aCase, version);
 
         addWhereCase(aCase.where, aCase.implement, version);
@@ -79,15 +75,14 @@ public class CaseAction extends ListCaseAction {
         NFListImpl.add(isLast, (NFList<AbstractActionCase<PropertyInterface>>) cases, aCase, version);
     }
 
-    public void addOperand(ActionMapImplement<?,PropertyInterface> action, List<ResolveClassSet> signature, Version version) {
+    public void addOperand(ActionMapImplement<?, PropertyInterface> action, List<ResolveClassSet> signature, boolean optimisticAsync, Version version) {
         assert isAbstract();
 
-        PropertyMapImplement<?, PropertyInterface> where =  action.mapWhereProperty();
         ExplicitActionCase<PropertyInterface> addCase;
         if(type == AbstractType.MULTI)
-            addCase = new ExplicitActionCase<>(where.mapClassProperty(), action, signature);
+            addCase = new ExplicitActionCase<>(action.mapClassProperty(), action, signature, optimisticAsync);
         else
-            addCase = new ExplicitActionCase<>(where, action);
+            addCase = new ExplicitActionCase<>(action.mapWhereProperty(), action, optimisticAsync);
         addAbstractCase(addCase, version);
 
         addWhereOperand(addCase.implement, signature, version);
@@ -118,7 +113,7 @@ public class CaseAction extends ListCaseAction {
     }
 
     public <I extends PropertyInterface> CaseAction(LocalizedString caption, boolean isExclusive, ImList<ActionMapImplement> impls, ImOrderSet<I> innerInterfaces) {
-        this(caption, isExclusive, innerInterfaces, impls.mapListValues((ActionMapImplement value) -> new ActionCase<I>(value.mapWhereProperty().mapClassProperty(), value)));
+        this(caption, isExclusive, innerInterfaces, impls.mapListValues((ActionMapImplement value) -> new ActionCase<I>(value.mapClassProperty(), value)));
     }
 
     // explicit конструктор
@@ -138,22 +133,22 @@ public class CaseAction extends ListCaseAction {
     }
 
     protected PropertyMapImplement<?, PropertyInterface> calcCaseWhereProperty() {
-        ImList<CalcCase<PropertyInterface>> listWheres = getCases().mapListValues((Function<ActionCase<PropertyInterface>, CalcCase<PropertyInterface>>) value -> new CalcCase<>(value.where, value.implement.mapCalcWhereProperty()));
+        ImList<CalcCase<PropertyInterface>> listWheres = getCases().mapListValues(value -> new CalcCase<>(value.where, value.implement.mapCalcWhereProperty()));
         return PropertyFact.createUnion(interfaces, isExclusive, listWheres);
     }
 
     protected ImList<ActionMapImplement<?, PropertyInterface>> getListActions() {
-        return getCases().mapListValues((Function<ActionCase<PropertyInterface>, ActionMapImplement<?, PropertyInterface>>) value -> value.implement);
+        return getCases().mapListValues(value -> value.implement);
     }
 
     @Override
-    public ImMap<Property, Boolean> aspectUsedExtProps() {
+    public ImMap<Property, Boolean> calculateUsedExtProps() {
         ImList<ActionCase<PropertyInterface>> cases = getCases();
         MSet<Property> mWhereProps = SetFact.mSetMax(cases.size());
         for(ActionCase<PropertyInterface> aCase : cases)
             if(aCase.where instanceof PropertyMapImplement)
                 mWhereProps.add(((PropertyMapImplement) aCase.where).property);
-        return mWhereProps.immutable().toMap(false).merge(super.aspectUsedExtProps(), addValue);
+        return mWhereProps.immutable().toMap(false).merge(super.calculateUsedExtProps(), addValue);
     }
 
     @IdentityLazy
@@ -249,86 +244,26 @@ public class CaseAction extends ListCaseAction {
 
     public Graph<ActionCase<PropertyInterface>> abstractGraph; 
 
-    @Override
-    public Type getFlowSimpleRequestInputType(boolean optimistic, boolean inRequest) {
-        Type type = null;
-        ImList<ActionMapImplement<?, PropertyInterface>> actions = getListActions();
-        for (ActionMapImplement<?, PropertyInterface> action : actions) {
-            Type actionRequestType = action.action.getSimpleRequestInputType(optimistic, inRequest);
-            if (!optimistic && actionRequestType == null) {
-                return null;
-            }
+    private ImList<ActionMapImplement<?, PropertyInterface>> getAsyncListActions(Result<Boolean> allCases) {
+        ImList<ActionCase<PropertyInterface>> cases = getCases();
 
-            if (type == null) {
-                type = actionRequestType;
-            } else {
-                if(actionRequestType != null) {
-                    type = type.getCompatible(actionRequestType);
-                    if (type == null) {
-                        return null;
-                    }
-                }
-            }
+        ImList<ActionCase<PropertyInterface>> optimisticCases = cases.filterList(element -> element.optimisticAsync);
+        if(!optimisticCases.isEmpty()) {
+            allCases.set(true);
+            cases = optimisticCases;
+        } else {
+            allCases.set(!cases.isEmpty() &&
+                    (cases.get(cases.size() - 1).where.mapIsExplicitTrue() || // the last is true (if else nonexclusive)
+                    !cases.containsFn(aCase -> !aCase.isClassSimple()) || // it's MULTI
+                    (cases.size() == 2 && cases.get(1).where.mapIsExplicitNot(cases.get(0).where)))); // if else exclusive
         }
-        return type;
+
+        return cases.mapListValues(value -> value.implement);
     }
-
     @Override
-    public CustomClass getSimpleAdd() {
-
-        if(!isExclusive && Settings.get().isDisableSimpleAddRemoveInNonExclCase())
-            return null;
-
-        OrObjectClassSet result = null;
-        for (ActionMapImplement<?, PropertyInterface> action : getListActions()) {
-            CustomClass simpleAdd = action.action.getSimpleAdd();
-            if(simpleAdd==null) // значит есть case который не добавляет
-                return null;
-
-            OrObjectClassSet set = simpleAdd.getUpSet().getOr();
-            if(result == null)
-                result = set;
-            else
-                result = result.or(set);
-        }
-        return result != null ? result.getCommonClass() : null;
-    }
-
-    @Override
-    public PropertyInterface getSimpleDelete() {
-
-        if(isExclusive || !Settings.get().isDisableSimpleAddRemoveInNonExclCase()) {
-            PropertyInterface result = null;
-            for (ActionMapImplement<?, PropertyInterface> action : getListActions()) {
-                PropertyInterface simpleDelete = action.mapSimpleDelete();
-                if (simpleDelete != null && (result == null || BaseUtils.hashEquals(result, simpleDelete)))
-                    result = simpleDelete;
-                else { // значит есть case который не удаляет или удаляет что-то другое
-                    result = null;
-                    break;
-                }
-            }
-            if (result != null)
-                return result;
-        }
-        
-        return super.getSimpleDelete();
-    }
-
-    @Override
-    public AsyncExec getAsyncExec() {
-        AsyncExec result = null;
-        for (ActionMapImplement<?, PropertyInterface> action : getListActions()) {
-            AsyncExec asyncExec = action.action.getAsyncExec();
-            if (asyncExec != null) {
-                if (result == null) {
-                    result = asyncExec;
-                } else {
-                    return null;
-                }
-            }
-        }
-        return result;
+    public AsyncMapEventExec<PropertyInterface> calculateAsyncEventExec(boolean optimistic, boolean recursive) {
+        Result<Boolean> rLastElse = new Result<>(false);
+        return getBranchAsyncEventExec(getAsyncListActions(rLastElse), optimistic, recursive, isExclusive, rLastElse.result);
     }
 
     /*

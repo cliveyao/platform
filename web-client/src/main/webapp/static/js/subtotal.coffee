@@ -233,7 +233,7 @@ callWithJQuery ($) ->
                 td.textContent = aggregator.format(value)
         
         createArrowAndTextDivs = (th, arrowClass, textClass) ->
-            wrapperDiv = createElement "div", "wrapperDiv"
+            wrapperDiv = createElement "div", "wrapperDiv fill-parent-perc"
             th.append wrapperDiv
 
             arrowDiv = createElement "div", arrowClass
@@ -1057,7 +1057,11 @@ callWithJQuery ($) ->
                     curColumn = first
                     for i in [first...(tr.cells.length - lastShift)]
                         th = tr.cells[i]
-                        columns[curColumn].push th.textContent if th.textContent
+                        if callbacks?
+                            value = callbacks.getHeaderCellValue th
+                        else
+                            value = th.textContent;
+                        columns[curColumn].push value
                         curColumn += th.colSpan
                 
                 for i in [first...(colCnt - lastShift)] 
@@ -1083,7 +1087,7 @@ callWithJQuery ($) ->
             outerDiv = createElement "div", "subtotalouterdiv"
 
             headerDiv = createElement "div", "headerdiv" 
-            headerTable = createElement "table", "headertable pvtTable"
+            headerTable = createElement "table", "headertable pvtTable table"
 
             thead = createElement "thead"
 
@@ -1115,7 +1119,16 @@ callWithJQuery ($) ->
             scrollDiv.onscroll = () ->
                 sLeft = scrollDiv.scrollLeft
                 headerDiv.scrollLeft = sLeft
-            bodyTable = createElement "table", "bodytable pvtTable"
+
+                #need for right border for the sticky columns
+                if(sLeft > 0)
+                    addClass headerTable, "scrolled-left"
+                    addClass bodyTable, "scrolled-left"
+                else
+                    removeClass headerTable, "scrolled-left"
+                    removeClass bodyTable, "scrolled-left"
+
+            bodyTable = createElement "table", "bodytable pvtTable table"
             tbody = createElement "tbody"
 
             outerDiv.appendChild bodyDiv

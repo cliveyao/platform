@@ -1,8 +1,10 @@
 package lsfusion.server.physics.admin.interpreter;
 
 import lsfusion.base.Pair;
+import lsfusion.base.col.ListFact;
 import lsfusion.base.col.interfaces.immutable.ImSet;
 import lsfusion.base.lambda.set.FullFunctionSet;
+import lsfusion.server.base.controller.thread.ThreadLocalContext;
 import lsfusion.server.language.*;
 import lsfusion.server.language.action.LA;
 import lsfusion.server.language.property.LP;
@@ -11,10 +13,8 @@ import lsfusion.server.logics.LogicsModule;
 import lsfusion.server.logics.classes.user.set.ResolveClassSet;
 import lsfusion.server.logics.event.Event;
 import lsfusion.server.logics.form.struct.FormEntity;
-import org.apache.commons.lang.StringUtils;
+import lsfusion.server.logics.property.LazyProperty;
 
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -25,7 +25,7 @@ public class EvalUtils {
         return "UNIQUE" + uniqueNameCounter.incrementAndGet() + "NSNAME";
     }
 
-    public static LA evaluateAndFindAction(BusinessLogics BL, EvalScriptingLogicsModule parentLM, String script, boolean action) {
+    public static Pair<LA, EvalScriptingLogicsModule> evaluateAndFindAction(BusinessLogics BL, EvalScriptingLogicsModule parentLM, String script, boolean action) {
         return evaluateAndFindAction(BL, parentLM, null, null, null, null, false, action ? EvalActionParser.parse(script) : script, "run");
     }
     
@@ -39,13 +39,13 @@ public class EvalUtils {
         }
     }
 
-    public static LA evaluateAndFindAction(BusinessLogics BL, EvalScriptingLogicsModule parentLM, String namespace, String require, String priorities, final ImSet<Pair<LP, List<ResolveClassSet>>> locals, boolean prevEventScope, String script, String action) {
+    public static Pair<LA, EvalScriptingLogicsModule> evaluateAndFindAction(BusinessLogics BL, EvalScriptingLogicsModule parentLM, String namespace, String require, String priorities, final ImSet<Pair<LP, List<ResolveClassSet>>> locals, boolean prevEventScope, String script, String action) {
         String name = getUniqueName();
         String parentModule = parentLM != null ? parentLM.getName() : null;
         WrapResult wrapResult = wrapScript(BL, parentModule, namespace, require, priorities, script, name);
         
         String code = wrapResult.code;
-        ScriptingLogicsModule module = new EvalScriptingLogicsModule(BL.LM, BL, parentLM, code);
+        EvalScriptingLogicsModule module = new EvalScriptingLogicsModule(BL.LM, BL, parentLM, code);
         module.getErrLog().setLineNumberShift(wrapResult.additionalLines);
         
         module.order = BL.getLogicModules().size() + 1;
@@ -60,22 +60,29 @@ public class EvalUtils {
                     module.addWatchLocalDataProperty(local.first, local.second);
                 }
             }
-            module.runInit(ScriptingLogicsModule::initMainLogic);            
+            module.runInit(ScriptingLogicsModule::initMainLogic);
+            for(LazyProperty property : module.lazyProps) {
+                property.finalizeInit(); // needed at least for lazy properties
+                property.finalizeLazyInit();
+            }
             // finalize forms task (other elements can't be created in script)
             module.markFormsForFinalization();
             for(FormEntity form : module.getAllModuleForms())
-                form.finalizeAroundInit();
+                form.finalizeAndPreread();
         } finally {
             if(prevEventScope)
                 module.dropPrevScope(Event.SESSION);
         }
 
         try {
-            return module.findAction(module.getNamespace() + '.' + action);
+            return new Pair<>(module.findAction(module.getNamespace() + '.' + action), module);
         } catch (ScriptingErrorLog.SemanticErrorException e) {
             throw new UnsupportedOperationException(); // should not be since there is no currentParser in module
         } catch (ScriptErrorException e) {  // we don't need stack for ScriptErrorException, since it is obvious, so will convert it to scriptParsingException
-            throw new ScriptParsingException(e.getMessage());
+            String message = e.getMessage();
+            if(message.endsWith(" is not found")) // hack but for now will do
+                message = ThreadLocalContext.localize("{eval.script.form.exception.without.run.block}");
+            throw new ScriptParsingException(message);
         }
     }
 
@@ -133,7 +140,7 @@ public class EvalUtils {
                 if(!script.endsWith(";")) {
                     script += ";";
                 }
-                List<String> paramsList = new ArrayList<>();
+                int maxParam = 0;
                 StringBuilder result = new StringBuilder();
                 StringBuilder currentParam = new StringBuilder();
                 State currentState = State.SCRIPT;
@@ -168,11 +175,10 @@ public class EvalUtils {
                                 currentParam.append(c);
                             } else {
                                 //param ends
-                                String param = paramPrefix + currentParam;
-                                result.append(param);
-                                if(!paramsList.contains(param)) {
-                                    paramsList.add(param);
-                                }
+                                result.append(paramPrefix).append(currentParam);
+                                int paramIndex = Integer.parseInt(currentParam.toString());
+                                if(paramIndex > maxParam)
+                                    maxParam = paramIndex;
                                 if (c == '/' && prevSlash) {
                                     //comment starts
                                     currentState = State.COMMENT;
@@ -205,8 +211,7 @@ public class EvalUtils {
                     i++;
                 }
 
-                Collections.sort(paramsList);
-                String params = StringUtils.join(paramsList.iterator(), ", ");
+                String params = ListFact.consecutiveList(maxParam).toString(index -> paramPrefix + index, ", ");
                 return String.format("run(%s) {%s\n};", params, result);
             } else return null;
         }

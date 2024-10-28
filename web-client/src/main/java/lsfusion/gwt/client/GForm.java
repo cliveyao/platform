@@ -1,16 +1,14 @@
 package lsfusion.gwt.client;
 
 import lsfusion.gwt.client.base.GwtSharedUtils;
-import lsfusion.gwt.client.form.design.GContainer;
-import lsfusion.gwt.client.form.design.GFont;
-import lsfusion.gwt.client.form.design.GFontWidthString;
-import lsfusion.gwt.client.form.design.GWidthStringProcessor;
+import lsfusion.gwt.client.form.design.*;
 import lsfusion.gwt.client.form.filter.GRegularFilterGroup;
 import lsfusion.gwt.client.form.object.GGroupObject;
 import lsfusion.gwt.client.form.object.GObject;
 import lsfusion.gwt.client.form.object.table.grid.user.design.GFormUserPreferences;
 import lsfusion.gwt.client.form.object.table.tree.GTreeGroup;
 import lsfusion.gwt.client.form.property.GPropertyDraw;
+import lsfusion.gwt.client.form.property.async.GAsyncEventExec;
 import lsfusion.gwt.client.view.MainFrame;
 
 import java.io.Serializable;
@@ -18,7 +16,7 @@ import java.util.*;
 
 import static lsfusion.gwt.client.base.GwtClientUtils.createTooltipHorizontalSeparator;
 
-public class GForm implements Serializable, GWidthStringProcessor {
+public class GForm implements Serializable {
     public String sessionID;
 
     public String sID;
@@ -26,8 +24,10 @@ public class GForm implements Serializable, GWidthStringProcessor {
     public String canonicalName;
 
     public String creationPath;
+    public String path;
 
-    public int autoRefresh;
+    public ArrayList<GFormScheduler> formSchedulers = new ArrayList<>();
+    public Map<GFormEvent, GAsyncEventExec> asyncExecMap = new HashMap<>();
 
     public GContainer mainContainer;
     public HashSet<GTreeGroup> treeGroups = new HashSet<>();
@@ -67,6 +67,17 @@ public class GForm implements Serializable, GWidthStringProcessor {
         return null;
     }
 
+    public GObject getObject(int id) {
+        for (GGroupObject groupObject : groupObjects) {
+            for (GObject object : groupObject.objects) {
+                if (object.ID == id) {
+                    return object;
+                }
+            }
+        }
+        return null;
+    }
+
     public GPropertyDraw getProperty(int id) {
         GPropertyDraw prop;
         if (idProps == null) {
@@ -98,6 +109,10 @@ public class GForm implements Serializable, GWidthStringProcessor {
     
     public GContainer findContainerByID(int id) {
         return mainContainer.findContainerByID(id);
+    }
+
+    public GComponent findComponentByID(int id) {
+        return mainContainer.findComponentByID(id);
     }
 
     public LinkedHashMap<GPropertyDraw, Boolean> getDefaultOrders(GGroupObject group) {
@@ -143,26 +158,22 @@ public class GForm implements Serializable, GWidthStringProcessor {
         return result;
     }
 
-    public void addFont(GFont font) {
-        addWidthString(new GFontWidthString(font));
-    }
-    public void addWidthString(GFontWidthString fontWidthString) {
-        if (!usedFonts.contains(fontWidthString)) {
-            usedFonts.add(fontWidthString);
-        }
+    public String getCreationPath() {
+        return creationPath;
     }
 
-    public String getCaption() {
-        return mainContainer.caption;
+    public String getPath() {
+        return path;
     }
 
-    public String getTooltip(String caption) {
+    public String getTooltip() {
+        String caption = mainContainer.caption;
         return MainFrame.showDetailedInfo ?
                 GwtSharedUtils.stringFormat("<html><body>" +
-                        "<b>%s</b><br/>" + 
+                        "<b>%s</b><br/>" +
                         createTooltipHorizontalSeparator() +
                         "<b>sID:</b> %s<br/>" +
-                        "<b>" + ClientMessages.Instance.get().tooltipPath() + ":</b> %s<br/>" +
+                        "<b>" + ClientMessages.Instance.get().tooltipPath() + ":</b> %s<a class='lsf-tooltip-path'></a> &ensp; <a class='lsf-tooltip-help'></a>" +
                         "</body></html>", caption, canonicalName, creationPath) :
                 GwtSharedUtils.stringFormat("<html><body><b>%s</b></body></html>", caption);
     }

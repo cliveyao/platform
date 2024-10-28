@@ -1,13 +1,17 @@
 package lsfusion.server.language.form;
 
+import lsfusion.base.Pair;
 import lsfusion.base.col.ListFact;
 import lsfusion.base.col.heavy.OrderedMap;
 import lsfusion.base.col.interfaces.immutable.ImList;
 import lsfusion.interop.form.property.ClassViewType;
 import lsfusion.interop.form.property.PropertyEditType;
 import lsfusion.interop.form.property.PropertyGroupType;
-import lsfusion.server.logics.LogicsModule.InsertType;
+import lsfusion.server.base.AppServerImage;
+import lsfusion.server.base.version.ComplexLocation;
+
 import lsfusion.server.logics.action.Action;
+import lsfusion.server.logics.form.interactive.action.edit.FormSessionScope;
 import lsfusion.server.logics.form.struct.action.ActionObjectEntity;
 import lsfusion.server.logics.form.struct.object.GroupObjectEntity;
 import lsfusion.server.logics.form.struct.property.PropertyDrawEntity;
@@ -15,9 +19,7 @@ import lsfusion.server.logics.form.struct.property.PropertyObjectEntity;
 import lsfusion.server.physics.dev.i18n.LocalizedString;
 
 import javax.swing.*;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 import static lsfusion.base.BaseUtils.isRedundantString;
 import static lsfusion.base.BaseUtils.nvl;
@@ -30,29 +32,32 @@ public class FormPropertyOptions {
     private Boolean optimisticAsync;
     private Columns columns;
     private PropertyObjectEntity showIf;
+    private PropertyObjectEntity disableIf;
     private PropertyObjectEntity readOnlyIf;
+    private PropertyObjectEntity valueElementClass;
     private PropertyObjectEntity background;
     private PropertyObjectEntity foreground;
     private PropertyObjectEntity image;
+    private String appImage;
     private PropertyObjectEntity header;
     private PropertyObjectEntity footer;
     private ClassViewType viewType;
-    private String customRenderFunctions;
-    private String customEditorFunctions;
-    private boolean customTextEdit;
-    private boolean customReplaceEdit;
+    private String customRenderFunction;
+    private String customEditorFunction;
     private GroupObjectEntity toDraw;
     private OrderedMap<String, LocalizedString> contextMenuBindings;
     private Map<KeyStroke, String> keyBindings;
     private Map<String, ActionObjectEntity> eventActions;
+    private List<Pair<ActionObjectEntity, Boolean>> formChangeEventActions;
     private String eventId;
     private String integrationSID;
-    private PropertyDrawEntity neighbourPropertyDraw;
     private Boolean order;
     private Boolean filter;
     private Boolean pivotColumn;
     private Boolean pivotRow;
     private Boolean pivotMeasure;
+    private Boolean sticky;
+    private Boolean sync;
 
     // for pivoting
     public String formula;
@@ -66,14 +71,14 @@ public class FormPropertyOptions {
     private PropertyDrawEntity quickFilterPropertyDraw;
     private String neighbourPropertyText;
 
-    private InsertType insertType; 
-    
-    private Boolean newSession;
-    private Boolean isNested;
+    private ComplexLocation<PropertyDrawEntity> location;
+
+    private FormSessionScope formSessionScope;
 
     //integration options
     private Boolean attr;
     private String groupName;
+    private Boolean extNull;
 
     public void setAggrFunc(PropertyGroupType aggrFunc) {
         this.aggrFunc = aggrFunc;
@@ -89,20 +94,12 @@ public class FormPropertyOptions {
         this.formulaOperands = ListFact.fromJavaList(formulaOperands);
     }
 
-    public void setNewSession(Boolean newSession) {
-        this.newSession = newSession;
+    public FormSessionScope getFormSessionScope() {
+        return formSessionScope;
     }
-    
-    public void setNested(Boolean isNested) {
-        this.isNested = isNested;
-    }
-    
-    public Boolean isNewSession() {
-        return newSession;
-    }
-    
-    public Boolean isNested() {
-        return isNested;
+
+    public void setFormSessionScope(FormSessionScope formSessionScope) {
+        this.formSessionScope = formSessionScope;
     }
 
     public Boolean getSelector() {
@@ -141,12 +138,28 @@ public class FormPropertyOptions {
         this.showIf = showIf;
     }
 
+    public PropertyObjectEntity getDisableIf() {
+        return disableIf;
+    }
+
+    public void setDisableIf(PropertyObjectEntity disableIf) {
+        this.disableIf = disableIf;
+    }
+
     public PropertyObjectEntity getReadOnlyIf() {
         return readOnlyIf;
     }
 
     public void setReadOnlyIf(PropertyObjectEntity readOnlyIf) {
         this.readOnlyIf = readOnlyIf;
+    }
+
+    public PropertyObjectEntity getValueElementClass() {
+        return valueElementClass;
+    }
+
+    public void setValueElementClass(PropertyObjectEntity valueElementClass) {
+        this.valueElementClass = valueElementClass;
     }
 
     public PropertyObjectEntity getBackground() {
@@ -167,6 +180,26 @@ public class FormPropertyOptions {
 
     public PropertyObjectEntity getImage() {
         return image;
+    }
+
+    public String getAppImage() {
+        return appImage;
+    }
+
+    public void setImage(Object literal, PropertyObjectEntity property) {
+        if(literal instanceof LocalizedString)
+            setAppImage((((LocalizedString) literal).getSourceString()));
+        else if(literal instanceof String) {
+            assert literal.equals(AppServerImage.NULL);
+            setAppImage((String) literal);
+        } else if(property != null)
+            setImage(property);
+        else
+            setAppImage(AppServerImage.AUTO);
+    }
+
+    public void setAppImage(String image) {
+        this.appImage = image;
     }
 
     public void setImage(PropertyObjectEntity image) {
@@ -197,36 +230,20 @@ public class FormPropertyOptions {
         this.viewType = viewType;
     }
     
-    public String getCustomRenderFunctions() {
-        return customRenderFunctions;
+    public String getCustomRenderFunction() {
+        return customRenderFunction;
     }
     
-    public void setCustomRenderFunctions(String customRenderFunctions) {
-        this.customRenderFunctions = customRenderFunctions;
+    public void setCustomRenderFunction(String customRenderFunction) {
+        this.customRenderFunction = customRenderFunction;
     }
 
-    public void setCustomEditorFunctions(String customEditorFunctions) {
-        this.customEditorFunctions = customEditorFunctions;
+    public void setCustomEditorFunction(String customEditorFunction) {
+        this.customEditorFunction = customEditorFunction;
     }
 
-    public void setCustomTextEdit(boolean customTextEdit) {
-        this.customTextEdit = customTextEdit;
-    }
-
-    public void setCustomReplaceEdit(boolean customReplaceEdit) {
-        this.customReplaceEdit = customReplaceEdit;
-    }
-
-    public String getCustomEditorFunctions() {
-        return customEditorFunctions;
-    }
-
-    public boolean isCustomTextEdit() {
-        return customTextEdit;
-    }
-
-    public boolean isCustomReplaceEdit() {
-        return customReplaceEdit;
+    public String getCustomEditorFunction() {
+        return customEditorFunction;
     }
 
     public void setToDraw(GroupObjectEntity toDraw) {
@@ -262,11 +279,22 @@ public class FormPropertyOptions {
     }
 
     public void addEventAction(String actionSID, ActionObjectEntity action) {
+        addEventAction(actionSID, null, action);
+    }
+
+    public void addEventAction(String actionSID, Boolean before, ActionObjectEntity action) {
         if (action != null) {
-            if (eventActions == null) {
-                eventActions = new HashMap<>();
+            if(before != null) {
+                if(formChangeEventActions == null) {
+                    formChangeEventActions = new ArrayList<>();
+                }
+                formChangeEventActions.add(Pair.create(action, before));
+            } else {
+                if (eventActions == null) {
+                    eventActions = new HashMap<>();
+                }
+                eventActions.put(actionSID, action);
             }
-            eventActions.put(actionSID, action);
         }
     }
 
@@ -335,17 +363,21 @@ public class FormPropertyOptions {
         this.eventActions = eventActions;
     }
 
-    public PropertyDrawEntity getNeighbourPropertyDraw() {
-        return neighbourPropertyDraw;
+    public List<Pair<ActionObjectEntity, Boolean>> getFormChangeEventActions() {
+        return formChangeEventActions;
+    }
+
+    public void setFormChangeEventActions(List<Pair<ActionObjectEntity, Boolean>> formChangeEventActions) {
+        this.formChangeEventActions = formChangeEventActions;
+    }
+
+    public void setLocation(ComplexLocation<PropertyDrawEntity> location, String propText) {
+        this.location = location;
+        this.neighbourPropertyText = propText;
     }
 
     public String getNeighbourPropertyText() {
         return neighbourPropertyText;
-    }
-
-    public void setNeighbourPropertyDraw(PropertyDrawEntity neighbourPropertyDraw, String propText) {
-        this.neighbourPropertyDraw = neighbourPropertyDraw;
-        this.neighbourPropertyText = propText;
     }
 
     public PropertyDrawEntity getQuickFilterPropertyDraw() {
@@ -356,12 +388,8 @@ public class FormPropertyOptions {
         this.quickFilterPropertyDraw = quickFilterPropertyDraw;
     }
 
-    public InsertType getInsertType() {
-        return insertType;
-    }
-
-    public void setInsertType(InsertType insertType) {
-        this.insertType = insertType;
+    public ComplexLocation<PropertyDrawEntity> getLocation() {
+        return location;
     }
 
     public String getEventId() {
@@ -395,6 +423,15 @@ public class FormPropertyOptions {
     public void setGroupName(String groupName) {
         this.groupName = groupName;
     }
+
+    public Boolean getExtNull() {
+        return extNull;
+    }
+
+    public void setExtNull(Boolean extNull) {
+        this.extNull = extNull;
+    }
+
 
     public Boolean getOrder() {
         return order;
@@ -436,11 +473,26 @@ public class FormPropertyOptions {
         this.pivotMeasure = pivotMeasure;
     }
 
+    public Boolean getSticky() {
+        return sticky;
+    }
+
+    public void setSticky(Boolean sticky) {
+        this.sticky = sticky;
+    }
+
+    public Boolean getSync() {
+        return sync;
+    }
+
+    public void setSync(Boolean sync) {
+        this.sync = sync;
+    }
+
     public FormPropertyOptions overrideWith(FormPropertyOptions overrides) {
         FormPropertyOptions merged = new FormPropertyOptions();
 
-        merged.setNewSession(nvl(overrides.isNewSession(), newSession));
-        merged.setNested(nvl(overrides.isNested(), isNested));
+        merged.setFormSessionScope(nvl(overrides.getFormSessionScope(), formSessionScope));
         merged.setEditType(nvl(overrides.getEditType(), editType));
         merged.setSelector(nvl(overrides.getSelector(), isSelector));
         merged.setHintNoUpdate(nvl(overrides.getHintNoUpdate(), hintNoUpdate));
@@ -448,25 +500,26 @@ public class FormPropertyOptions {
         merged.setOptimisticAsync(nvl(overrides.getOptimisticAsync(), optimisticAsync));
         merged.setColumns(nvl(overrides.getColumns(), columns));
         merged.setShowIf(nvl(overrides.getShowIf(), showIf));
+        merged.setDisableIf(nvl(overrides.getDisableIf(), disableIf));
         merged.setReadOnlyIf(nvl(overrides.getReadOnlyIf(), readOnlyIf));
+        merged.setValueElementClass(nvl(overrides.getValueElementClass(), valueElementClass));
         merged.setBackground(nvl(overrides.getBackground(), background));
         merged.setForeground(nvl(overrides.getForeground(), foreground));
         merged.setImage(nvl(overrides.getImage(), image));
+        merged.setAppImage(nvl(overrides.getAppImage(), appImage));
         merged.setHeader(nvl(overrides.getHeader(), header));
         merged.setFooter(nvl(overrides.getFooter(), footer));
         merged.setViewType(nvl(overrides.getViewType(), viewType));
-        merged.setCustomRenderFunctions(nvl(overrides.getCustomRenderFunctions(), customRenderFunctions));
-        merged.setCustomEditorFunctions(nvl(overrides.getCustomEditorFunctions(), customEditorFunctions));
-        merged.setCustomTextEdit(nvl(overrides.isCustomTextEdit(), customTextEdit));
-        merged.setCustomReplaceEdit(nvl(overrides.isCustomReplaceEdit(), customReplaceEdit));
+        merged.setCustomRenderFunction(nvl(overrides.getCustomRenderFunction(), customRenderFunction));
+        merged.setCustomEditorFunction(nvl(overrides.getCustomEditorFunction(), customEditorFunction));
         merged.setToDraw(nvl(overrides.getToDraw(), toDraw));
         merged.setEventActions(nvl(overrides.getEventActions(), eventActions));
+        merged.setFormChangeEventActions(nvl(overrides.getFormChangeEventActions(), formChangeEventActions));
         merged.setContextMenuBindings(nvl(overrides.getContextMenuBindings(), contextMenuBindings));
         merged.setKeyBindings(nvl(overrides.getKeyBindings(), keyBindings));
         merged.setEventId(nvl(overrides.getEventId(), eventId));
         merged.setIntegrationSID(nvl(overrides.getIntegrationSID(), integrationSID));
-        merged.setNeighbourPropertyDraw(nvl(overrides.getNeighbourPropertyDraw(), neighbourPropertyDraw), nvl(overrides.getNeighbourPropertyText(), neighbourPropertyText));
-        merged.setInsertType(nvl(overrides.getInsertType(), insertType));
+        merged.setLocation(nvl(overrides.getLocation(), location), nvl(overrides.getNeighbourPropertyText(), neighbourPropertyText));
 
         merged.formula = nvl(overrides.formula, formula);
         merged.formulaOperands = nvl(overrides.formulaOperands, formulaOperands);
@@ -478,6 +531,7 @@ public class FormPropertyOptions {
 
         merged.setAttr(nvl(overrides.getAttr(), attr));
         merged.setGroupName(nvl(overrides.getGroupName(), groupName));
+        merged.setExtNull(nvl(overrides.getExtNull(), extNull));
 
         merged.setOrder(nvl(overrides.getOrder(), order));
         merged.setFilter(nvl(overrides.getFilter(), filter));
@@ -486,9 +540,12 @@ public class FormPropertyOptions {
         merged.setPivotRow(nvl(overrides.getPivotRow(), pivotRow));
         merged.setPivotMeasure(nvl(overrides.getPivotMeasure(), pivotMeasure));
 
+        merged.setSticky(nvl(overrides.getSticky(), sticky));
+        merged.setSync(nvl(overrides.getSync(), sync));
+
         return merged;
     }
-    
+
     public static class Columns {
         public final String columnsName;
         public final List<GroupObjectEntity> columns;

@@ -1,41 +1,52 @@
 package lsfusion.gwt.server.convert;
 
+import lsfusion.client.form.property.async.ClientAsyncCloseForm;
 import lsfusion.client.form.property.async.ClientAsyncOpenForm;
 import lsfusion.client.navigator.ClientNavigatorAction;
+import lsfusion.client.navigator.ClientNavigatorChanges;
 import lsfusion.client.navigator.ClientNavigatorElement;
 import lsfusion.client.navigator.ClientNavigatorFolder;
-import lsfusion.client.navigator.tree.window.ClientTreeNavigatorWindow;
 import lsfusion.client.navigator.window.*;
+import lsfusion.gwt.client.GNavigatorChangesDTO;
 import lsfusion.gwt.client.action.GAction;
+import lsfusion.gwt.client.form.property.async.GAsyncCloseForm;
 import lsfusion.gwt.client.form.property.async.GAsyncOpenForm;
 import lsfusion.gwt.client.navigator.GNavigatorAction;
 import lsfusion.gwt.client.navigator.GNavigatorElement;
 import lsfusion.gwt.client.navigator.GNavigatorFolder;
 import lsfusion.gwt.client.navigator.window.*;
+import lsfusion.gwt.server.MainDispatchServlet;
 import lsfusion.interop.action.ClientAction;
+import lsfusion.interop.form.ContainerWindowFormType;
+import lsfusion.interop.form.ModalityWindowFormType;
 
+import java.io.IOException;
 import java.util.ArrayList;
 
 @SuppressWarnings("UnusedDeclaration")
 public class ClientNavigatorToGwtConverter extends CachedObjectConverter {
 
-    public ClientNavigatorToGwtConverter(String logicsName) {
-        super(logicsName);
+    private final ClientNavigatorChangesToGwtConverter navigatorConverter = ClientNavigatorChangesToGwtConverter.getInstance();
+
+    public ClientNavigatorToGwtConverter(MainDispatchServlet servlet, String sessionID) {
+        super(servlet, sessionID);
     }
 
     public GAction convertAction(ClientAction clientAction, Object... context) {
         return convertOrNull(clientAction, context);
     }
 
-    public <E extends GNavigatorElement> E initNavigatorElement(ClientNavigatorElement clientElement, E element) {
+    public <E extends GNavigatorElement> E initNavigatorElement(ClientNavigatorElement clientElement, E element) throws IOException {
         cacheInstance(clientElement, element);
 
         element.canonicalName = clientElement.getCanonicalName();
         element.caption = clientElement.caption;
+        element.elementClass = clientElement.elementClass;
         element.creationPath = clientElement.creationPath;
+        element.path = clientElement.path;
         element.children = new ArrayList<>();
 
-        element.image = createImage(clientElement.imageHolder, "navigator", false);
+        element.image = createImage(clientElement.appImage, false);
 
         element.asyncExec = convertOrCast(clientElement.asyncExec);
 
@@ -44,21 +55,20 @@ public class ClientNavigatorToGwtConverter extends CachedObjectConverter {
             element.children.add(childElement);
         }
         element.window = convertOrCast(clientElement.window);
-        for (ClientNavigatorElement parent : clientElement.parents) {
-            element.parents.add((GNavigatorElement) convertOrCast(parent));
-        }
+        element.parentWindow = clientElement.parentWindow;
+        element.parent = convertOrCast(clientElement.parent);
         return element;
     }
 
     @Cached
     @Converter(from = ClientNavigatorAction.class)
-    public GNavigatorAction convertNavigatorAction(ClientNavigatorAction clientAction) {
+    public GNavigatorAction convertNavigatorAction(ClientNavigatorAction clientAction) throws IOException {
         return initNavigatorElement(clientAction, new GNavigatorAction());
     }
 
     @Cached
     @Converter(from = ClientNavigatorFolder.class)
-    public GNavigatorFolder convertNavigatorFolder(ClientNavigatorFolder clientFolder) {
+    public GNavigatorFolder convertNavigatorFolder(ClientNavigatorFolder clientFolder) throws IOException {
         return initNavigatorElement(clientFolder, new GNavigatorFolder());
     }
     
@@ -75,16 +85,17 @@ public class ClientNavigatorToGwtConverter extends CachedObjectConverter {
         window.width = clientWindow.width;
         window.height = clientWindow.height;
         window.visible = clientWindow.visible;
+        window.elementClass = clientWindow.elementClass;
+        window.autoSize = clientWindow.autoSize;
         return window;
     }
 
     public <E extends GNavigatorWindow> E initNavigatorWindow(ClientNavigatorWindow clientWindow, E window) {
         initAbstractNavigatorWindow(clientWindow, window);
 
-        window.drawRoot = clientWindow.drawRoot;
         window.drawScrollBars = clientWindow.drawScrollBars;
-        for (ClientNavigatorElement clientElement : clientWindow.elements) {
-            GNavigatorElement element = convertOrCast(clientElement);
+        for (Object clientElement : clientWindow.elements) {
+            GNavigatorElement element = convertOrCast((ClientNavigatorElement) clientElement);
             window.elements.add(element);
         }
         return window;
@@ -97,9 +108,9 @@ public class ClientNavigatorToGwtConverter extends CachedObjectConverter {
     }
 
     @Cached
-    @Converter(from = ClientToolBarNavigatorWindow.class)
-    public GToolbarNavigatorWindow convertToolbarNavigatorWindow(ClientToolBarNavigatorWindow clientWindow) {
-        GToolbarNavigatorWindow window = initNavigatorWindow(clientWindow, new GToolbarNavigatorWindow());
+    @Converter(from = ClientNavigatorWindow.class)
+    public GNavigatorWindow convertToolbarNavigatorWindow(ClientNavigatorWindow clientWindow) {
+        GNavigatorWindow window = initNavigatorWindow(clientWindow, new GNavigatorWindow());
         window.alignmentX = clientWindow.alignmentX;
         window.alignmentY = clientWindow.alignmentY;
         window.horizontalAlignment = clientWindow.horizontalAlignment;
@@ -107,36 +118,42 @@ public class ClientNavigatorToGwtConverter extends CachedObjectConverter {
         window.horizontalTextPosition = clientWindow.horizontalTextPosition;
         window.verticalTextPosition = clientWindow.verticalTextPosition;
         window.showSelect = clientWindow.showSelect;
-        window.type = clientWindow.type;
+        window.vertical = clientWindow.type == 1;
         return window;
     }
 
     @Cached
-    @Converter(from = ClientMenuNavigatorWindow.class)
-    public GMenuNavigatorWindow convertMenuNavigatorWindow(ClientMenuNavigatorWindow clientWindow) {
-        GMenuNavigatorWindow window = initNavigatorWindow(clientWindow, new GMenuNavigatorWindow());
-        window.orientation = clientWindow.orientation;
-        window.showLevel = clientWindow.showLevel;
-        return window;
+    @Converter(from = ClientNavigatorChanges.class)
+    public GNavigatorChangesDTO convertNavigatorChanges(ClientNavigatorChanges clientChanges) {
+        return navigatorConverter.convertOrCast(clientChanges, servlet, sessionID);
     }
 
-    @Cached
-    @Converter(from = ClientPanelNavigatorWindow.class)
-    public GPanelNavigatorWindow convertPanelNavigatorWindow(ClientPanelNavigatorWindow clientWindow) {
-        GPanelNavigatorWindow window = initNavigatorWindow(clientWindow, new GPanelNavigatorWindow());
-        window.orientation = clientWindow.orientation;
-        return window;
+    @Converter(from = ModalityWindowFormType.class)
+    public GModalityWindowFormType convertModalityWindowFormType(ModalityWindowFormType modalityWindowFormType) {
+        switch (modalityWindowFormType) {
+            case DOCKED: return GModalityWindowFormType.DOCKED;
+            case FLOAT: return GModalityWindowFormType.FLOAT;
+            case EMBEDDED: return GModalityWindowFormType.EMBEDDED;
+            case POPUP: return GModalityWindowFormType.POPUP;
+        }
+        return null;
     }
 
-    @Cached
-    @Converter(from = ClientTreeNavigatorWindow.class)
-    public GTreeNavigatorWindow convertTreeNavigatorWindow(ClientTreeNavigatorWindow clientWindow) {
-        return initNavigatorWindow(clientWindow, new GTreeNavigatorWindow());
+    @Converter(from = ContainerWindowFormType.class)
+    public GContainerWindowFormType convertContainerWindowFormType(ContainerWindowFormType containerWindowFormType) {
+        return new GContainerWindowFormType(containerWindowFormType.inContainerId);
     }
 
     @Cached
     @Converter(from = ClientAsyncOpenForm.class)
-    public GAsyncOpenForm convertOpenForm(ClientAsyncOpenForm asyncOpenForm) {
-        return new GAsyncOpenForm(asyncOpenForm.canonicalName, asyncOpenForm.caption, asyncOpenForm.forbidDuplicate, asyncOpenForm.modal);
+    public GAsyncOpenForm convertOpenForm(ClientAsyncOpenForm asyncOpenForm) throws IOException {
+        GWindowFormType type = convertOrCast(asyncOpenForm.type);
+        return new GAsyncOpenForm(asyncOpenForm.canonicalName, asyncOpenForm.caption, createImage(asyncOpenForm.appImage, false), asyncOpenForm.forbidDuplicate, asyncOpenForm.modal, type);
+    }
+
+    @Cached
+    @Converter(from = ClientAsyncCloseForm.class)
+    public GAsyncCloseForm convertCloseForm(ClientAsyncCloseForm asyncCloseForm) {
+        return new GAsyncCloseForm();
     }
 }

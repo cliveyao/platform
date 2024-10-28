@@ -1,14 +1,24 @@
 package lsfusion.server.logics.form.interactive.design.object;
 
+import lsfusion.base.col.interfaces.immutable.ImSet;
 import lsfusion.base.identity.IDGenerator;
 import lsfusion.interop.form.object.AbstractGroupObject;
+import lsfusion.server.base.version.NFFact;
+import lsfusion.server.base.version.Version;
+import lsfusion.server.base.version.interfaces.NFSet;
 import lsfusion.server.logics.form.interactive.controller.remote.serialization.ServerIdentitySerializable;
 import lsfusion.server.logics.form.interactive.controller.remote.serialization.ServerSerializationPool;
+import lsfusion.server.logics.form.interactive.design.BaseComponentView;
 import lsfusion.server.logics.form.interactive.design.ComponentView;
+import lsfusion.server.logics.form.interactive.design.ContainerView;
+import lsfusion.server.logics.form.interactive.design.auto.DefaultFormView;
+import lsfusion.server.logics.form.interactive.design.filter.FilterControlsView;
 import lsfusion.server.logics.form.interactive.design.filter.FilterView;
+import lsfusion.server.logics.form.interactive.design.property.PropertyDrawView;
 import lsfusion.server.logics.form.interactive.design.property.PropertyGroupContainerView;
 import lsfusion.server.logics.form.struct.object.GroupObjectEntity;
 import lsfusion.server.logics.form.struct.object.ObjectEntity;
+import lsfusion.server.physics.admin.Settings;
 import lsfusion.server.physics.dev.i18n.LocalizedString;
 
 import java.io.DataInputStream;
@@ -18,11 +28,20 @@ import java.util.ArrayList;
 
 public class GroupObjectView extends ArrayList<ObjectView> implements ServerIdentitySerializable, PropertyGroupContainerView, AbstractGroupObject<ComponentView, LocalizedString> {
 
+    private IDGenerator idGen;
     public GroupObjectEntity entity;
 
     public GridView grid;
     public ToolbarView toolbarSystem;
-    public FilterView userFilter;
+    public NFSet<FilterView> filters;
+    public ImSet<FilterView> getFilters() {
+        return filters.getSet();
+    }
+    public Iterable<FilterView> getFiltersIt() {
+        return filters.getIt();
+    }
+    public ContainerView filtersContainer;
+    public FilterControlsView filterControls; 
     public CalculationsView calculations;
 
     public Boolean needVerticalScroll = true;
@@ -42,6 +61,7 @@ public class GroupObjectView extends ArrayList<ObjectView> implements ServerIden
     }
 
     public GroupObjectView(IDGenerator idGen, GroupObjectEntity entity) {
+        this.idGen = idGen;
         this.entity = entity;
 
         for (ObjectEntity object : this.entity.getObjects())
@@ -49,8 +69,24 @@ public class GroupObjectView extends ArrayList<ObjectView> implements ServerIden
 
         grid = new GridView(idGen.idShift(), this);
         toolbarSystem = new ToolbarView(idGen.idShift());
-        userFilter = new FilterView(idGen.idShift());
-        calculations = new CalculationsView(idGen.idShift()); 
+
+        filtersContainer = new ContainerView(idGen.idShift());
+        if (Settings.get().isVerticalColumnsFiltersContainer()) {
+            filtersContainer.setLines(DefaultFormView.GROUP_CONTAINER_LINES_COUNT);
+        } else {
+            filtersContainer.setHorizontal(true);
+        }
+
+        // behaves weirdly if unset as alignCaptions property sometimes depends on children count, which changes in runtime for filters container
+        filtersContainer.setAlignCaptions(false); 
+        
+//        filtersContainer.setLineSize(0);
+//        filtersContainer.setCaption(LocalizedString.create(ThreadLocalContext.localize("{form.view.filters.container}")));
+
+        filterControls = new FilterControlsView(idGen.idShift());
+
+        filters = NFFact.orderSet();
+        calculations = new CalculationsView(idGen.idShift());
     }
 
     public LocalizedString getCaption() {
@@ -64,22 +100,27 @@ public class GroupObjectView extends ArrayList<ObjectView> implements ServerIden
         return entity.getID();
     }
 
-    public ComponentView getGrid() {
+    public BaseComponentView getGrid() {
         return grid;
     }
 
     @Override
-    public ComponentView getToolbarSystem() {
+    public BaseComponentView getToolbarSystem() {
         return toolbarSystem;
     }
 
     @Override
-    public ComponentView getUserFilter() {
-        return userFilter;
+    public ContainerView getFiltersContainer() {
+        return filtersContainer;
     }
 
     @Override
-    public ComponentView getCalculations() {
+    public FilterControlsView getFilterControls() {
+        return filterControls;
+    }
+
+    @Override
+    public BaseComponentView getCalculations() {
         return calculations;
     }
 
@@ -96,6 +137,18 @@ public class GroupObjectView extends ArrayList<ObjectView> implements ServerIden
         return getSID();
     }
 
+    @Override
+    public String getPropertyGroupContainerName() {
+        return getSID();
+    }
+
+    public FilterView addFilter(PropertyDrawView property, Version version) {
+        FilterView filter = new FilterView(idGen.idShift(), property);
+        filters.add(filter, version);
+        filtersContainer.add(filter, version);
+        return filter;
+    }
+
     public void customSerialize(ServerSerializationPool pool, DataOutputStream outStream) throws IOException {
         pool.writeObject(outStream, entity.viewType);
         pool.writeObject(outStream, entity.listViewType);
@@ -108,16 +161,19 @@ public class GroupObjectView extends ArrayList<ObjectView> implements ServerIden
 
         pool.serializeObject(outStream, grid);
         pool.serializeObject(outStream, toolbarSystem);
-        pool.serializeObject(outStream, userFilter);
+        pool.serializeObject(outStream, filtersContainer);
+        pool.serializeObject(outStream, filterControls);
+        pool.serializeCollection(outStream, getFilters());
         pool.serializeObject(outStream, calculations);
 
         outStream.writeBoolean(entity.isParent != null);
-        outStream.writeBoolean(pool.context.view.entity.isMap(entity));
-        outStream.writeBoolean(pool.context.view.entity.isCalendarDate(entity));
-        outStream.writeBoolean(pool.context.view.entity.isCalendarDateTime(entity));
-        outStream.writeBoolean(pool.context.view.entity.isCalendarPeriod(entity));
+        outStream.writeBoolean(pool.context.entity.isMap(entity));
+        outStream.writeBoolean(pool.context.entity.isCalendarDate(entity));
+        outStream.writeBoolean(pool.context.entity.isCalendarDateTime(entity));
+        outStream.writeBoolean(pool.context.entity.isCalendarPeriod(entity));
 
-        outStream.writeBoolean(pool.context.view.entity.hasFooters(entity));
+        outStream.writeBoolean(pool.context.view.hasHeaders(entity));
+        outStream.writeBoolean(pool.context.entity.hasFooters(entity));
 
         boolean needVScroll;
         if (needVerticalScroll == null) {
@@ -137,7 +193,9 @@ public class GroupObjectView extends ArrayList<ObjectView> implements ServerIden
 
         grid = pool.deserializeObject(inStream);
         toolbarSystem = pool.deserializeObject(inStream);
-        userFilter = pool.deserializeObject(inStream);
+        filtersContainer = pool.deserializeObject(inStream);
+        filterControls = pool.deserializeObject(inStream);
+        filters = NFFact.finalSet(pool.deserializeSet(inStream));
         calculations = pool.deserializeObject(inStream);
 
         needVerticalScroll = inStream.readBoolean();
@@ -146,7 +204,9 @@ public class GroupObjectView extends ArrayList<ObjectView> implements ServerIden
     public void finalizeAroundInit() {
         grid.finalizeAroundInit();
         toolbarSystem.finalizeAroundInit();
-        userFilter.finalizeAroundInit();
+        for (FilterView filter : getFiltersIt()) {
+            filter.finalizeAroundInit();
+        }
         calculations.finalizeAroundInit();
         
         for(ObjectView object : this) 

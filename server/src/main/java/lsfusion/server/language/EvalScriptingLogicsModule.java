@@ -1,6 +1,8 @@
 package lsfusion.server.language;
 
 import lsfusion.base.Pair;
+import lsfusion.base.col.interfaces.immutable.ImList;
+import lsfusion.server.data.table.IndexType;
 import lsfusion.server.language.property.LP;
 import lsfusion.server.language.property.PropertySettings;
 import lsfusion.server.logics.BaseLogicsModule;
@@ -8,15 +10,18 @@ import lsfusion.server.logics.BusinessLogics;
 import lsfusion.server.logics.LogicsModule;
 import lsfusion.server.logics.action.Action;
 import lsfusion.server.logics.action.session.LocalNestedType;
+import lsfusion.server.logics.classes.ValueClass;
 import lsfusion.server.logics.classes.user.set.ResolveClassSet;
 import lsfusion.server.logics.event.Event;
 import lsfusion.server.logics.form.struct.group.Group;
+import lsfusion.server.logics.property.LazyProperty;
 import lsfusion.server.logics.property.oraction.ActionOrProperty;
 import lsfusion.server.logics.property.oraction.PropertyInterface;
 import lsfusion.server.physics.dev.debug.DebugInfo;
 import lsfusion.server.physics.dev.debug.PropertyFollowsDebug;
 import lsfusion.server.physics.dev.i18n.LocalizedString;
 
+import java.util.ArrayList;
 import java.util.List;
 
 public class EvalScriptingLogicsModule extends ScriptingLogicsModule {
@@ -27,19 +32,19 @@ public class EvalScriptingLogicsModule extends ScriptingLogicsModule {
     }
 
     @Override
-    public void addScriptedClass(String className, LocalizedString captionStr, boolean isAbstract,
-                                 List<String> instNames, List<LocalizedString> instCaptions, List<String> parentNames, boolean isComplex,
+    public void addScriptedClass(String className, LocalizedString captionStr, String image, boolean isAbstract,
+                                 List<String> instNames, List<LocalizedString> instCaptions, List<String> images, List<String> parentNames, boolean isComplex,
                                  DebugInfo.DebugPoint point) throws ScriptingErrorLog.SemanticErrorException {
         emitEvalError("CLASS statement");
     }
 
     @Override
-    public void addScriptedIndex(List<TypedParameter> params, List<LPWithParams> lps) throws ScriptingErrorLog.SemanticErrorException {
+    public void addScriptedIndex(String dbName, List<TypedParameter> params, List<LPWithParams> lps, IndexType indexType) throws ScriptingErrorLog.SemanticErrorException {
         emitEvalError("INDEX statement");
     }
 
     @Override
-    public void addScriptedTable(String name, List<String> classIds, boolean isFull, boolean isExplicit) throws ScriptingErrorLog.SemanticErrorException {
+    public void addScriptedTable(String name, String dbName, List<String> classIds, boolean isFull, boolean isExplicit) throws ScriptingErrorLog.SemanticErrorException {
         emitEvalError("TABLE statement");
     }
 
@@ -50,17 +55,16 @@ public class EvalScriptingLogicsModule extends ScriptingLogicsModule {
     }
 
     @Override
-    public void addScriptedEvent(LPWithParams whenProp, LAWithParams event, List<LPWithParams> orders, boolean descending, 
-                                 Event baseEvent, List<LPWithParams> noInline, boolean forceInline, DebugInfo.DebugPoint debugPoint) throws ScriptingErrorLog.SemanticErrorException {
+    public void addScriptedWhen(LPWithParams whenProp, LAWithParams event, List<LPWithParams> orders, boolean descending,
+                                     Event baseEvent, List<LPWithParams> noInline, boolean forceInline, DebugInfo.DebugPoint debugPoint, LocalizedString debugCaption) throws ScriptingErrorLog.SemanticErrorException {
         emitEvalError("WHEN statement");
     }
 
     @Override
-    public void addScriptedGlobalEvent(LAWithParams event, Event baseEvent, boolean single, ActionOrPropertyUsage showDep) throws ScriptingErrorLog.SemanticErrorException {
+    public void addScriptedGlobalEvent(LAWithParams event, Event baseEvent, boolean single) throws ScriptingErrorLog.SemanticErrorException {
         emitEvalError("ON statement");
     }
 
-    @Override
     public void addScriptedLoggable(List<NamedPropertyUsage> propUsages) throws ScriptingErrorLog.SemanticErrorException {
         emitEvalError("LOGGABLE statement");
     }
@@ -90,30 +94,28 @@ public class EvalScriptingLogicsModule extends ScriptingLogicsModule {
     }
 
     @Override
-    public LPContextIndependent addScriptedAGProp(List<TypedParameter> context, String aggClassName, LPWithParams whereExpr, 
-                                                  DebugInfo.DebugPoint classDebugPoint, DebugInfo.DebugPoint exprDebugPoint, boolean innerPD) throws ScriptingErrorLog.SemanticErrorException {
+    public <T extends PropertyInterface> LPContextIndependent addScriptedAGProp(List<TypedParameter> context, String aggClassName, LPWithParams whereExpr,
+                                                  Event aggrEvent, DebugInfo.DebugPoint aggrDebugPoint, Event newEvent, DebugInfo.DebugPoint newDebugPoint, Event deleteEvent, DebugInfo.DebugPoint deleteDebugPoint, boolean innerPD) throws ScriptingErrorLog.SemanticErrorException {
         emitEvalError("AGGR operator");
         return null;
     }
 
     @Override
-    public Pair<LPWithParams, LPContextIndependent> addScriptedCDGProp(int oldContextSize, List<LPWithParams> groupProps, GroupingType type, 
-                                                                       List<LPWithParams> mainProps, List<LPWithParams> orderProps, boolean ascending, 
-                                                                       LPWithParams whereProp, List<TypedParameter> newContext) throws ScriptingErrorLog.SemanticErrorException {
+    public Pair<LPWithParams, LPContextIndependent> addScriptedCDGProp(int oldContextSize, List<LPWithParams> groupProps, GroupingType type,
+                                                                       List<LPWithParams> mainProps, List<LPWithParams> orderProps, boolean ascending,
+                                                                       LPWithParams whereProp, List<TypedParameter> newContext, DebugInfo.DebugPoint debugPoint) throws ScriptingErrorLog.SemanticErrorException {
         if (type == GroupingType.AGGR) {
             emitEvalError("GROUP operator's AGGR type");            
         } else if (type == GroupingType.EQUAL) {
             emitEvalError("GROUP operator's EQUAL type");
         }
-        return super.addScriptedCDGProp(oldContextSize, groupProps, type, mainProps, orderProps, ascending, whereProp, newContext);
+        return super.addScriptedCDGProp(oldContextSize, groupProps, type, mainProps, orderProps, ascending, whereProp, newContext, debugPoint);
     }    
     
     @Override
-    public void addSettingsToProperty(LP<?> property, String name, LocalizedString caption, List<TypedParameter> params, 
+    public <K extends PropertyInterface> void addSettingsToProperty(LP<K> property, String name, LocalizedString caption, List<TypedParameter> params,
                                       List<ResolveClassSet> signature, PropertySettings ps) throws ScriptingErrorLog.SemanticErrorException {
-        if (ps.isLoggable) {
-            emitEvalError("LOGGABLE property option");
-        } else if (ps.isPersistent) {
+        if (ps.isMaterialized) {
             emitEvalError("MATERIALIZED property option");
         } else if (ps.table != null) {
             emitEvalError("TABLE property option");
@@ -124,18 +126,19 @@ public class EvalScriptingLogicsModule extends ScriptingLogicsModule {
     }    
     
     @Override
-    public <P extends PropertyInterface> void addBaseEvent(Action<P> action, Event event, boolean resolve, boolean single) {
+    public <P extends PropertyInterface> void addBaseEvent(Action<P> action, Event event, boolean single) {
         throw new RuntimeException(constructErrorMessage("event creation is forbidden in EVAL module"));
     }
 
     @Override
-    public void addScriptedGroup(String groupName, LocalizedString captionStr, String integrationSID, String parentName) throws ScriptingErrorLog.SemanticErrorException {
+    public void addScriptedGroup(String groupName, LocalizedString captionStr, String integrationSID, String parentName, DebugInfo.DebugPoint debugPoint) throws ScriptingErrorLog.SemanticErrorException {
         if (parentName != null && !isNewGroup(parentName)) {
             emitEvalError("group parents from another module");    
         }
-        super.addScriptedGroup(groupName, captionStr, integrationSID, parentName);
+        super.addScriptedGroup(groupName, captionStr, integrationSID, parentName, debugPoint);
     }
 
+    public List<LazyProperty> lazyProps = new ArrayList<>();
     @Override
     protected void addPropertyToGroup(ActionOrProperty<?> property, Group group) {
         if (group != null && !property.isLocal()) { 
@@ -144,7 +147,9 @@ public class EvalScriptingLogicsModule extends ScriptingLogicsModule {
             } else {
                 throw new RuntimeException(constructErrorMessage("addition of property or action to a group from another module is forbidden in EVAL module"));
             }
-        } 
+        }
+        if(property instanceof LazyProperty)
+            lazyProps.add((LazyProperty)property);
     }    
     
     private String constructErrorMessage(String message) {
@@ -167,11 +172,11 @@ public class EvalScriptingLogicsModule extends ScriptingLogicsModule {
     }
     
     @Override
-    public LP addScriptedDProp(String returnClass, List<String> paramClasses, List<ResolveClassSet> signature, boolean sessionProp, boolean innerProp, boolean isLocalScope, LocalNestedType nestedType) throws ScriptingErrorLog.SemanticErrorException {
-        if (!sessionProp) {
-            nestedType = LocalNestedType.ALL;
-        }
-        return super.addScriptedDProp(returnClass, paramClasses, signature, true, innerProp, isLocalScope, nestedType);
+    public LP addScriptedDProp(String returnClass, ImList<ValueClass> paramClasses, boolean sessionProp, boolean innerProp, boolean isLocalScope, LocalNestedType nestedType) throws ScriptingErrorLog.SemanticErrorException {
+//        if (!sessionProp) {
+//            nestedType = LocalNestedType.ALL;
+//        }
+        return super.addScriptedDProp(returnClass, paramClasses, true, innerProp, isLocalScope, nestedType);
     }
     
     private void emitEvalError(String errorPrefix) throws ScriptingErrorLog.SemanticErrorException {

@@ -5,6 +5,7 @@ import lsfusion.base.Pair;
 import lsfusion.base.col.ListFact;
 import lsfusion.base.col.interfaces.mutable.MList;
 import lsfusion.server.data.type.Type;
+import lsfusion.server.logics.classes.data.DataClass;
 import lsfusion.server.logics.classes.data.ParseException;
 import lsfusion.server.logics.form.stat.struct.hierarchy.Node;
 import lsfusion.server.logics.form.stat.struct.imports.hierarchy.json.JSONReader;
@@ -78,11 +79,14 @@ public class JSONNode implements Node<JSONNode> {
         try {
             MList<Pair<Object, JSONNode>> mResult = ListFact.mList();
             Object child = element.opt(key);
-            if(child != null) {
+            if(child != null && child != JSONObject.NULL) {
                 if (isIndex) {
-                    JSONArray array = (JSONArray) child;
-                    for (int i = 0, size = array.length(); i < size; i++)
-                        mResult.add(new Pair<>(i, getJSONNode(array.get(i), true)));
+                    if (child instanceof JSONArray) {
+                        JSONArray array = (JSONArray) child;
+                        for (int i = 0, size = array.length(); i < size; i++)
+                            mResult.add(new Pair<>(i, getJSONNode(array.get(i), true)));
+                    } else
+                        mResult.add(new Pair<>(0, getJSONNode(child, true)));
                 } else {
                     JSONObject object = (JSONObject) child;
                     for (Iterator it = object.keys(); it.hasNext(); ) {
@@ -99,7 +103,7 @@ public class JSONNode implements Node<JSONNode> {
 
     @Override
     public JSONNode createNode() {
-        return new JSONNode(new JSONObject());
+        return new JSONNode(new OrderedJSONObject());
     }
 
     @Override
@@ -109,16 +113,22 @@ public class JSONNode implements Node<JSONNode> {
 
     public void addValue(JSONNode node, String key, boolean attr, Object value, Type type) {
         try {
-            node.element.put(key, parseObject(type.formatJSON(value)));
+            boolean escapeInnerJSON = false;
+            String escapeInnerJSONKey = ":escapeInnerJSON";
+            if(key.endsWith(escapeInnerJSONKey)) {
+                escapeInnerJSON = true;
+                key = key.substring(0, key.lastIndexOf(escapeInnerJSONKey));
+            }
+            node.element.put(key, value == null ? JSONObject.NULL : parseObject(type.formatJSON(value), escapeInnerJSON));
         } catch (JSONException e) {
             throw Throwables.propagate(e);
         }
     }
 
     //check if it's json inside
-    private Object parseObject(Object obj) {
+    private Object parseObject(Object obj, boolean escapeInnerJSON) {
         try {
-            if (obj instanceof String && ((String) obj).matches("\\s*?((\\[.*\\])|(\\{.*\\}))\\s*")) {
+            if (obj instanceof String && !escapeInnerJSON && ((String) obj).matches("\\s*?((\\[.*\\])|(\\{.*\\}))\\s*")) {
                 return JSONReader.readObject((String) obj);
             }
         } catch (Exception ignored) {
@@ -126,18 +136,18 @@ public class JSONNode implements Node<JSONNode> {
         return obj;
     }
 
-    public boolean addMap(JSONNode node, String key, boolean isIndex, Iterable<Pair<Object, JSONNode>> map) {
+    public boolean addMap(JSONNode node, String key, boolean isIndex, Iterable<Pair<Pair<Object, DataClass>, JSONNode>> map) {
         try {
             Object addObject;
             if(isIndex) {
                 JSONArray array = new JSONArray();
-                for(Pair<Object, JSONNode> value : map)
+                for(Pair<Pair<Object, DataClass>, JSONNode> value : map)
                     array.put(putJSONNode(value.second, true));
                 addObject = array;
             } else {
-                JSONObject object = new JSONObject();
-                for(Pair<Object, JSONNode> value : map)
-                    object.put((String) value.first, putJSONNode(value.second, true));
+                JSONObject object = new OrderedJSONObject();
+                for(Pair<Pair<Object, DataClass>, JSONNode> value : map)
+                    object.put(value.first.second.formatJSON(value.first.first).toString(), putJSONNode(value.second, true));
                 addObject = object;
             }                
             node.element.put(key, addObject);

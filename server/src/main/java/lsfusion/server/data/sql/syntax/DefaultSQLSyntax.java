@@ -20,6 +20,7 @@ import lsfusion.server.data.type.exec.TypeEnvironment;
 import lsfusion.server.data.type.reader.ClassReader;
 import lsfusion.server.data.type.reader.NullReader;
 import lsfusion.server.logics.classes.data.ArrayClass;
+import lsfusion.server.logics.classes.data.file.JSONTextClass;
 
 import java.sql.*;
 
@@ -53,8 +54,10 @@ public abstract class DefaultSQLSyntax implements SQLSyntax {
         return result;
     }
 
-    public static String genSafeCastName(Type type, boolean isInt) {
-        return "scast_" + type.getSID() + (isInt ? "_int" : "");
+    public static String genSafeCastName(Type type, Integer sourceType) {
+        boolean isInt = sourceType == 0;
+        boolean isStr = sourceType == 1;
+        return "scast_" + type.getSID() + (isInt ? "_int" : isStr ? "_str": "");
     }
 
     public String getBPTextType() {
@@ -117,12 +120,12 @@ public abstract class DefaultSQLSyntax implements SQLSyntax {
         return Types.DATE;
     }
 
-    public String getDateTimeType() {
-        return "timestamp";
+    public String getDateTimeType(ExtInt millisLength) {
+        return getMillisLimitedDateTimeType("timestamp", millisLength);
     }
 
-    public String getZDateTimeType() {
-        return "timestamptz";
+    public String getZDateTimeType(ExtInt millisLength) {
+        return getMillisLimitedDateTimeType("timestamptz", millisLength);
     }
 
     public int getDateTimeSQL() {
@@ -133,18 +136,18 @@ public abstract class DefaultSQLSyntax implements SQLSyntax {
         return Types.TIMESTAMP_WITH_TIMEZONE;
     }
 
-    public String getTimeType() {
-        return "time";
+    public String getTimeType(ExtInt millisLength) {
+        return getMillisLimitedDateTimeType("time", millisLength);
+    }
+
+    private String getMillisLimitedDateTimeType(String name, ExtInt millisLength) {
+        return name + (millisLength.isUnlimited() ? "" : ("(" + millisLength.value + ")"));
     }
 
     public int getTimeSQL() {
         return Types.TIME;
     }
 
-    @Override
-    public String getIntervalType() {
-        return "numeric";
-    }
 
     @Override
     public int getIntervalSQL() {
@@ -165,10 +168,6 @@ public abstract class DefaultSQLSyntax implements SQLSyntax {
 
     public int getDoubleSQL() {
         return Types.DOUBLE;
-    }
-
-    public String getBitType() {
-        return "integer";
     }
 
     public int getBitSQL() {
@@ -199,8 +198,20 @@ public abstract class DefaultSQLSyntax implements SQLSyntax {
         return Types.LONGVARBINARY;
     }
 
-    public String getColorType() {
-        return "integer";
+    public String getJSON() {
+        return "jsonb";
+    }
+
+    public String getJSONText() {
+        return "json";
+    }
+
+    public String getTSVector() {
+        return "tsvector";
+    }
+
+    public String getTSQuery() {
+        return "tsquery";
     }
 
     public int getColorSQL() {
@@ -297,6 +308,11 @@ public abstract class DefaultSQLSyntax implements SQLSyntax {
         throw new UnsupportedOperationException();
     }
 
+    @Override
+    public String getPrefixSearchQuery() {
+        return "prefixSearch";
+    }
+
     public String getInsensitiveLike() {
         return "LIKE";
     }
@@ -352,8 +368,8 @@ public abstract class DefaultSQLSyntax implements SQLSyntax {
         throw new UnsupportedOperationException();
     }
 
-    public String getSafeCastNameFnc(Type type, boolean isInt) {
-        return genSafeCastName(type, isInt);
+    public String getSafeCastNameFnc(Type type, Integer sourceType) {
+        return genSafeCastName(type, sourceType);
     }
 
     public boolean isDeadLock(SQLException e) {
@@ -443,10 +459,6 @@ public abstract class DefaultSQLSyntax implements SQLSyntax {
         throw new UnsupportedOperationException();
     }
 
-    public String getArrayAgg(String s, ClassReader classReader, TypeEnvironment typeEnv) {
-        throw new UnsupportedOperationException();
-    }
-
     public boolean supportGroupSingleValue() {
         return true;
     }
@@ -461,26 +473,6 @@ public abstract class DefaultSQLSyntax implements SQLSyntax {
 
     public String getLastFunc() {
         throw new UnsupportedOperationException();
-    }
-
-    public String getOrderGroupAgg(GroupType groupType, Type resultType, ImList<String> exprs, ImList<ClassReader> readers, ImOrderMap<String, CompileOrder> orders, TypeEnvironment typeEnv) {
-        String orderClause = BaseUtils.clause("ORDER BY", Query.stringOrder(orders, this));
-
-        String fnc;
-        switch (groupType) {
-            case STRING_AGG:
-                fnc = "STRING_AGG";
-                exprs = SumFormulaImpl.castToVarStrings(exprs, readers, resultType, this, typeEnv);
-                break;
-            case LAST:
-                fnc = getLastFunc();
-                if(readers.single() instanceof NullReader) // need to cast when type is unknown (optimizer can keep null value because it is not included in where)
-                    exprs = ListFact.singleton(resultType.getCast(exprs.single(), this, typeEnv));
-                break;
-            default:
-                throw new UnsupportedOperationException();
-        }
-        return fnc + "(" + exprs.toString(",") + orderClause + ")";
     }
 
     public String getNotSafeConcatenateSource(ConcatenateType type, ImList<String> exprs, TypeEnvironment typeEnv) {
@@ -550,6 +542,10 @@ public abstract class DefaultSQLSyntax implements SQLSyntax {
 
     public boolean supportsDisableNestedLoop() {
         return false;
+    }
+
+    public boolean supportsDeadLockPriority() {
+        return true;
     }
 
     public boolean supportsNoCount() {

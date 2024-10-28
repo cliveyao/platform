@@ -13,10 +13,11 @@ import lsfusion.server.logics.action.controller.context.ExecutionContext;
 import lsfusion.server.logics.action.flow.AroundAspectAction;
 import lsfusion.server.logics.action.flow.ChangeFlowType;
 import lsfusion.server.logics.action.flow.FlowResult;
+import lsfusion.server.logics.action.flow.FormChangeFlowType;
 import lsfusion.server.logics.action.implement.ActionMapImplement;
 import lsfusion.server.logics.action.session.DataSession;
-import lsfusion.server.logics.classes.user.CustomClass;
-import lsfusion.server.logics.form.struct.property.async.AsyncExec;
+import lsfusion.server.logics.form.interactive.action.async.map.AsyncMapEventExec;
+import lsfusion.server.logics.form.struct.FormEntity;
 import lsfusion.server.logics.property.Property;
 import lsfusion.server.logics.property.PropertyFact;
 import lsfusion.server.logics.property.classes.IsClassProperty;
@@ -30,15 +31,26 @@ import java.sql.SQLException;
 
 public class NewSessionAction extends AroundAspectAction {
     private final FunctionSet<SessionDataProperty> explicitMigrateProps; // актуальны и для nested, так как иначе будет отличаться поведение от NEW SESSION
+    private final boolean migrateClasses;
     private final boolean isNested;
     private final boolean singleApply;
-    private final boolean newSQL; 
+    private final boolean newSQL;
+    private final ImSet<FormEntity> fixedForms;
 
     public <I extends PropertyInterface> NewSessionAction(LocalizedString caption, ImOrderSet<I> innerInterfaces,
                                                           ActionMapImplement<?, I> action, boolean singleApply,
                                                           boolean newSQL,
                                                           FunctionSet<SessionDataProperty> explicitMigrateProps,
                                                           boolean isNested) {
+        this(caption, innerInterfaces, action, singleApply, newSQL, explicitMigrateProps, false, isNested, null);
+    }
+
+    public <I extends PropertyInterface> NewSessionAction(LocalizedString caption, ImOrderSet<I> innerInterfaces,
+                                                          ActionMapImplement<?, I> action, boolean singleApply,
+                                                          boolean newSQL,
+                                                          FunctionSet<SessionDataProperty> explicitMigrateProps,
+                                                          boolean migrateClasses,
+                                                          boolean isNested, ImSet<FormEntity> fixedForms) {
         super(caption, innerInterfaces, action);
 
         this.singleApply = singleApply;
@@ -46,10 +58,13 @@ public class NewSessionAction extends AroundAspectAction {
 
         this.isNested = isNested;
         this.explicitMigrateProps = explicitMigrateProps;
+        this.migrateClasses = migrateClasses;
+
+        this.fixedForms = fixedForms;
 
         // (nested || explicitly nested) and used in action
-        migrateProps = BaseUtils.remove(BaseUtils.merge(DataSession.keepNested(false), explicitMigrateProps),
-                                    (SFunctionSet<SessionDataProperty>) element -> !(action.action.uses(element) || action.action.changes(element)));
+        migrateProps = BaseUtils.remove(BaseUtils.merge(SessionDataProperty.keepNested(false), explicitMigrateProps),
+                                    (SFunctionSet<SessionDataProperty>) element -> !(action.action.uses(element) || action.action.changes(element) || action.action.hasFlow(ChangeFlowType.INTERACTIVEFORM)));
 
         finalizeInit();
     }
@@ -62,8 +77,8 @@ public class NewSessionAction extends AroundAspectAction {
     }
 
     @Override
-    public ImMap<Property, Boolean> aspectUsedExtProps() {
-        return super.aspectUsedExtProps().replaceValues(true);
+    public ImMap<Property, Boolean> calculateUsedExtProps() {
+        return super.calculateUsedExtProps().replaceValues(true);
     }
 
     @Override
@@ -87,10 +102,10 @@ public class NewSessionAction extends AroundAspectAction {
             } catch (ClassNotFoundException | IllegalAccessException | InstantiationException e) {
                 throw Throwables.propagate(e);
             }
-            newContext = context.newSession(sql);
+            newContext = context.newSession(sql, fixedForms);
             newContext.getSession().isPrivateSql = true; // not pretty, in theory createSQL and isPrivateSql should be in DataSession constructor but it is a really rare case
         } else {
-            newContext = context.newSession();
+            newContext = context.newSession(fixedForms);
             DataSession newSession = newContext.getSession();
             if (isNested) {
                 context.executeSessionEvents();
@@ -112,7 +127,7 @@ public class NewSessionAction extends AroundAspectAction {
             return false;
         if (type == ChangeFlowType.CANCEL)
             return false;
-        if ((type == ChangeFlowType.FORMCHANGE || type == ChangeFlowType.HASSESSIONUSAGES || type == ChangeFlowType.NEEDMORESESSIONUSAGES) && !isNested)
+        if ((type instanceof FormChangeFlowType || type == ChangeFlowType.HASSESSIONUSAGES || type == ChangeFlowType.NEEDMORESESSIONUSAGES) && !isNested)
             return false;
         return super.hasFlow(type);
     }
@@ -125,7 +140,7 @@ public class NewSessionAction extends AroundAspectAction {
 
     private void migrateSessionProperties(DataSession migrateFrom, DataSession migrateTo) throws SQLException, SQLHandledException {
         assert !newSQL;
-        migrateFrom.copySessionDataTo(migrateTo, migrateProps);
+        migrateFrom.copySessionDataTo(migrateTo, migrateProps, migrateClasses);
     }
 
     protected void finallyAspect(ExecutionContext<PropertyInterface> context, ExecutionContext<PropertyInterface> innerContext) throws SQLException {
@@ -133,22 +148,15 @@ public class NewSessionAction extends AroundAspectAction {
     }
 
     @Override
-    public CustomClass getSimpleAdd() {
-        return null; // нет смысла, так как все равно в другой сессии выполнение
-    }
-
-    @Override
-    public PropertyInterface getSimpleDelete() {
-        return null; // aspectActionImplement.property.getSimpleDelete();
-    }
-
-    @Override
-    public AsyncExec getAsyncExec() {
-        return aspectActionImplement.action.getAsyncExec();
-    }
-
-    @Override
     protected <T extends PropertyInterface> ActionMapImplement<?, PropertyInterface> createAspectImplement(ImSet<PropertyInterface> interfaces, ActionMapImplement<?, PropertyInterface> action) {
         return PropertyFact.createNewSessionAction(interfaces, action, singleApply, newSQL, explicitMigrateProps, isNested);
+    }
+
+    @Override
+    public AsyncMapEventExec<PropertyInterface> calculateAsyncEventExec(boolean optimistic, boolean recursive) {
+        AsyncMapEventExec<PropertyInterface> simpleInput = aspectActionImplement.mapAsyncEventExec(optimistic, recursive);
+        if(simpleInput != null)
+            return simpleInput.newSession();
+        return null;
     }
 }

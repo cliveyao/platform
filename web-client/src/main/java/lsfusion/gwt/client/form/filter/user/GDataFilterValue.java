@@ -1,17 +1,15 @@
 package lsfusion.gwt.client.form.filter.user;
 
 import lsfusion.gwt.client.ClientMessages;
+import lsfusion.gwt.client.form.property.PValue;
 
-import java.io.Serializable;
-import java.util.Objects;
-
-public class GDataFilterValue extends GFilterValue {
-    public Serializable value;
+public class GDataFilterValue {
+    public PValue value;
 
     public GDataFilterValue() {
     }
 
-    public GDataFilterValue(Serializable value) {
+    public GDataFilterValue(PValue value) {
         this.value = value;
     }
 
@@ -20,8 +18,11 @@ public class GDataFilterValue extends GFilterValue {
         return ClientMessages.Instance.get().filterDataValue();
     }
 
-    @Override
     public GFilterValueDTO getDTO() {
-        return new GFilterValueDTO(0, value);
+        return new GFilterValueDTO(0, PValue.convertFileValueBack(value));
+    }
+
+    public void setValue(PValue value) {
+        this.value = value;
     }
 }

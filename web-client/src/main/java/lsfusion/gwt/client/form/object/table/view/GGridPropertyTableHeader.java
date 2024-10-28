@@ -1,60 +1,96 @@
 package lsfusion.gwt.client.form.object.table.view;
 
+import com.google.gwt.core.client.JavaScriptObject;
 import com.google.gwt.dom.client.*;
-import com.google.gwt.event.shared.HandlerRegistration;
-import com.google.gwt.user.client.Event;
-import lsfusion.gwt.client.base.GwtClientUtils;
-import lsfusion.gwt.client.base.TooltipManager;
+import lsfusion.gwt.client.base.*;
+import lsfusion.gwt.client.base.size.GSize;
+import lsfusion.gwt.client.base.resize.ResizeHandler;
+import lsfusion.gwt.client.base.view.FlexPanel;
+import lsfusion.gwt.client.base.view.GFlexAlignment;
+import lsfusion.gwt.client.base.view.PopupOwner;
 import lsfusion.gwt.client.base.view.grid.Header;
+import lsfusion.gwt.client.form.object.table.grid.GGridProperty;
+import lsfusion.gwt.client.form.property.GPropertyDraw;
+import lsfusion.gwt.client.form.property.cell.view.CellRenderer;
+import lsfusion.gwt.client.form.property.panel.view.PropertyPanelRenderer;
 import lsfusion.gwt.client.form.property.table.view.GPropertyTableBuilder;
 
-import java.util.function.Consumer;
+import java.util.function.Supplier;
 
-import static com.google.gwt.dom.client.BrowserEvents.*;
-import static com.google.gwt.dom.client.Style.Cursor;
-import static com.google.gwt.user.client.Event.NativePreviewEvent;
-import static com.google.gwt.user.client.Event.NativePreviewHandler;
-import static lsfusion.gwt.client.base.EscapeUtils.escapeLineBreakHTML;
+import static com.google.gwt.dom.client.BrowserEvents.DBLCLICK;
+import static lsfusion.gwt.client.base.GwtClientUtils.nvl;
 import static lsfusion.gwt.client.base.GwtClientUtils.stopPropagation;
 import static lsfusion.gwt.client.base.GwtSharedUtils.nullEquals;
+import static lsfusion.gwt.client.form.property.cell.view.CellRenderer.renderTextAlignment;
+import static lsfusion.gwt.client.view.MainFrame.v5;
 
 public class GGridPropertyTableHeader extends Header<String> {
-    private static final int ANCHOR_WIDTH = 10;
 
     private final GGridPropertyTable table;
 
-    private ColumnResizeHelper resizeHelper = null;
-
     private String renderedCaption;
+    private String renderedCaptionElementClass;
+    private AppBaseImage renderedImage;
+    private String renderedTooltip;
     private Boolean renderedSortDir;
 
     private Element renderedCaptionElement;
 
     private String caption;
-    private String toolTip;
-    private TooltipManager.TooltipHelper toolTipHandler;
+    private String captionElementClass;
+    private AppBaseImage image;
+    private String tooltip;
+    private String path;
+    private String creationPath;
+    private String formPath;
+    protected JavaScriptObject tippy = null;
+    private final TooltipManager.TooltipHelper tooltipHelper;
 
     private boolean notNull;
     private boolean hasChangeAction;
 
-    private int headerHeight;
+    private boolean sticky;
+    private GPropertyDraw property;
 
-    public GGridPropertyTableHeader(GGridPropertyTable table, String caption, String toolTip) {
+    public GGridPropertyTableHeader(GGridPropertyTable table, GPropertyDraw property, GGridPropertyTable.GridPropertyColumn column) {
+        this(table, null, null, null, null, column.isSticky(), property);
+    }
+    public GGridPropertyTableHeader(GGridPropertyTable table, String caption, String captionElementClass, AppBaseImage image, String tooltip, boolean sticky, GPropertyDraw property) {
         this.caption = caption;
+        this.captionElementClass = captionElementClass;
+        this.image = image;
         this.table = table;
-        this.toolTip = toolTip;
+        this.tooltip = tooltip;
+        this.sticky = sticky;
+        this.property = property;
 
-        toolTipHandler = new TooltipManager.TooltipHelper() {
+        tooltipHelper = new TooltipManager.TooltipHelper() {
             @Override
-            public String getTooltip() {
-                return GGridPropertyTableHeader.this.toolTip;
+            public String getTooltip(String dynamicTooltip) {
+                return nvl(dynamicTooltip, GGridPropertyTableHeader.this.tooltip);
             }
 
             @Override
-            public boolean stillShowTooltip() {
-                return table.isAttached() && table.isVisible();
+            public String getPath() {
+                return path;
+            }
+
+            @Override
+            public String getCreationPath() {
+                return creationPath;
+            }
+
+            @Override
+            public String getFormPath() {
+                return formPath;
             }
         };
+    }
+
+    public void setPaths(String path, String creationPath, String formPath) {
+        this.path = path;
+        this.creationPath = creationPath;
+        this.formPath = formPath;
     }
 
     public void setCaption(String caption, boolean notNull, boolean hasChangeAction) {
@@ -63,99 +99,176 @@ public class GGridPropertyTableHeader extends Header<String> {
         this.hasChangeAction = hasChangeAction;
     }
 
-    public void setToolTip(String toolTip) {
-        this.toolTip = toolTip;
+    public void setCaptionElementClass(String captionElementClass) {
+        this.captionElementClass = captionElementClass;
     }
 
-    public void setHeaderHeight(int headerHeight) {
-        this.headerHeight = headerHeight;
+    public void setImage(AppBaseImage image) {
+        this.image = image;
+    }
+
+    public void setTooltip(String tooltip) {
+        this.tooltip = tooltip;
     }
 
     @Override
     public void onBrowserEvent(Element target, NativeEvent event) {
-        String eventType = event.getType();
-        if (DBLCLICK.equals(eventType)) {
+        Supplier<Integer> childIndex = () -> table.getHeaderIndex(this);
+
+        if (DBLCLICK.equals(event.getType())) {
             stopPropagation(event);
-            table.headerClicked(this, event.getCtrlKey(), event.getShiftKey());
-        } else if (MOUSEMOVE.equals(eventType) || MOUSEDOWN.equals(eventType)) {
-            if (resizeHelper == null) {
-                int mouseX = event.getClientX();
-
-                int anchorRight = target.getAbsoluteRight() - ANCHOR_WIDTH;
-                int anchorLeft = target.getAbsoluteLeft() + ANCHOR_WIDTH;
-
-                int headerIndex = table.getHeaderIndex(this);
-                if ((mouseX > anchorRight && headerIndex != table.getColumnCount() - 1) || (mouseX < anchorLeft && headerIndex > 0)) {
-                    target.getStyle().setCursor(Cursor.COL_RESIZE);
-                    if (eventType.equals(MOUSEDOWN)) {
-                        int leftColumnIndex = mouseX > anchorRight ? headerIndex : headerIndex - 1;
-                        TableCellElement leftHeaderCell = ((TableRowElement) target.getParentElement()).getCells().getItem(leftColumnIndex);
-
-                        resizeHelper = new ColumnResizeHelper(leftColumnIndex, leftHeaderCell);
-                        stopPropagation(event);
-                    }
-                } else {
-                    target.getStyle().setCursor(Cursor.DEFAULT);
-                }
-            }
+            table.headerClicked(childIndex.get(), event.getCtrlKey(), event.getShiftKey());
         }
 
-        TooltipManager.checkTooltipEvent(event, toolTipHandler);
+        TableSectionElement cursorElement = table.getTableHeadElement();
+
+        ResizeHandler.dropCursor(cursorElement, event);
+
+        ResizeHandler.checkResizeEvent(table.resizeHelper, cursorElement, childIndex, event);
     }
 
     @Override
-    public void renderAndUpdateDom(TableCellElement th) {
+    public void renderAndUpdateDom(TableCellElement th, boolean rerender) {
         Boolean sortDir = table.getSortDirection(this);
 
-        renderedCaptionElement = renderTD(th, headerHeight, sortDir, caption, false);
+        this.renderedCaptionElement = renderTD(th, rerender,  sortDir, caption, captionElementClass, image, false, property, table.getUserHeaderHeight(), table.getGrid());
+        if(!rerender)
+            tippy = TooltipManager.initTooltip(new PopupOwner(table.getPopupOwnerWidget(), th), tooltipHelper);
         renderedSortDir = sortDir;
         renderedCaption = caption;
+        renderedCaptionElementClass = captionElementClass;
+        renderedImage = image;
 
-        if (notNull) {
-            th.getStyle().setPosition(Style.Position.RELATIVE);
-            DivElement notNullSign = Document.get().createDivElement();
-            notNullSign.addClassName("rightBottomCornerTriangle");
-            notNullSign.addClassName("notNullCornerTriangle");
-            th.appendChild(notNullSign);
-        } else if (hasChangeAction) {
-            th.getStyle().setPosition(Style.Position.RELATIVE);
-            DivElement changeActionSign = Document.get().createDivElement();
-            changeActionSign.addClassName("rightBottomCornerTriangle");
-            changeActionSign.addClassName("changeActionCornerTriangle");
-            th.appendChild(changeActionSign);
+        if(sticky) {
+            GwtClientUtils.addClassName(th, "data-grid-sticky-header", "dataGridStickyHeader", v5);
+            GwtClientUtils.addClassName(th, "background-inherit");
         }
+
+        PropertyPanelRenderer.setStyles(th, notNull, hasChangeAction);
     }
 
-    private final static int DEFAULT_HEADER_HEIGHT = 34;
-
-    public static Element renderTD(Element th, int height, Boolean sortDir, String caption) {
-        return renderTD(th, height, sortDir, caption, true);
+    //  will wrap with div, because otherwise other wrappers will add and not remove classes after update
+    public static Element wrapDiv(Element th) {
+        return GPropertyTableBuilder.wrapSized(th, Document.get().createDivElement());
     }
 
-    public static Element renderTD(Element th, int height, Boolean sortDir, String caption, boolean tableToExcel) {
-        int setHeight = height > 0 ? height : DEFAULT_HEADER_HEIGHT;
-        GPropertyTableBuilder.setRowHeight(th, setHeight, tableToExcel);
+    public final static GSize DEFAULT_HEADER_HEIGHT = GSize.CONST(34);
 
-        th = GwtClientUtils.wrapCenteredImg(th, true, setHeight, getSortImgProcesspr(sortDir));
-        th.addClassName("dataGridHeaderCell-caption"); // wrap normal to have multi-line headers
+    // pretty similar to GGridPropertyTableBuilder.renderSized
+    public static Element renderTD(Element th, boolean rerender, Boolean sortDir, String caption, String captionElementClass, AppBaseImage image, boolean tableToExcel, GPropertyDraw property, GSize gridUserHeight, GGridProperty grid) {
+        GSize height = property != null ? property.getCaptionHeight() : null;
+        if(height == null)
+            height = gridUserHeight != null ? gridUserHeight : grid.getCaptionHeight(false);
+
+        ImageHtmlOrTextType textType = property != null ? property.getCaptionHtmlOrTextType() : ImageHtmlOrTextType.OTHER;
+
+        boolean hasDynamicImage = property != null && property.hasDynamicImage();
+        boolean hasDynamicCaption = property != null && property.hasDynamicCaption();
+
+        GFlexAlignment horzTextAlignment = property != null ? property.getCaptionAlignmentHorz() : GFlexAlignment.START;
+        GFlexAlignment vertTextAlignment = property != null ? property.getCaptionAlignmentVert() : GFlexAlignment.CENTER;
+
+        if(rerender) { // assert that property is the same (except order), so we don't clear (including clearFlexAlignment and clearTextAlignment) anything (however filling some props classes one more time, but it doesn't matter)
+            GwtClientUtils.removeAllChildren(th);
+
+            CellRenderer.clearRenderTextAlignment(th, horzTextAlignment, vertTextAlignment);
+
+            FlexPanel.setGridHeight(th, null);
+
+            GwtClientUtils.removeClassName(th, "caption-grid-header");
+            GwtClientUtils.clearValueShrinkHorz(th, true, true);
+        }
+
+        boolean noImage = sortDir == null && image == null && !hasDynamicImage;
+        boolean canBeHTML = !(caption != null && GwtClientUtils.containsHtmlTag(caption)); // && !hasDynamicCaption;
+        boolean simpleText = noImage && canBeHTML;
+
+        boolean isWrap = textType.isWrap();
+        boolean wrapFixed = isWrap && textType.getWrapLines() != -1;
+
+        boolean isTDorTH = GwtClientUtils.isTDorTH(th);
+        boolean needWrap = isTDorTH && // have display:td
+                        (!simpleText // we'll have to change the display
+                        || isWrap && height != null // similar to TextBasedCellRenderer.canBeRenderedInTdCheck, height in td works as min-height
+                        || wrapFixed); // we have to change the display
+        if(needWrap) {
+            th = wrapDiv(th);
+            isTDorTH = false;
+        }
+
+        FlexPanel.setGridHeight(th, height);
+        GwtClientUtils.addClassName(th, "caption-grid-header");
+
+        Element renderElement = th;
+
+        boolean renderedAlignment = false;
+        if(isTDorTH) { //  || (simpleText && ((property != null && property.captionEllipsis) && !wrapFixed))) { also the problem is that vertical-align works only for table-cell and inline displays, which is not what we have, so we can't render text alignment for regular divs to provide ellipsis for example
+            assert simpleText;
+            renderTextAlignment(renderElement, horzTextAlignment, vertTextAlignment);
+            renderedAlignment = true;
+        }
+
+        GwtClientUtils.renderValueShrinkHorz(th, true, true);
+
+        // we'll render alignment with flex, and in all not simple text cases (will be wrap-img) we'll have to change the display
+        if(!renderedAlignment && (!noImage || wrapFixed || (isWrap && !vertTextAlignment.equals(GFlexAlignment.START)))) // the last check is need to align start when the text doesn't fit
+            th = wrapImageText(th);
+
+        if (sortDir != null)
+            th = wrapSortImg(th, sortDir);
+
+        BaseImage.initImageText(th, textType);
         renderCaption(th, caption);
+        renderCaptionElementClass(th, captionElementClass);
+        renderImage(th, image);
+
+        if(!renderedAlignment) {
+            // we need this if text is wrapped or there are line breaks
+            CellRenderer.renderWrapTextAlignment(th, horzTextAlignment, vertTextAlignment);
+
+            CellRenderer.renderFlexAlignment(renderElement, horzTextAlignment, vertTextAlignment);
+        }
 
         return th;
     }
 
-    public static Consumer<ImageElement> getSortImgProcesspr(Boolean sortDir) {
-        return sortDir != null ? img -> {
-            img.addClassName("dataGridHeaderCell-sortimg");
-            GwtClientUtils.setThemeImage(sortDir ? "arrowup.png" : "arrowdown.png", img::setSrc);
-        } : null;
+    public static Element wrapImageText(Element th) {
+        Element wrappedTh = Document.get().createDivElement();
+        th.appendChild(wrappedTh);
+        return wrappedTh;
     }
 
-    public static void changeDirection(ImageElement img, boolean sortDir) {
-        GwtClientUtils.setThemeImage(sortDir ? "arrowup.png" : "arrowdown.png", img::setSrc);
+    public static Element wrapSortImg(Element th, Boolean sortDir) {
+        assert sortDir != null;
+
+        // imaged text classes
+        GwtClientUtils.addClassName(th, "wrap-text-not-empty");
+        GwtClientUtils.addClassName(th, "wrap-img-horz");
+        GwtClientUtils.addClassName(th, "wrap-img-start");
+
+        Element img = (sortDir ? StaticImage.SORTUP : StaticImage.SORTDOWN).createImage();
+
+        GwtClientUtils.addClassName(img, "wrap-text-img");
+        th.appendChild(img);
+
+        Element wrappedTh = Document.get().createDivElement();
+        th.appendChild(wrappedTh);
+
+        // extra classes
+        GwtClientUtils.addClassName(img, "sort-img"); // needed for pivot hack
+        GwtClientUtils.addClassName(wrappedTh, "sort-div"); // need to stretch if stretched
+
+        return wrappedTh;
     }
 
     private static void renderCaption(Element captionElement, String caption) {
-        captionElement.setInnerHTML(caption == null ? "" : escapeLineBreakHTML(caption));
+        BaseImage.updateText(captionElement, caption);
+    }
+    private static void renderCaptionElementClass(Element captionElement, String classes) {
+        BaseImage.updateClasses(captionElement, classes);
+    }
+    private static void renderImage(Element captionElement, AppBaseImage image) {
+        BaseImage.updateImage(image, captionElement);
     }
 
     @Override
@@ -163,52 +276,25 @@ public class GGridPropertyTableHeader extends Header<String> {
         Boolean sortDir = table.getSortDirection(this);
 
         if (!nullEquals(sortDir, renderedSortDir)) {
-            GwtClientUtils.removeAllChildren(th);
-            renderAndUpdateDom(th);
-        } else if (!nullEquals(this.caption, renderedCaption)) {
-            renderCaption(renderedCaptionElement, caption);
-            renderedCaption = caption;
-        }
-    }
-
-    private class ColumnResizeHelper implements NativePreviewHandler {
-        private HandlerRegistration previewHandlerReg;
-
-        private int initalMouseX;
-        TableCellElement leftHeaderCell;
-        private int leftColumnIndex;
-
-        public ColumnResizeHelper(int leftColumnIndex, TableCellElement leftHeaderCell) {
-            this.leftHeaderCell = leftHeaderCell;
-            this.initalMouseX = leftHeaderCell.getAbsoluteRight();
-            this.leftColumnIndex = leftColumnIndex;
-
-            previewHandlerReg = Event.addNativePreviewHandler(this);
-        }
-
-        @Override
-        public void onPreviewNativeEvent(NativePreviewEvent event) {
-            NativeEvent nativeEvent = event.getNativeEvent();
-            stopPropagation(nativeEvent);
-            if (nativeEvent.getType().equals(MOUSEMOVE)) {
-                int clientX = nativeEvent.getClientX();
-                int tableLeft = table.getAbsoluteLeft();
-                if (clientX >= tableLeft && clientX <= tableLeft + table.getOffsetWidth()) {
-                    resizeHeaders(clientX);
-                }
-            } else if (nativeEvent.getType().equals(MOUSEUP)) {
-                previewHandlerReg.removeHandler();
-                resizeHelper = null;
+            renderAndUpdateDom(th, true);
+        } else {
+            if (!nullEquals(this.caption, renderedCaption)) {
+                renderCaption(renderedCaptionElement, caption);
+                renderedCaption = caption;
             }
-        }
-
-        private void resizeHeaders(int clientX) {
-            int dragX = clientX - initalMouseX;
-            if (Math.abs(dragX) > 2) {
-                table.resizeColumn(leftColumnIndex, dragX);
-//                initalMouseX = leftHeaderCell.getAbsoluteRight();
-                initalMouseX = Math.max(clientX, leftHeaderCell.getAbsoluteRight()); // делается max, чтобы при resize'е влево растягивание шло с момента когда курсор вернется на правый край колонки (вправо там другие проблемы)
+            if (!nullEquals(this.captionElementClass, renderedCaptionElementClass)) {
+                renderCaptionElementClass(renderedCaptionElement, captionElementClass);
+                renderedCaptionElementClass = captionElementClass;
+            }
+            if (!nullEquals(this.image, renderedImage)) {
+                renderImage(renderedCaptionElement, image);
+                renderedImage = image;
+            }
+            if (!nullEquals(this.tooltip, renderedTooltip)) {
+                TooltipManager.updateContent(tippy, tooltipHelper, tooltip);
+                renderedTooltip = tooltip;
             }
         }
     }
+
 }

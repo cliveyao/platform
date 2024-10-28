@@ -1,15 +1,20 @@
 package lsfusion.client.form.object.table.grid.controller;
 
 import com.google.common.base.Throwables;
+import lsfusion.base.Pair;
 import lsfusion.base.col.heavy.OrderedMap;
 import lsfusion.client.ClientResourceBundle;
+import lsfusion.client.base.SwingUtils;
 import lsfusion.client.base.view.FlatRolloverButton;
 import lsfusion.client.base.view.ThemedFlatRolloverButton;
 import lsfusion.client.classes.data.ClientIntegralClass;
 import lsfusion.client.controller.remote.RmiQueue;
 import lsfusion.client.form.ClientFormChanges;
 import lsfusion.client.form.controller.ClientFormController;
+import lsfusion.client.form.design.ClientContainer;
+import lsfusion.client.form.design.view.ClientContainerView;
 import lsfusion.client.form.design.view.ClientFormLayout;
+import lsfusion.client.form.filter.user.ClientPropertyFilter;
 import lsfusion.client.form.filter.user.controller.FilterController;
 import lsfusion.client.form.object.ClientGroupObject;
 import lsfusion.client.form.object.ClientGroupObjectValue;
@@ -25,6 +30,7 @@ import lsfusion.client.form.object.table.grid.view.GridView;
 import lsfusion.client.form.property.ClientPropertyDraw;
 import lsfusion.client.form.property.ClientPropertyReader;
 import lsfusion.client.form.property.cell.classes.view.link.ImageLinkPropertyRenderer;
+import lsfusion.client.form.view.Column;
 import lsfusion.client.view.MainFrame;
 import lsfusion.interop.form.UpdateMode;
 import lsfusion.interop.form.object.table.grid.user.design.GroupObjectUserPreferences;
@@ -73,51 +79,42 @@ public class GridController extends AbstractTableController {
         panel = new PanelController(GridController.this.formController, formLayout) {
             protected void addGroupObjectActions(final JComponent comp) {
                 GridController.this.registerGroupObject(comp);
-                if(filter != null) {
-                    filter.getView().addActionsToPanelInputMap(comp);
-                }
             }
         };
 
         if (groupObject != null) {
             calculationsView = new CalculationsView();
-            formLayout.add(groupObject.calculations, calculationsView);
-            
-            if (groupObject.filter.visible) {
-                filter = new FilterController(this, groupObject.filter) {
-                    protected void remoteApplyQuery() {
-                        RmiQueue.runAction(() -> {
-                            try {
-                                GridController.this.formController.changeFilter(groupObject, getConditions());
-                                table.requestFocusInWindow();
-                            } catch (IOException e) {
-                                throw new RuntimeException(ClientResourceBundle.getString("errors.error.applying.filter"), e);
-                            }
-                        });
-                    }
-                };
+            formLayout.addBaseComponent(groupObject.calculations, calculationsView);
 
-                filter.addView(formLayout);
-            }
+            ClientContainerView filtersContainer = formLayout.getContainerView(groupObject.filtersContainer);
+            filter = new FilterController(this, groupObject.filters, filtersContainer, groupObject.filterControls) {
+                public void applyFilters(List<ClientPropertyFilter> conditions, boolean focusFirstComponent) {
+                    RmiQueue.runAction(() -> {
+                        try {
+                            GridController.this.formController.changeFilter(groupObject, conditions);
+                            if (focusFirstComponent) {
+                                SwingUtilities.invokeLater(() -> focusFirstComponent());
+                            }
+                        } catch (IOException e) {
+                            throw new RuntimeException(ClientResourceBundle.getString("errors.error.applying.filter"), e);
+                        }
+                    });
+                }
+            };
 
             view = new GridView(this, formController, userPreferences, groupObject.grid.tabVertical, groupObject.grid.groupObject.needVerticalScroll);
             table = view.getTable();
 
             registerGroupObject(view);
-            if (filter != null && table instanceof GridTable) {
-                filter.getView().addActionsToInputMap((GridTable) table);
-            }
 
-            formLayout.add(groupObject.grid, view);
+            formLayout.addBaseComponent(groupObject.grid, view);
 
             configureToolbar();
         }
-
-        update(null);
     }
 
     private void configureToolbar() {
-        if (groupObject.toolbar.showGroupReport && table instanceof GridTable) {
+        if (groupObject.toolbar.showViews && table instanceof GridTable) {
             addToToolbar(new GroupingButton((GridTable) table) {
                 @Override
                 public List<FormGrouping> readGroupings() {
@@ -138,13 +135,13 @@ public class GridController extends AbstractTableController {
             addToolbarSeparator();
         }
 
-        boolean showSettings = groupObject.toolbar.showSettings && table instanceof GridTable;
-        if(filter != null || showSettings) {
-            if (filter != null) {
-                addToToolbar(filter.getToolbarButton());
-            }
+        if (groupObject.toolbar.showFilters && table instanceof GridTable) {
+            initFilterButtons();
+            addToolbarSeparator();
+        }
 
-            if (showSettings) {
+        if(groupObject.toolbar.showSettings) {
+            if (((GridTable) table).hasHeader) {
                 ((GridTable) table).getTableHeader().addMouseListener(new MouseAdapter() {
                     @Override
                     public void mouseReleased(MouseEvent e) {
@@ -153,34 +150,34 @@ public class GridController extends AbstractTableController {
                         }
                     }
                 });
-                userPreferencesButton = new ToolbarGridButton(USER_PREFERENCES_ICON_PATH, getUserPreferencesButtonTooltip());
-                userPreferencesButton.showBackground(table.hasUserPreferences());
-
-                userPreferencesButton.addActionListener(e -> {
-                    if(table instanceof GridTable) {
-                        UserPreferencesDialog dialog = new UserPreferencesDialog(MainFrame.instance, (GridTable) table, this, getFormController().hasCanonicalName()) {
-                            @Override
-                            public void preferencesChanged() {
-                                RmiQueue.runAction(() -> {
-                                    userPreferencesButton.showBackground((((GridTable) table).generalPreferencesSaved() || ((GridTable) table).userPreferencesSaved()));
-                                    userPreferencesButton.setToolTipText(getUserPreferencesButtonTooltip());
-                                });
-                            }
-                        };
-                        dialog.setVisible(true);
-                    }
-                });
-
-                addToToolbar(userPreferencesButton);
             }
+            userPreferencesButton = new ToolbarGridButton(USER_PREFERENCES_ICON_PATH, getUserPreferencesButtonTooltip());
+            userPreferencesButton.showBackground(table.hasUserPreferences());
+
+            userPreferencesButton.addActionListener(e -> {
+                if(table instanceof GridTable) {
+                    UserPreferencesDialog dialog = new UserPreferencesDialog(MainFrame.instance, (GridTable) table, this, getFormController().hasCanonicalName()) {
+                        @Override
+                        public void preferencesChanged() {
+                            RmiQueue.runAction(() -> {
+                                userPreferencesButton.showBackground((((GridTable) table).generalPreferencesSaved() || ((GridTable) table).userPreferencesSaved()));
+                                userPreferencesButton.setToolTipText(getUserPreferencesButtonTooltip());
+                            });
+                        }
+                    };
+                    dialog.setVisible(true);
+                }
+            });
+
+            addToToolbar(userPreferencesButton);
 
             addToolbarSeparator();
         }
 
         boolean showCalculateSum = groupObject.toolbar.showCalculateSum && table instanceof GridTable;
-        if(groupObject.toolbar.showCountRows || showCalculateSum) {
+        if(groupObject.toolbar.showCountQuantity || showCalculateSum) {
 
-            if (groupObject.toolbar.showCountRows) {
+            if (groupObject.toolbar.showCountQuantity) {
                 addToToolbar(new CountQuantityButton() {
                     public void addListener() {
                         addActionListener(e -> RmiQueue.runAction(() -> {
@@ -218,7 +215,7 @@ public class GridController extends AbstractTableController {
             addToolbarSeparator();
         }
 
-        if(groupObject.toolbar.showXls) {
+        if(groupObject.toolbar.showPrintGroupXls) {
             addToToolbar(new ToolbarGridButton(PRINT_XLS_ICON_PATH, getString("form.grid.export.to.xlsx")) {
                 @Override
                 public void addListener() {
@@ -229,25 +226,27 @@ public class GridController extends AbstractTableController {
             addToolbarSeparator();
         }
 
-        manualUpdateTableButton = new ToolbarGridButton(UPDATE_ICON_PATH, getString("form.grid.manual.update")) {
-            @Override
-            public void addListener() {
-                addActionListener(e -> RmiQueue.runAction(() -> {
-                    setUpdateMode(!manual);
-                    formController.changeMode(groupObject, manual ? UpdateMode.MANUAL : UpdateMode.AUTO);
-                }));
-            }
-        };
-        addToToolbar(manualUpdateTableButton);
+        if (groupObject.toolbar.showManualUpdate) {
+            manualUpdateTableButton = new ToolbarGridButton(UPDATE_ICON_PATH, getString("form.grid.manual.update")) {
+                @Override
+                public void addListener() {
+                    addActionListener(e -> RmiQueue.runAction(() -> {
+                        setUpdateMode(!manual);
+                        formController.changeMode(groupObject, manual ? UpdateMode.MANUAL : UpdateMode.AUTO);
+                    }));
+                }
+            };
+            addToToolbar(manualUpdateTableButton);
 
-        forceUpdateTableButton = new ThemedFlatRolloverButton(OK_ICON_PATH, getString("form.grid.update"));
-        forceUpdateTableButton.setAlignmentY(Component.TOP_ALIGNMENT);
-        forceUpdateTableButton.addActionListener(e -> RmiQueue.runAction(() -> {
-            formController.changeMode(groupObject, UpdateMode.FORCE);
-        }));
-        forceUpdateTableButton.setFocusable(false);
-        forceUpdateTableButton.setVisible(false);
-        addToToolbar(forceUpdateTableButton);
+            forceUpdateTableButton = new ThemedFlatRolloverButton(OK_ICON_PATH, getString("form.grid.update"));
+            forceUpdateTableButton.setAlignmentY(Component.TOP_ALIGNMENT);
+            forceUpdateTableButton.addActionListener(e -> RmiQueue.runAction(() -> {
+                formController.changeMode(groupObject, UpdateMode.FORCE);
+            }));
+            forceUpdateTableButton.setFocusable(false);
+            forceUpdateTableButton.setVisible(false);
+            addToToolbar(forceUpdateTableButton);
+        }
     }
 
     private boolean manual;
@@ -354,8 +353,12 @@ public class GridController extends AbstractTableController {
         updateTable(null);
     }
 
-    public ClientGroupObjectValue getCurrentObject() {
-        return table != null && table.getCurrentObject() != null ? table.getCurrentObject() : ClientGroupObjectValue.EMPTY;
+    public ClientGroupObjectValue getCurrentKey() {
+        ClientGroupObjectValue result = null;
+        if (isList()) {
+            result = table.getCurrentKey();
+        }
+        return result == null ? ClientGroupObjectValue.EMPTY : result;
     }
     
     public int getCurrentRow() {
@@ -482,7 +485,7 @@ public class GridController extends AbstractTableController {
     }
 
     @Override
-    public ClientPropertyDraw getSelectedProperty() {
+    public ClientPropertyDraw getSelectedFilterProperty() {
         return table.getCurrentProperty();
     }
 
@@ -494,6 +497,16 @@ public class GridController extends AbstractTableController {
     @Override
     public Object getSelectedValue(ClientPropertyDraw cell, ClientGroupObjectValue columnKey) {
         return table.getSelectedValue(cell, columnKey);
+    }
+
+    @Override
+    public List<Pair<Column, String>> getFilterColumns() {
+        return table.getFilterColumns();
+    }
+
+    @Override
+    public ClientContainer getFiltersContainer() {
+        return getGroupObject().getFiltersContainer();
     }
 
     @Override
@@ -546,9 +559,13 @@ public class GridController extends AbstractTableController {
         else
             return panel.containsProperty(property);
     }
+    
+    public void changeFilters(List<ClientPropertyFilter> filters) {
+        filter.changeFilters(filters);
+    }
 
     public void quickEditFilter(KeyEvent initFilterKeyEvent, ClientPropertyDraw propertyDraw, ClientGroupObjectValue columnKey) {
-        if (filter != null) {
+        if (filter.hasFiltersContainer()) {
             filter.quickEditFilter(initFilterKeyEvent, propertyDraw, columnKey);
         }
     }
@@ -579,19 +596,19 @@ public class GridController extends AbstractTableController {
                 forceUpdateTableButton.setEnabled(updateState);
             updateTable(updateState);
 
+            boolean isVisible  = isVisible();
             if (toolbarView != null) {
-                toolbarView.setVisible(isVisible());
+                SwingUtils.setGridVisible(toolbarView, isVisible);
             }
 
-            if (filter != null) {
-                filter.setVisible(isVisible());
-            }
+            filter.update();
+            filter.setVisible(isVisible);
 
             if (calculationsView != null) {
-                calculationsView.setVisible(isVisible());
+                SwingUtils.setGridVisible(calculationsView, isVisible);
             }
 
-            formController.setFiltersVisible(groupObject, isVisible());
+            formController.setFiltersVisible(groupObject, isVisible);
         }
 
         panel.update();
@@ -602,8 +619,11 @@ public class GridController extends AbstractTableController {
         return view;
     }
 
-    public boolean getAutoSize() {
-        return groupObject.grid.autoSize;
+    public boolean isAutoWidth() {
+        return groupObject.grid.width == -1;
+    }
+    public boolean isAutoHeight() {
+        return groupObject.grid.height == -1;
     }
 
     public void setForceHidden(boolean forceHidden) {

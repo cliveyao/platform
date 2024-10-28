@@ -3,8 +3,15 @@ package lsfusion.server.logics.classes.data.integral;
 import lsfusion.base.BaseUtils;
 import lsfusion.interop.base.view.FlexAlignment;
 import lsfusion.server.data.sql.syntax.SQLSyntax;
+import lsfusion.server.data.type.DBType;
+import lsfusion.server.data.type.ObjectType;
+import lsfusion.server.data.type.Type;
+import lsfusion.server.data.type.exec.TypeEnvironment;
 import lsfusion.server.logics.classes.data.DataClass;
 import lsfusion.server.logics.classes.data.ParseException;
+import lsfusion.server.logics.classes.data.StringClass;
+import lsfusion.server.logics.classes.data.TextBasedClass;
+import lsfusion.server.logics.form.interactive.controller.remote.serialization.FormInstanceContext;
 import lsfusion.server.logics.form.stat.print.design.ReportDrawField;
 import lsfusion.server.logics.form.stat.struct.export.plain.xls.ExportXLSWriter;
 import lsfusion.server.logics.form.stat.struct.imports.plain.dbf.CustomDbfRecord;
@@ -18,7 +25,7 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 // класс который можно сравнивать
-public abstract class IntegralClass<T extends Number> extends DataClass<T> {
+public abstract class IntegralClass<T extends Number> extends TextBasedClass<T> implements DBType {
 
     public int getReportMinimumWidth() { return 30; }
     public int getReportPreferredWidth() { return 50; }
@@ -27,6 +34,7 @@ public abstract class IntegralClass<T extends Number> extends DataClass<T> {
         super(caption);
     }
 
+    @Override
     public void fillReportDrawField(ReportDrawField reportField) {
         super.fillReportDrawField(reportField);
 
@@ -34,8 +42,38 @@ public abstract class IntegralClass<T extends Number> extends DataClass<T> {
     }
 
     @Override
-    public boolean hasSafeCast() {
-        return true;
+    public DBType getDBType() {
+        return this;
+    }
+
+    public String getCast(String value, SQLSyntax syntax, TypeEnvironment typeEnv, Type typeFrom, CastType castType) {
+        boolean isInt = castType.isArith() || typeFrom instanceof IntegralClass || typeFrom instanceof ObjectType;
+        boolean isStr = typeFrom instanceof StringClass;
+        if(!(isInt && Settings.get().getSafeCastIntType() == 2)) {
+            if(typeFrom != null && equalsDB(typeFrom))
+                return value;
+
+            int sourceType = isInt ? 0 : isStr ? 1 : 2;
+            typeEnv.addNeedSafeCast(this, sourceType);
+            return syntax.getSafeCastNameFnc(this, sourceType) + "(" + value + ")";
+        }
+
+        return super.getCast(value, syntax, typeEnv, typeFrom, castType);
+    }
+
+    @Override
+    public boolean isCastNotNull(Type typeFrom, CastType castType) {
+        if(typeFrom == null) // we don't know the type it can be any type
+            return true;
+
+        if(equalsDB(typeFrom))
+            return false;
+
+        boolean isInt = castType.isArith() || typeFrom instanceof IntegralClass || typeFrom instanceof ObjectType;
+        if(!(isInt && Settings.get().getSafeCastIntType() == 2))
+            return true;
+
+        return super.isCastNotNull(typeFrom, castType);
     }
 
     @Override
@@ -44,11 +82,11 @@ public abstract class IntegralClass<T extends Number> extends DataClass<T> {
     }
     
     public Number getSafeInfiniteValue() { // бесконечное число которое можно сколько угодно суммировать и не выйти за тип
-        return read(Math.round(Math.sqrt(getInfiniteValue(false).doubleValue())));
+        return readNumber(Math.round(Math.sqrt(getInfiniteValue(false).doubleValue())));
     }
     
     public Number div(Number obj, int div) {
-        return read(obj.doubleValue() / 2);
+        return readNumber(obj.doubleValue() / 2);
     }
 
     public abstract int getWhole();
@@ -100,7 +138,7 @@ public abstract class IntegralClass<T extends Number> extends DataClass<T> {
         return true;
     }
     public String getString(Object value, SQLSyntax syntax) {
-        if (isNegative(read(value)))
+        if (isNegative(readNumber(value)))
             return "(" + value.toString() + ")";
         else
             return value.toString();
@@ -108,20 +146,18 @@ public abstract class IntegralClass<T extends Number> extends DataClass<T> {
     protected abstract boolean isNegative(T value);
     public abstract boolean isPositive(T obj);
 
-    @Override
-    public boolean isValueZero(T value) {
-        double doubleValue = value.doubleValue();
+    public T readNumber(Object obj) {
+        return read(obj);
+    }
+
+    public boolean isZero(Object object) {
+        double doubleValue = readNumber(object).doubleValue();
         return doubleValue > -0.0005 && doubleValue < 0.0005;
     }
 
     @Override
     public boolean fixedSize() { // так как NumericClass не fixedSize, а getCompatible может "смешивать" другие Integral с NumericeClass'ами
         return false;
-    }
-
-    @Override
-    public String formatString(T value) {
-        return value == null ? null : String.valueOf(value);
     }
 
     @Override
@@ -167,11 +203,18 @@ public abstract class IntegralClass<T extends Number> extends DataClass<T> {
     }
 
     @Override
-    public FlexAlignment getValueAlignment() {
+    public FlexAlignment getValueAlignmentHorz() {
         return FlexAlignment.END;
     }
 
     protected boolean isEmptyString(String s) {
         return s.trim().isEmpty();
+    }
+
+    @Override
+    public String getInputType(FormInstanceContext context) {
+        if(context.isMobile)
+            return "number";
+        return super.getInputType(context);
     }
 }

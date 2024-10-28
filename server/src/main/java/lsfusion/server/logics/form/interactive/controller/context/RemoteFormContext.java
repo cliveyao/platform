@@ -1,13 +1,16 @@
 package lsfusion.server.logics.form.interactive.controller.context;
 
 import lsfusion.interop.action.ClientAction;
+import lsfusion.interop.connection.LocalePreferences;
 import lsfusion.server.base.controller.remote.ui.RemoteUIContext;
 import lsfusion.server.logics.LogicsInstance;
 import lsfusion.server.logics.form.interactive.controller.remote.RemoteForm;
+import lsfusion.server.logics.form.interactive.controller.remote.serialization.ConnectionContext;
 import lsfusion.server.logics.form.interactive.instance.FormInstance;
 import lsfusion.server.logics.form.interactive.listener.CustomClassListener;
 import lsfusion.server.logics.form.interactive.listener.FocusListener;
 import lsfusion.server.logics.form.interactive.listener.RemoteFormListener;
+import lsfusion.server.logics.form.struct.FormEntity;
 import lsfusion.server.physics.admin.authentication.security.policy.SecurityPolicy;
 import lsfusion.server.physics.admin.log.LogInfo;
 
@@ -25,8 +28,8 @@ public class RemoteFormContext<F extends FormInstance> extends RemoteUIContext {
         return form.form.logicsInstance;
     }
 
-    public FormInstance getFormInstance() {
-        return form.form;
+    public FormEntity getCurrentForm() {
+        return form.form.entity;
     }
 
     @Override
@@ -41,6 +44,11 @@ public class RemoteFormContext<F extends FormInstance> extends RemoteUIContext {
     @Override
     public Object[] aspectRequestUserInteraction(ClientAction[] actions, String[] messages) {
         return form.requestUserInteraction(actions);
+    }
+
+    @Override
+    public boolean userInteractionCanBeProcessedInTransaction() {
+        return false;
     }
 
     @Override
@@ -86,5 +94,15 @@ public class RemoteFormContext<F extends FormInstance> extends RemoteUIContext {
     @Override
     public Locale getLocale() {
         return form.form.getLocale();
+    }
+
+    @Override
+    public ConnectionContext getConnectionContext() {
+        return form.getRemoteContext();
+    }
+
+    @Override
+    public LocalePreferences getLocalePreferences() {
+        return form.form.session.sql.contextProvider.getLocalePreferences();
     }
 }
